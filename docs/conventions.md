@@ -40,7 +40,8 @@
 - Don't automate or hide DRM removal. Don't ship keys, key-derivation, or DRM tools.
 - Don't scrape the Kindle app on-device for reading progress — use the official export
   API or a manual resume point instead.
-- Don't bundle the ~300 MB model in the APK; download it once, cache it, allow re-download.
+- Don't bundle TTS model weights or language/voice packs in the APK; download them once
+  (explicit, resumable), cache, allow re-download.
 - Don't ship a bare `android.TextToSpeech` system-TTS wrapper as the engine — the point
   is the open-weight on-device model. System TTS is acceptable only as a documented
   degraded fallback behind the same interface.

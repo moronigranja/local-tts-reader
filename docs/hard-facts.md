@@ -65,29 +65,52 @@ Kokoro ships inside the app.
 
 ## Text-to-speech
 
-- **Kokoro-82M is the primary engine.** It is distributed as a **~300 MB ONNX model**
-  (from `hexgrad/kokoro-82M`), **not bundled**. Download once (first run) into
-  `getExternalFilesDir(null)/kokoro.onnx` (or app cache) and cache. Ship a quantized
-  small variant if you test it, but default to on-download to keep the APK lean.
-- **Languages: ~8** (English primary; a handful of others). Multi-language works but is
-  **limited** — surface the model's supported `lang` codes explicitly and fail gracefully
-  when a passage's language is unsupported, rather than garbling output.
-- **Android path:** use the ONNX Runtime Mobile runtime. A working Kotlin reference
-  exists (`thewh1teagle/kokoro-onnx`, its `SpeechPipeline`). Reference it, don't reinvent
-  the model I/O, but keep TTS behind your own `TTSEngine` interface so it can be swapped.
-
-- **Engine tiers** (default = Kokoro; gate the rest on measured need + hardware):
-  | Engine | Size / on-device | Languages | Notes |
-  |---|---|---|---|
-  | **Kokoro-82M** (primary) | ~82M ONNX, CPU/low-end OK | ~8 | Confirmed default. |
-  | **Piper** | VITS, very light, CPU | many | Cheap-hardware / broader-language fallback. |
-  | **CosyVoice 2** | 0.5B / Lite (~150MB), needs NPU+int8 | multilingual | High quality; gated, hardware-dependent. Apache 2.0. |
-  | **Qwen3-TTS** | 1.7B PyTorch, heavy, needs NPU+quant | ~10 | Best long-term quality fallback. Apache 2.0. |
-  | Coqui XTTS v2 | large, GPU-oriented | multilingual | Restrictive Coqui license — avoid unless cleared. |
-- Add a second engine only after measuring Kokoro on target hardware, and only as an
-  opt-in "high quality" download behind the `TTSEngine` interface.
+- **Expressive narration is a requirement, not a nice-to-have** (user review 2026-08).
+  Kokoro-82M is natural but flat in prosody; the primary engine target is now the
+  lightest genuinely expressive open model, with Kokoro demoted to the light fallback.
+- **Primary target: Fun-CosyVoice3-0.5B-2512** (Apache-2.0, `FunAudioLLM/Fun-CosyVoice3-0.5B-2512`,
+  Dec 2025). At 0.5B it is the lightest model with real emotion control: instruct support
+  for emotion, speed, volume and dialect; 9 languages (zh, en, fr, es, ja, ko, it, ru, de)
+  plus 18+ Chinese dialects; zero-shot and cross-lingual voice cloning; bi-streaming with
+  ~150 ms latency. ONNX (community exports) and GGUF (`cstr/cosyvoice3-0.5b-2512-GGUF`)
+  exist, so Android is feasible. **Gate: measured RTF + RAM on the reference device
+  before enabling by default** (see "Reference device" below).
+- **Non-realtime synthesis is acceptable.** This is an audiobook player, not a chatbot:
+  the engine only has to stay ahead of playback by pre-generating upcoming passages in
+  the background. Even ~0.5–1x realtime is fine if generation keeps up — this
+  de-risks a 0.5B engine on phone CPU.
+- **Fallback: Kokoro-82M** (`hexgrad/kokoro-82M`). ~82M ONNX (~300 MB fp32, smaller
+  quantized), 8 languages, Apache-2.0, fast and light but flat. Keep it behind
+  `TTSEngine` as the low-battery/speed path and the measured baseline.
+- **Engine tiers** (all behind `TTSEngine`; select per measured need):
+  | Engine | Size | Expressiveness | Languages | Notes |
+  |---|---|---|---|---|
+  | **Fun-CosyVoice3-0.5B** (primary target) | 0.5B; int8/GGUF ~0.4–0.6 GB | High: emotion/speed/volume instruct, zero-shot voices | 9 + 18 dialects | Apache 2.0. Gate: measured RTF on reference device. |
+  | **Kokoro-82M** (fallback) | 82M ONNX | Natural but flat | ~8 | Apache 2.0. Light/fast path + baseline. |
+  | **Piper** | VITS, tens of MB per voice | Mostly flat | many | Cheapest per-language voice files. |
+  | **KittenTTS** | 15–80M ONNX (25–80 MB) | Unproven; tiny | en only (dev preview) | Apache 2.0. Ultra-light watch item. |
+  | **MeloTTS** | small | Moderate | 6 | MIT, CPU real-time. Watch item. |
+  | **Orpheus-TTS** | 3B only | High (emotion tags) | multilingual research family | Apache 2.0 but desktop-only at 3B — out of phone scope. |
+  | CosyVoice-300M | 300M (v1) | Moderate | 5 | Older gen; superseded by 0.5B v3. |
+  | Qwen3-TTS | 1.7B | High | ~10 | Heavy; only with strong NPU quant. Long-term option. |
+  | Coqui XTTS v2 | large | High | multilingual | Restrictive Coqui license — avoid. |
+- **Language/voice packs are downloadable, never bundled.** All engine assets — model
+  weights, per-language assets, voice packs — are runtime downloads: explicit,
+  user-consented, resumable, cached after first fetch (consistent with offline-first).
+  `core-tts` owns a pack registry (engine → pack → status) plus download/verify/cache
+  management; the APK ships no TTS model data. A language that is not downloaded is
+  surfaced in settings with a "download" action, never a silent failure. CosyVoice3
+  covers its 9 languages in one pack; engines like Piper would add per-language packs.
+- **Reference device:** Galaxy S22 Ultra (Snapdragon 8 Gen 1) — the performance gate for
+  engine selection. Measure RTF, peak RAM, and thermal behavior for CosyVoice3-0.5B
+  (int8) before committing it as default.
+- **Android path:** ONNX Runtime Mobile. Kokoro has a working Kotlin reference
+  (`thewh1teagle/kokoro-onnx`, its `SpeechPipeline`). CosyVoice3 needs a spike to port a
+  community ONNX export (e.g. `Lourdle/Fun-CosyVoice3-0.5B-2512_ONNX`); all engines stay
+  behind `TTSEngine` so swapping is a config change.
 
 ## Offline-first
 
-- No network in the happy path. Any download (the model) is a single, explicit,
-  user-consented, resumable operation. If you add any socket use, justify it in a PR.
+- No network in the happy path. Any download (model weights, language/voice packs) is a
+  single, explicit, user-consented, resumable operation. If you add any socket use,
+  justify it in a PR.

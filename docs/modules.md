@@ -5,7 +5,7 @@ core-model/       Book, Chapter/Section, TextPassage, LibraryEntry (no Android d
 core-ebook/       EBook interface + format parsers (azw3/kf8, mobi, epub); defensive
 core-locate/      TextIndex + matcher (n-gram recall over indexed books); no Android deps
 core-ocr/         on-device OCR (tess-two) behind OCRService interface; eng+spa+fra+deu+por+ita
-core-tts/         TTSEngine interface + Kokoro ONNX impl; model download/caching
+core-tts/         TTSEngine interface + engine impls (CosyVoice3 primary, Kokoro fallback); model + language-pack download/caching
 core-persistence/ Room schema, daos, migrations
 feature-library/  list/search/import books (Compose)
 feature-reader/   text display + navigation
