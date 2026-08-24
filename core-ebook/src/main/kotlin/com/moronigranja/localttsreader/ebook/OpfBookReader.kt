@@ -159,12 +159,15 @@ internal object OpfBookReader {
     fun extractParagraphs(html: String): List<String> {
         var s = html
         s = SKIP_BLOCKS.replace(s, "") // head/script/style content must never leak into text
-        s = BLOCK_BOUNDARY.replace(s, "\n")
-        s = TAG_RE.replace(s, "")
-        s = s.replace("\r", "")
         s = CONTROL_CHARS.replace(s, " ") // MOBI control bytes and friends
-        val text = decodeEntities(s)
-        return text.split('\n').map { it.trim() }.filter { it.isNotEmpty() }
+        // Block boundaries get a sentinel first, so pretty-printed XHTML (a <p> spanning
+        // lines) stays ONE passage: raw whitespace collapses to single spaces afterwards.
+        s = BLOCK_BOUNDARY.replace(s, BOUNDARY)
+        s = TAG_RE.replace(s, "")
+        s = WHITESPACE.replace(s, " ")
+        s = decodeEntities(s) // after tag strip: attribute entities are gone with their tags
+        s = s.replace(BOUNDARY, "\n")
+        return s.split('\n').map { it.trim() }.filter { it.isNotEmpty() }
     }
 
     // ------------------------------------------------------------------
@@ -278,6 +281,9 @@ internal object OpfBookReader {
     private fun resolvePath(baseDir: String, href: String): String =
         ZipEntries.normalizePath(if (href.startsWith('/')) href else "$baseDir/$href")
 
+    /** Private-use char unlikely in real text; scrubbed by CONTROL_CHARS if the source had it. */
+    private const val BOUNDARY = "\u0001"
+
     private val SKIP_BLOCKS = Regex("(?is)<(head|script|style)[\\s\\S]*?</\\1>")
     private val BLOCK_BOUNDARY = Regex(
         "(?i)<(p|div|li|blockquote|section|article|h[1-6]|tr)[^>]*>|" +
@@ -286,4 +292,5 @@ internal object OpfBookReader {
     private val TAG_RE = Regex("<[^>]+>")
     private val CONTROL_CHARS = Regex("[\\x00-\\x08\\x0B\\x0C\\x0E-\\x1F]")
     private val HEADING_RE = Regex("(?i)<h[1-6][^>]*>([\\s\\S]*?)</h[1-6]>")
+    private val WHITESPACE = Regex("\\s+")
 }

@@ -248,6 +248,22 @@ class EpubParserTest {
     }
 
     @Test
+    fun `paragraph markup spanning lines stays one passage`() {
+        val spanning =
+            "<html><body><p>First line\nsecond line\tcontinued</p><p>Next paragraph.</p></body></html>"
+        val epub = zip(
+            "META-INF/container.xml" to CONTAINER,
+            "OEBPS/content.opf" to opf(title = "X", spine = listOf("c1" to "chap1.xhtml")),
+            "OEBPS/chap1.xhtml" to spanning,
+        )
+        val book = EpubParser.parse(epub)
+        assertEquals(
+            listOf("First line second line continued", "Next paragraph."),
+            book.chapters[0].passages.map { it.text },
+        )
+    }
+
+    @Test
     fun `book with no readable chapters throws`() {
         val epub = zip(
             "META-INF/container.xml" to CONTAINER,

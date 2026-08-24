@@ -51,6 +51,13 @@ feature matches against this index; parsing without indexing silently breaks
 share-and-identify. The index is populated during import; `TextIndex` itself is an
 in-memory layer over the library store, rebuilt at launch.
 
+**Index/segmentation contract (C4).** The import pipeline runs
+`BookSegmentation.segment(parsedBook)` **before** `TextIndex.add(...)`: paragraph-grain
+passages, front/back-matter chapters stripped (position-guarded), passages over 100
+words split at sentence boundaries. The passage is the unit of both matching and
+resume, so its grain decides match precision; passages must stay stable across
+re-parses. Segmented chapters keep their original spine indexes.
+
 **Status.** `core-locate` implemented and **24 JUnit tests pass** — verified in this
 environment by compiling with the standalone Kotlin 2.4.10 compiler and running via JUnit
 Platform console 6.1.3 (`java -jar junit-platform-console-standalone.jar execute`).

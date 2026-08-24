@@ -19,6 +19,12 @@ KindleUnpack-mirrored self-checks. **49 tests green.**
 Known follow-up: MOBI7 chapter boundaries via the NCX index (currently one chapter with
 heading-passages); real-book corpus pass when user files are available.
 
+**C4 done (same day):** `BookSegmentation` stage — paragraph grain (with a fix: XHTML
+paragraphs spanning lines now stay one passage), long passages (>100 words) split at
+sentence boundaries ("Dr."/"e.g." safe), front/back-matter chapters stripped with a
+position guard (never strips the whole book), kept chapters retain spine indexes.
+End-to-end contract test: parse → segment → index-ready. **56 tests green.**
+
 ## Assumptions
 
 - Everything Android (foundation, player, share receiver, OCR, Room, Compose) needs the
