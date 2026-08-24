@@ -1,0 +1,45 @@
+# Built Android output
+*.apk
+*.aab
+*.dex
+*.apkm
+*.aabb
+
+# Gradle
+.gradle/
+build/
+**/build/
+
+# Android Studio / IntelliJ
+.idea/
+*.iml
+*.ipr
+*.iws
+*.hlk
+*.mod
+
+# Local config (SDK path, secrets)
+local.properties
+
+# Keystore / signing keys — NEVER commit
+*.jks
+*.keystore
+*.p12
+key*.pem
+
+# Native / CMake / NDK
+cmake-build-*/
+out/
+obj/
+
+# Firebase (contains project secrets)
+google-services.json
+
+# ADB / logs
+adb.log
+*.log
+
+# OS cruft
+.DS_Store
+Thumbs.db
+*.swp
