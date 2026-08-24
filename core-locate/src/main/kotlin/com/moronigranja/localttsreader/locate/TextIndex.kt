@@ -47,6 +47,10 @@ class TextIndex {
     @Synchronized
     fun bookCount(): Int = books.size
 
+    /** Whether [bookId] (the content hash) is already indexed — the import idempotency check. */
+    @Synchronized
+    fun contains(bookId: String): Boolean = books.containsKey(bookId)
+
     private fun flatten(book: Book): List<PassageRef> =
         book.chapters.flatMap { chapter ->
             chapter.passages.mapIndexed { index, passage ->

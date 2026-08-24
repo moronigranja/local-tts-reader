@@ -25,6 +25,8 @@ Three capabilities, one pipeline:
 
 - [docs/hard-facts.md](docs/hard-facts.md) — domain constraints that are not options
   (Kindle/ebook content, DRM, sync/progress, TTS engines, offline-first).
+- [docs/architecture.md](docs/architecture.md) — module dependency graph, capability
+  data flows, cross-module contracts.
 - [docs/conventions.md](docs/conventions.md) — tech stack, code conventions, do's and
   don'ts, definition of done.
 - [docs/modules.md](docs/modules.md) — proposed module layout (keep it flat until it hurts).

@@ -19,4 +19,5 @@ kotlin {
 
 dependencies {
     api(project(":core-model")) // parsers return Book
+    implementation(project(":core-locate")) // BookImporter indexes into TextIndex
 }
