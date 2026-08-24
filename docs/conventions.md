@@ -11,8 +11,8 @@
   - Business logic in `ViewModel`/`StateHolder`; keep it testable and UI-agnostic.
 - **Concurrency:** Coroutines on `Dispatchers.IO` for file/model I/O,
   `Main` for UI. Cancellations matter (long TTS queues, file scans) — propagate them.
-- **DI:** Hilt (or a minimal hand-rolled graph if keeping deps tiny — decide early,
-  keep it consistent everywhere).
+- **DI:** **Hilt** (decided 2026-08-24). Constructor injection everywhere; no
+  hand-rolled container.
 - **Persistence:** Room for the library index, reading progress, settings, and cached
   parsed content pointers. Never re-parse a book on every launch.
 - **UI:** Jetpack Compose + Material 3. Keep composition functions pure; hoist state.

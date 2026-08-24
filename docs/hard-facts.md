@@ -17,18 +17,17 @@ Kokoro ships inside the app.
      device is not feasible** (that DB lives on a PC/Mac). Support this via a
      companion export step or by the user transferring files, not by shelling out to
      the desktop app.
-  3. **Amazon-DRM path (DRM-encrypted .azw3/.kf8/.kfx)** — requires deriving the
-     book key from the user's own Kindle credentials/keys (DeDRM-style key
-     derivation from the desktop DB's `rec209`/ASIN fields, or from the user's Amazon
-     session cookies). **This is DRM circumvention.**
-     - **Out-of-app only.** Key derivation runs on the user's own machine or an
-       external tool. The app NEVER logs into Amazon, NEVER harvests cookies/session
-       tokens, and NEVER ships keys or key-derivation code. Accepting the user's Amazon
-       login in-app turns a personal reader into a circumvention-with-capture device
-       — the highest-risk path — and is off the table. The app consumes only DRM-free
-       files the user supplies.
-     - **Legal stance:** personal/offline use lowers *distribution* exposure but does
-       not erase the circumvention act itself; the end user owns that risk. Flag
+  3. **Amazon-DRM path (DRM-encrypted .azw3/.kf8/.kfx)** — unlocking these requires
+     DRM removal, which **is DRM circumvention** (legally fraught; see stance below).
+     - **Out-of-app only.** Any DRM removal runs on the user's own machine, using
+       tools the user chooses and runs themselves. The app NEVER logs into Amazon,
+       NEVER touches the user's Amazon account or credentials, and NEVER ships keys,
+       decryption, or DRM-removal code. Accepting the user's Amazon login in-app turns
+       a personal reader into a circumvention-with-capture device — the highest-risk
+       path — and is off the table. The app consumes only DRM-free files the user
+       supplies.
+     - **Legal stance:** the app itself performs no circumvention and facilitates
+       none; any DRM removal outside the app is the end user's own act and risk. Flag
        prominently; never default to it.
      - **Kindle Unlimited (KU) books are excluded.** They are borrowed, not owned;
        DRM unlocks the container, not the borrow window, so a KU copy goes dead when
@@ -36,7 +35,7 @@ Kokoro ships inside the app.
 - **File formats to parse:**
   - `.azw3` / `.kf8` are essentially **EPUB3** (a ZIP with `content.opf`, a spine, and
     XHTML/CSS media). Parse the OPF spine for chapter order, extract body text.
-  - `.mobi` / older `.azw` are MOBI (KindleUnpack semantics).
+  - `.mobi` / older `.azw` are MOBI (PalmDOC/EXTH container semantics).
   - `.epub` is EPUB2/3.
   - `.kfx` is Amazon's newer, closed container — **out of scope for v1**; detect it and
     guide the user to convert/export rather than attempting to parse.
@@ -50,7 +49,7 @@ Kokoro ships inside the app.
   The Kindle app's data lives in its Android sandbox (`/data/data/com.amazon.kindle`),
   is encrypted, and its schema is undocumented. Reading position is also **server-side**
   (Amazon syncs it through the account). Touching it needs root + adb-backup/extract
-  (what DeDRM does) — brittle, ToS-violating, and excludes all non-rooted users.
+  — brittle, ToS-violating, and excludes all non-rooted users.
   **Do not build this.**
 - **Legitimate sync sources (Amazon returning the user's own data):**
   - **Official export** — "Your Content and Documents" / "Download your data" gives

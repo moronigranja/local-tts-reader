@@ -32,8 +32,8 @@ this repo's environment without the Android SDK.
 | F1 | Android toolchain + app scaffold: SDK, Gradle wrapper, `app` module, manifest, minSdk 26, version catalog (androidx/compose/room/coroutines), debug signing | 3–4 d | Needs a real machine/CI. Package name decision upstream. |
 | F2 | `core-model`: canonical Book/Chapter/TextPassage/LibraryEntry; re-point `core-locate` onto it (drop duplicate models) + tests | 2–3 d | **Sandbox-doable.** |
 
-**Decisions before F1:** package name (default `com.localttsreader` — confirm);
-DI = Hilt vs minimal hand-rolled graph (conventions.md says decide early).
+**Decisions before F1:** package name (default `com.localttsreader` — still to
+confirm). DI = **Hilt** (decided 2026-08-24, see conventions.md).
 
 ## Phase 1 — Content: import pipeline (~14–19 d) — `core-ebook` + `feature-library`
 
@@ -41,7 +41,7 @@ DI = Hilt vs minimal hand-rolled graph (conventions.md says decide early).
 |---|---|---|---|
 | C1 | `EBook` abstraction + **epub** parser (OPF spine, TOC, chapter/paragraph extraction); public-domain fixtures (valid + malformed) + tests | 4–5 d | **Sandbox-doable.** |
 | C2 | **azw3/kf8** parser (EPUB3 container quirks) + tests | 2–3 d | **Sandbox-doable.** |
-| C3 | **mobi/azw** parser (KindleUnpack semantics, PalmDOC/EXTH) + tests | 4–6 d | **Sandbox-doable.** Highest format risk. |
+| C3 | **mobi/azw** parser (MOBI container: PalmDOC/EXTH) + tests | 4–6 d | **Sandbox-doable.** Highest format risk. |
 | C4 | Passage segmentation: grain decision (paragraph-level for index precision), chapter titles, front/back matter rules; contract with TextIndex | 2–3 d | **Sandbox-doable.** Grain directly affects match precision. |
 | C5 | Import flow: SAF `ACTION_OPEN_DOCUMENT`, parse **and index into TextIndex** (cross-cutting requirement), progress/error states, re-import semantics | 3–4 d | |
 | C6 | Library list UI (minimal Compose) — end-to-end import visible | 2–3 d | |
