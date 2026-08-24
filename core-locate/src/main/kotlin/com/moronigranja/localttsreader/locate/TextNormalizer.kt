@@ -1,4 +1,4 @@
-package com.localttsreader.locate
+package com.moronigranja.localttsreader.locate
 
 import java.text.Normalizer
 

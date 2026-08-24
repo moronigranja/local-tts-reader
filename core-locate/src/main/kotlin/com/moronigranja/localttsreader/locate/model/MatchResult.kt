@@ -1,4 +1,4 @@
-package com.localttsreader.locate.model
+package com.moronigranja.localttsreader.locate.model
 
 /**
  * Outcome of locating a shared snippet: the best book/passage and how confident the

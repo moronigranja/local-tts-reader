@@ -1,7 +1,7 @@
-package com.localttsreader.locate
+package com.moronigranja.localttsreader.locate
 
-import com.localttsreader.locate.model.IndexedBook
-import com.localttsreader.locate.model.Passage
+import com.moronigranja.localttsreader.locate.model.IndexedBook
+import com.moronigranja.localttsreader.locate.model.Passage
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNotEquals
 import org.junit.jupiter.api.Assertions.assertNotNull

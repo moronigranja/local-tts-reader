@@ -29,11 +29,12 @@ this repo's environment without the Android SDK.
 
 | ID | Item | Est. | Notes |
 |---|---|---|---|
-| F1 | Android toolchain + app scaffold: SDK, Gradle wrapper, `app` module, manifest, minSdk 26, version catalog (androidx/compose/room/coroutines), debug signing | 3–4 d | Needs a real machine/CI. Package name decision upstream. |
+| F1 | Android toolchain + app scaffold: SDK, Gradle wrapper, `app` module, manifest, minSdk 26, version catalog (androidx/compose/room/coroutines), debug signing | 3–4 d | Needs a real machine/CI; toolchain in Docker (`Dockerfile`, `tools/docker-build.sh`). Package: `com.moronigranja.localttsreader`. |
 | F2 | `core-model`: canonical Book/Chapter/TextPassage/LibraryEntry; re-point `core-locate` onto it (drop duplicate models) + tests | 2–3 d | **Sandbox-doable.** |
 
-**Decisions before F1:** package name (default `com.localttsreader` — still to
-confirm). DI = **Hilt** (decided 2026-08-24, see conventions.md).
+**Decisions before F1:** package name **`com.moronigranja.localttsreader`** (confirmed
+2026-08-24; core-locate already renamed onto it). DI = **Hilt** (decided 2026-08-24,
+see conventions.md).
 
 ## Phase 1 — Content: import pipeline (~14–19 d) — `core-ebook` + `feature-library`
 

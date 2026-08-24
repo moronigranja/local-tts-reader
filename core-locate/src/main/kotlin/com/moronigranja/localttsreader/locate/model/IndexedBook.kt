@@ -1,10 +1,10 @@
-package com.localttsreader.locate.model
+package com.moronigranja.localttsreader.locate.model
 
 /**
  * A book loaded into the library, with its full ordered passage list.
  *
  * Built by the file-import pipeline (agents.md §8: **every imported book must also be
- * indexed**) and handed to [com.localttsreader.locate.TextIndex] so the share feature
+ * indexed**) and handed to [com.moronigranja.localttsreader.locate.TextIndex] so the share feature
  * can identify book + passage from shared text.
  */
 data class IndexedBook(

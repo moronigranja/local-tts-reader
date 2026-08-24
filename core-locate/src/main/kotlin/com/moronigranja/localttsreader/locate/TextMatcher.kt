@@ -1,4 +1,4 @@
-package com.localttsreader.locate
+package com.moronigranja.localttsreader.locate
 
 /**
  * Pure matching logic: how well a shared snippet is contained in a passage.

@@ -1,4 +1,4 @@
-package com.localttsreader.locate.model
+package com.moronigranja.localttsreader.locate.model
 
 /**
  * One atomic chunk of a book's text, as produced by the import pipeline: a passage

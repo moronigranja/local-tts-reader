@@ -1,7 +1,7 @@
-package com.localttsreader.locate
+package com.moronigranja.localttsreader.locate
 
-import com.localttsreader.locate.model.IndexedBook
-import com.localttsreader.locate.model.MatchResult
+import com.moronigranja.localttsreader.locate.model.IndexedBook
+import com.moronigranja.localttsreader.locate.model.MatchResult
 
 /**
  * In-memory text index over imported books, populated by the import pipeline (§8):
