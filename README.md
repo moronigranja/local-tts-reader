@@ -3,9 +3,33 @@
 Offline-first Android app that reads your ebook library aloud using **on-device,
 open-weight text-to-speech**. No cloud, no account, no telemetry.
 
-**Status: early development.** Planning docs live in `docs/`; the text-identification
-core (`core-locate`) is implemented and unit-tested. The Android app itself is not
-started yet.
+## Status
+
+Early development. **Implemented and tested (pure JVM, no Android dependency):**
+- `core-locate` — book/passage identification core (24 tests)
+- `core-ebook` — EPUB + MOBI/KF8 parsers, passage segmentation, import pipeline
+  (46 tests: parsers, fixtures, segmentation, importer)
+
+**Not built yet:** the Android app itself (library UI, TTS player, share receiver,
+OCR) — the foundation is planned and the containerized toolchain is ready in this
+repo (`Dockerfile`, `tools/docker-build.sh`).
+
+## Limitations (current)
+
+- **Formats:** `.epub`, `.azw3`/`.kf8`, `.mobi`/`.azw`, **DRM-free files only**.
+  `.kfx` (closed container) is detected and rejected with guidance. DRM removal is
+  never performed in-app; encrypted files are refused up front.
+- **MOBI7 chapters:** currently one chapter per book (headings surface as passages);
+  NCX-index chapter splitting is a planned follow-up.
+- **Identification:** assumes contiguous, in-order text (copied or OCR'd). Non-space
+  scripts (CJK) are not supported by the matcher yet; very short snippets are
+  unreliable and rejected by the confidence threshold.
+- **Parsers** are verified against generated fixtures; a pass over real-world books
+  is pending (needs your files).
+- **Share-and-identify** only recognizes books already imported into the library.
+- **TTS:** engine selection is gated on an on-device benchmark (CosyVoice3-0.5B target,
+  Kokoro-82M fallback); models and language packs are on-demand downloads, never
+  bundled. Portuguese comes via the fallback engines.
 
 ## Capabilities
 

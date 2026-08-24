@@ -31,5 +31,7 @@ Three capabilities, one pipeline:
   don'ts, definition of done.
 - [docs/modules.md](docs/modules.md) — proposed module layout (keep it flat until it hurts).
 - [docs/build.md](docs/build.md) — how to build, run, and test.
+- [docs/features/](docs/features/) — feature plans (share-and-identify; player/TTS/settings pending).
+- [docs/decisions.md](docs/decisions.md) — decision log (why things are the way they are).
 - [docs/features/share-and-identify.md](docs/features/share-and-identify.md) — the
   share-and-identify (resume-from-share) feature plan and status.
