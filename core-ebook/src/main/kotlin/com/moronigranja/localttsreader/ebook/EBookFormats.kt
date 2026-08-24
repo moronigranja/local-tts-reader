@@ -9,7 +9,7 @@ object EBookFormats {
     fun parserFor(fileName: String): EBookParser? =
         when (fileName.substringAfterLast('.', missingDelimiterValue = "").lowercase()) {
             "epub" -> EpubParser
-            // azw3/kf8 and mobi/azw arrive with C2/C3.
+            "azw3", "kf8", "mobi", "azw" -> MobiParser
             else -> null
         }
 }
