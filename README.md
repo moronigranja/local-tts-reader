@@ -60,4 +60,4 @@ tools/docker-build.sh assembleDebug
 
 ## License
 
-Not yet chosen.
+[Apache License 2.0](LICENSE)
