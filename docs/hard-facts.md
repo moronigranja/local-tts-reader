@@ -86,14 +86,18 @@ Kokoro ships inside the app.
   | Engine | Size | Expressiveness | Languages | Notes |
   |---|---|---|---|---|
   | **Fun-CosyVoice3-0.5B** (primary target) | 0.5B; int8/GGUF ~0.4–0.6 GB | High: emotion/speed/volume instruct, zero-shot voices | 9 + 18 dialects | Apache 2.0. Gate: measured RTF on reference device. |
-  | **Kokoro-82M** (fallback) | 82M ONNX | Natural but flat | ~8 | Apache 2.0. Light/fast path + baseline. |
-  | **Piper** | VITS, tens of MB per voice | Mostly flat | many | Cheapest per-language voice files. |
+  | **Kokoro-82M** (fallback) | 82M ONNX | Natural but flat | 9 groups incl. pt-BR | Apache 2.0. Light/fast path + baseline. |
+  | **Piper** | VITS, tens of MB per voice | Mostly flat | many incl. pt | Cheapest per-language voice files. |
   | **KittenTTS** | 15–80M ONNX (25–80 MB) | Unproven; tiny | en only (dev preview) | Apache 2.0. Ultra-light watch item. |
   | **MeloTTS** | small | Moderate | 6 | MIT, CPU real-time. Watch item. |
   | **Orpheus-TTS** | 3B only | High (emotion tags) | multilingual research family | Apache 2.0 but desktop-only at 3B — out of phone scope. |
   | CosyVoice-300M | 300M (v1) | Moderate | 5 | Older gen; superseded by 0.5B v3. |
   | Qwen3-TTS | 1.7B | High | ~10 | Heavy; only with strong NPU quant. Long-term option. |
   | Coqui XTTS v2 | large | High | multilingual | Restrictive Coqui license — avoid. |
+- **Portuguese (pt-BR) is a nice-to-have, not a blocker** (user 2026-08). CosyVoice3's
+  official 9 languages exclude pt, but it is covered today through the fallback engines:
+  Kokoro v1.0 ships 3 pt-BR voices, and Piper has per-language pt voice packs. Revisit
+  when a primary-engine release adds pt.
 - **Language/voice packs are downloadable, never bundled.** All engine assets — model
   weights, per-language assets, voice packs — are runtime downloads: explicit,
   user-consented, resumable, cached after first fetch (consistent with offline-first).
