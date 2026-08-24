@@ -102,6 +102,6 @@ shared snippet → normalize → word n-grams → recall vs every indexed passag
 ## 7. Status
 
 2026-08-24: core-model, core-ebook (epub + mobi/kf8 + segmentation + importer),
-core-locate implemented, 70 tests green (core-locate 24 + core-ebook 46).
-core-tts/core-ocr/core-persistence and all feature/app modules pending the Android
-foundation (roadmap F1, Docker toolchain).
+core-locate implemented, 74 tests green (core-locate 24 + core-ebook 50). The `app`
+module scaffold (F1) landed the same day in the Docker toolchain; core-tts/core-ocr/
+core-persistence and the feature modules are still pending on it.

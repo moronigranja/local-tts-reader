@@ -220,7 +220,8 @@ internal object OpfBookReader {
 
     private val ENTITY_RE = Regex("&(#x[0-9a-fA-F]+|#[0-9]+|[a-zA-Z][a-zA-Z0-9]*);")
 
-    private fun decodeEntities(s: String): String = ENTITY_RE.replace(s) { match ->
+    /** Shared by OPF/NCX XHTML parsing and MobiParser's MOBI7 NCX index labels. */
+    internal fun decodeEntities(s: String): String = ENTITY_RE.replace(s) { match ->
         val body = match.groupValues[1]
         when {
             body.startsWith("#x") -> body.substring(2).toIntOrNull(16)?.let(::codepointString)

@@ -62,6 +62,7 @@ def mobi_record0(
     with_exth: bool = True,
     huff_offset: int = 0xFFFFFFFF,
     huff_count: int = 0,
+    ncx_index: int | None = None,
 ) -> bytes:
     rec = bytearray(16 + MOBI_HEADER_LEN)
     rec[0:16] = palmdoc_header(compression, text_len, text_records, encryption)
@@ -75,7 +76,8 @@ def mobi_record0(
     struct.pack_into(">L", rec, 0x6C, 0xFFFFFFFF)  # first image
     struct.pack_into(">L", rec, 0x70, huff_offset)
     struct.pack_into(">L", rec, 0x74, huff_count)
-    struct.pack_into(">L", rec, 0xF4, 0xFFFFFFFF)  # INDX absent
+    # 0xF4: first INDX record (the NCX index) or 0xFFFFFFFF when absent
+    struct.pack_into(">L", rec, 0xF4, ncx_index if ncx_index is not None else 0xFFFFFFFF)
     exth = b""
     if with_exth and title is not None:
         data = title.encode("cp1252")
@@ -310,6 +312,178 @@ KF8_CHAP2 = """<?xml version="1.0" encoding="UTF-8"?>
 <body><p>Curiouser and curiouser! cried Alice.</p></body></html>"""
 
 # ---------------------------------------------------------------------------
+# MOBI7 NCX (INDX "filepos" navigation index); KindleUnpack MobiIndex layout
+# ---------------------------------------------------------------------------
+
+def vwi_encode(value: int) -> bytes:
+    """Amazon variable-width integer: 7-bit big-endian groups, high bit of the final
+    byte marks the end (KindleUnpack getVariableWidthValue)."""
+    out = bytearray()
+    while True:
+        out.insert(0, value & 0x7F)
+        value >>= 7
+        if value == 0:
+            break
+    out[-1] |= 0x80
+    return bytes(out)
+
+
+# tag-table entry: (tag id, values-per-entry, control-byte mask, end flag)
+NCX_TAG_TABLE = [
+    (1, 1, 0x01, 0),  # pos: chapter filepos (byte offset into the text records)
+    (2, 1, 0x02, 0),  # len
+    (4, 1, 0x04, 0),  # hlvl
+]
+
+INDX_HEADER = 0x38  # 'INDX' + 13 header words (fields through nctoc)
+
+
+def ncx_entry(label: str, *, pos: int | None, length: int = 0, hlvl: int = 0) -> bytes:
+    """One IDXT entry: [1-byte label length][UTF-8 label][control byte][values in
+    tag-table order]. Only tags whose bit is set in the control byte are stored."""
+    text = label.encode("utf-8")
+    ctrl = 0
+    values = b""
+    if pos is not None:
+        ctrl |= 0x01
+        values += vwi_encode(pos)
+    if length:
+        ctrl |= 0x02
+        values += vwi_encode(length)
+    if hlvl:
+        ctrl |= 0x04
+        values += vwi_encode(hlvl)
+    return bytes([len(text)]) + text + bytes([ctrl]) + values
+
+
+def mobi_index_record(*, main: bool, entries: list[bytes] | None = None, nidxt: int = 0, total: int = 0) -> bytes:
+    """INDX record. The main record stores the TAGX table at the offset named by its
+    first header word ('len'); IDXT entry records store their IDXT area at 'start',
+    with the 4-byte preamble + u16 offset table readers skip (KindleUnpack parity)."""
+    rec = bytearray(INDX_HEADER)
+    rec[0:4] = b"INDX"
+    if main:
+        struct.pack_into(">L", rec, 0x04, INDX_HEADER)  # len: TAGX offset
+        struct.pack_into(">L", rec, 0x0C, 2)  # type: NCX
+        struct.pack_into(">L", rec, 0x18, nidxt)  # IDXT records following
+        struct.pack_into(">L", rec, 0x20, 9)  # lng: en
+        struct.pack_into(">L", rec, 0x24, total)  # total entries
+        tagx = struct.pack(">4sLL", b"TAGX", 12 + 4 * len(NCX_TAG_TABLE), 1)
+        for tag in NCX_TAG_TABLE:
+            tagx += bytes(tag)
+        rec += tagx
+        if len(rec) < 0xC0:  # ORDT fields live at 0xA4: keep the record big enough
+            rec += b"\x00" * (0xC0 - len(rec))
+        return bytes(rec)
+    entries = entries or []
+    struct.pack_into(">L", rec, 0x14, INDX_HEADER)  # start: IDXT area offset
+    struct.pack_into(">L", rec, 0x18, len(entries))  # entries in this record
+    body = bytearray(struct.pack(">L", len(entries)))  # IDXT preamble (skipped by readers)
+    off = INDX_HEADER + 4 + 2 * len(entries)
+    for e in entries:
+        body += struct.pack(">H", off)
+        off += len(e)
+    for e in entries:
+        body += e
+    rec += body
+    if len(rec) < 0xC0:  # ORDT fields live at 0xA4 (real kindlegen entry records are this big)
+        rec += b"\x00" * (0xC0 - len(rec))
+    return bytes(rec)
+
+
+def read_mobi_ncx(records: list[bytes], ncx_offset: int) -> list[tuple[str | None, int | None]]:
+    """KindleUnpack-mirrored NCX reader used to self-check the generated INDX
+    fixtures: returns (label, pos) per navPoint entry (pos None when tag 1 is
+    absent) in stored order."""
+    main = records[ncx_offset]
+    tagx_off, = struct.unpack_from(">L", main, 0x04)
+    first_entry, ctrl_count = struct.unpack_from(">LL", main, tagx_off + 4)
+    tag_table = [tuple(main[tagx_off + i : tagx_off + i + 4]) for i in range(12, first_entry, 4)]
+    nidxt, = struct.unpack_from(">L", main, 0x18)
+    out: list[tuple[str | None, int | None]] = []
+
+    def read_vwi(data: bytes, p: int) -> tuple[int, int]:
+        value = 0
+        while True:
+            v = data[p]
+            p += 1
+            value = (value << 7) | (v & 0x7F)
+            if v & 0x80:
+                return p, value
+
+    for k in range(nidxt):
+        rec = records[ncx_offset + 1 + k]
+        idxt, count = struct.unpack_from(">LL", rec, 0x14)
+        starts = [struct.unpack_from(">H", rec, idxt + 4 + 2 * j)[0] for j in range(count)]
+        for s in starts:
+            tlen = rec[s]
+            label = rec[s + 1 : s + 1 + tlen].decode("utf-8")
+            cs = s + 1 + tlen
+            pending = []
+            data_start = cs + ctrl_count
+            control_index = 0
+            for tag, vpe, mask, endflag in tag_table:
+                if endflag == 1:
+                    control_index += 1
+                    continue
+                cbyte = rec[cs + control_index] & mask
+                if cbyte == 0:
+                    continue
+                if cbyte == mask and bin(mask).count("1") > 1:
+                    data_start, vlen = read_vwi(rec, data_start)
+                    pending.append((tag, None, vlen, vpe))
+                elif cbyte == mask:
+                    pending.append((tag, 1, 0, vpe))
+                else:
+                    while mask & 1 == 0:
+                        mask >>= 1
+                        cbyte >>= 1
+                    pending.append((tag, cbyte, 0, vpe))
+            tag_map: dict[int, list[int]] = {}
+            for tag, vcount, vbytes, vpe in pending:
+                values = []
+                if vcount is not None:
+                    for _ in range(vcount * vpe):
+                        data_start, val = read_vwi(rec, data_start)
+                        values.append(val)
+                else:
+                    start_before = data_start
+                    while data_start - start_before < vbytes:
+                        data_start, val = read_vwi(rec, data_start)
+                        values.append(val)
+                tag_map.setdefault(tag, []).extend(values)
+            out.append((label, tag_map.get(1, [None])[0]))
+    return out
+
+
+MOBI7_NCX_BODY = (
+    "<html><head><title>Fixture</title></head><body>"
+    "<h2>Chapter 1</h2>"
+    "<p>First paragraph of the first chapter with caf\u00e9 and &rsquo;quotes&rsquo;.</p>"
+    "<p>Second paragraph of the first chapter.</p>"
+    "<h2>Chapter 2</h2>"
+    "<p>Only paragraph of the second chapter.</p>"
+    "<h2>Chapter 3</h2>"
+    "<p>First paragraph of the third chapter.</p>"
+    "<p>Second paragraph of the third chapter.</p>"
+    "</body></html>"
+)
+
+# UTF-8 variant: multi-byte sequences before every chapter boundary exercise the
+# parser's byte→char offset mapping (byte offsets != char offsets).
+MOBI7_NCX_UTF8_BODY = (
+    "<html><head><title>Fixture</title></head><body>"
+    "<h2>Chapter 1</h2>"
+    "<p>Z\u00fcrich caf\u00e9 \u20acuro first chapter.</p>"
+    "<p>Second paragraph \u00e9\u00e8\u00ea of the first chapter.</p>"
+    "<h2>Chapter 2</h2>"
+    "<p>Only paragraph \u2014 of the second chapter.</p>"
+    "<h2>Chapter 3</h2>"
+    "<p>Third chapter with caf\u00e9 and \u20ac.</p>"
+    "</body></html>"
+)
+
+# ---------------------------------------------------------------------------
 # Build + self-check + write
 # ---------------------------------------------------------------------------
 
@@ -370,6 +544,78 @@ def main() -> None:
     )
     (OUT / "kf8_test.azw3").write_bytes(pdb("Alice", [rec0] + recs))
     print("kf8_test.azw3", len(zbytes), "zip bytes in", len(recs), "records")
+
+    # --- MOBI7 with an NCX index (chapter splitting via filepos navPoints) ---
+    ncx_body = MOBI7_NCX_BODY.encode("cp1252")
+    p1 = ncx_body.index(b"<h2>Chapter 1</h2>")
+    p2 = ncx_body.index(b"<h2>Chapter 2</h2>")
+    p3 = ncx_body.index(b"<h2>Chapter 3</h2>")
+    entries = [
+        ncx_entry("First Chapter", pos=p1),
+        ncx_entry("Second Chapter", pos=p2, length=24, hlvl=1),
+        ncx_entry("Third &amp; Final Chapter", pos=p3),
+    ]
+    records = [
+        mobi_record0(compression=1, text_len=len(ncx_body), text_records=1, title="Pride and Prejudice", ncx_index=2),
+        ncx_body,
+        mobi_index_record(main=True, nidxt=2, total=len(entries)),
+        mobi_index_record(main=False, entries=entries[:2]),
+        mobi_index_record(main=False, entries=entries[2:]),
+    ]
+    assert read_mobi_ncx(records, 2) == [
+        ("First Chapter", p1), ("Second Chapter", p2), ("Third &amp; Final Chapter", p3),
+    ]
+    (OUT / "mobi7_ncx.mobi").write_bytes(pdb("Pride and Prejudice", records))
+    print("mobi7_ncx.mobi", "navPoints at", [p1, p2, p3])
+
+    # --- MOBI7 with a malformed NCX: out-of-range, duplicate and target-less entries ---
+    bad_entries = [
+        ncx_entry("First Chapter", pos=p1),
+        ncx_entry("Broken Out-of-Range", pos=0x7FFFFFFF),
+        ncx_entry("Chapter Two", pos=p2),
+        ncx_entry("Duplicate Chapter", pos=p2),
+        ncx_entry("No-Target Chapter", pos=None),
+        ncx_entry("Final Chapter", pos=p3),
+    ]
+    bad_records = [
+        mobi_record0(compression=1, text_len=len(ncx_body), text_records=1, title="Pride and Prejudice", ncx_index=2),
+        ncx_body,
+        mobi_index_record(main=True, nidxt=2, total=len(bad_entries)),
+        mobi_index_record(main=False, entries=bad_entries[:3]),
+        mobi_index_record(main=False, entries=bad_entries[3:]),
+    ]
+    assert read_mobi_ncx(bad_records, 2) == [
+        ("First Chapter", p1),
+        ("Broken Out-of-Range", 0x7FFFFFFF),
+        ("Chapter Two", p2),
+        ("Duplicate Chapter", p2),
+        ("No-Target Chapter", None),
+        ("Final Chapter", p3),
+    ]
+    (OUT / "mobi7_ncx_malformed.mobi").write_bytes(pdb("Pride and Prejudice", bad_records))
+    print("mobi7_ncx_malformed.mobi")
+
+    # --- MOBI7 with an NCX, UTF-8 codepage (multi-byte chapter text) ---
+    utf8_body = MOBI7_NCX_UTF8_BODY.encode("utf-8")
+    u1 = utf8_body.index(b"<h2>Chapter 1</h2>")
+    u2 = utf8_body.index(b"<h2>Chapter 2</h2>")
+    u3 = utf8_body.index(b"<h2>Chapter 3</h2>")
+    uentries = [
+        ncx_entry("First Chapter", pos=u1),
+        ncx_entry("Second Chapter", pos=u2),
+        ncx_entry("Third &amp; Final Chapter", pos=u3),
+    ]
+    urecords = [
+        mobi_record0(compression=1, text_len=len(utf8_body), text_records=1, title="Pride and Prejudice", codepage=65001, ncx_index=2),
+        utf8_body,
+        mobi_index_record(main=True, nidxt=1, total=len(uentries)),
+        mobi_index_record(main=False, entries=uentries),
+    ]
+    assert read_mobi_ncx(urecords, 2) == [
+        ("First Chapter", u1), ("Second Chapter", u2), ("Third &amp; Final Chapter", u3),
+    ]
+    (OUT / "mobi7_ncx_utf8.mobi").write_bytes(pdb("Pride and Prejudice", urecords))
+    print("mobi7_ncx_utf8.mobi", "navPoints at", [u1, u2, u3])
 
     print("all fixtures self-checked and written to", OUT)
 

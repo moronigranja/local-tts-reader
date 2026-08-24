@@ -8,19 +8,23 @@ open-weight text-to-speech**. No cloud, no account, no telemetry.
 Early development. **Implemented and tested (pure JVM, no Android dependency):**
 - `core-locate` — book/passage identification core (24 tests)
 - `core-ebook` — EPUB + MOBI/KF8 parsers, passage segmentation, import pipeline
-  (46 tests: parsers, fixtures, segmentation, importer)
+  (50 tests: parsers incl. MOBI7 NCX chapters, fixtures, segmentation, importer)
 
-**Not built yet:** the Android app itself (library UI, TTS player, share receiver,
-OCR) — the foundation is planned and the containerized toolchain is ready in this
-repo (`Dockerfile`, `tools/docker-build.sh`).
+**Built (F1 scaffold):** the `app` Android module — manifest, minSdk 26, Compose
+entry point, debug signing; `tools/docker-build.sh assembleDebug` builds it in the
+containerized toolchain (`Dockerfile`).
+
+**Not built yet:** library UI, TTS player, share receiver, OCR — the feature layers
+on top of the F1 foundation.
 
 ## Limitations (current)
 
 - **Formats:** `.epub`, `.azw3`/`.kf8`, `.mobi`/`.azw`, **DRM-free files only**.
   `.kfx` (closed container) is detected and rejected with guidance. DRM removal is
   never performed in-app; encrypted files are refused up front.
-- **MOBI7 chapters:** currently one chapter per book (headings surface as passages);
-  NCX-index chapter splitting is a planned follow-up.
+- **MOBI7 chapters:** with an NCX index the text splits into chapters at the
+  navPoint filepos boundaries, titled from the navPoint labels; without one the
+  book stays a single chapter and headings surface as passages.
 - **Identification:** assumes contiguous, in-order text (copied or OCR'd). Non-space
   scripts (CJK) are not supported by the matcher yet; very short snippets are
   unreliable and rejected by the confidence threshold.

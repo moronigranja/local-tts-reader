@@ -5,7 +5,10 @@ import com.moronigranja.localttsreader.model.Book
 import com.moronigranja.localttsreader.model.Chapter
 import com.moronigranja.localttsreader.model.TextPassage
 import java.io.ByteArrayOutputStream
+import java.nio.ByteBuffer
+import java.nio.CharBuffer
 import java.nio.charset.Charset
+import java.nio.charset.CodingErrorAction
 
 /**
  * MOBI-family parser covering both halves of the format family:
@@ -15,8 +18,10 @@ import java.nio.charset.Charset
  *   shared [OpfBookReader] (nav/NCX chapter titles included).
  * - **MOBI7 (.mobi/.azw, plain PalmDOC)** — text records decompressed per
  *   compression (none / PalmDOC LZ77 / HUFF-CDIC), decoded with the header's
- *   codepage, extracted as one chapter's passages. Chapter boundaries via the NCX
- *   index are a documented follow-up; headings surface as passages.
+ *   codepage. When the container carries an NCX index its navPoint "filepos"
+ *   targets (byte offsets into the decompressed records) split the text into
+ *   chapters titled from the navPoint labels ([MobiNcx]); without an NCX the whole
+ *   book stays one chapter and headings surface as passages.
  *
  * Real-world record trailing-data entries (MOBI extra-flags at 0xF0) are trimmed per
  * KindleUnpack semantics. DRM-encrypted files are rejected by [MobiContainer].
@@ -82,7 +87,98 @@ object MobiParser : EBookParser {
         val fullName = mobiHeader?.let { fullNameTitle(it) }
         val exthTitle = mobiHeader?.let { exthTitle(it, charset) }
         val title = exthTitle ?: fullName ?: container.palmName.takeIf { it.isNotBlank() } ?: fallbackTitle
-        return Book(id, title, chapters = listOf(Chapter(0, null, passages)))
+        val chapters = splitMobi7Chapters(rawMl, charset, text, MobiNcx.navPoints(container, mobiHeader))
+            ?: listOf(Chapter(0, null, passages))
+        return Book(id, title, chapters = chapters)
+    }
+
+    /**
+     * Chapter split at NCX navPoint "filepos" byte offsets. `navPoints` are in
+     * document order; each carries the navPoint label and a byte offset into the
+     * decompressed records ([rawMl]). Chapter *i* spans the text between boundary
+     * *i* and *i + 1* (the last runs to the end); text before the first boundary is
+     * folded into the first chapter so front matter is never dropped. Offsets are
+     * translated to the decoded string via [byteToCharOffsets].
+     *
+     * Regression safety: returns null when there are no usable nav points (caller
+     * keeps today's single whole-book chapter). Unusable nav points — zero/absent
+     * target, out-of-range, or non-increasing (duplicate) — are skipped, and a slice
+     * whose extracted paragraphs are empty is dropped: no empty chapters, no crash.
+     */
+    private fun splitMobi7Chapters(
+        rawMl: ByteArray,
+        charset: Charset,
+        text: String,
+        navPoints: List<MobiNcx.NavPoint>,
+    ): List<Chapter>? {
+        if (navPoints.isEmpty()) return null
+        val byteToChar = byteToCharOffsets(rawMl, charset)
+        val kept = mutableListOf<Pair<String?, Int>>()
+        for (point in navPoints) {
+            val byte = point.posByte
+            if (byte in 1 until rawMl.size) {
+                val charOffset = byteToChar[byte.toInt()]
+                if (kept.isEmpty() || charOffset > kept.last().second) kept += point.label to charOffset
+            }
+        }
+        if (kept.isEmpty()) return null
+
+        val chapters = mutableListOf<Chapter>()
+        var start = 0
+        for (i in kept.indices) {
+            val end = if (i + 1 < kept.size) kept[i + 1].second else text.length
+            val slicePassages = OpfBookReader.extractParagraphs(text.substring(start, end)).map(::TextPassage)
+            if (slicePassages.isNotEmpty()) chapters += Chapter(chapters.size, kept[i].first, slicePassages)
+            start = end
+        }
+        return chapters.takeIf { it.isNotEmpty() }
+    }
+
+    /**
+     * Character offset of every byte position in `String(bytes, charset)` — turns NCX
+     * byte offsets into split points for the decoded text. A REPLACE-mode decoder (the
+     * exact semantics of the `String(ByteArray, Charset)` constructor used above) is
+     * fed one byte at a time so character emission is observable per byte. OpenJDK
+     * decoders underflow without consuming a trailing incomplete sequence, so any
+     * unconsumed tail is carried into the next call (the caller-supplied prefix rule
+     * of `java.nio.charset`); the mapping is then exact for single- and multi-byte
+     * charsets alike. A boundary inside a multi-byte character lands on that
+     * character's start (the character belongs to the earlier chapter; nothing is
+     * corrupted or dropped).
+     */
+    private fun byteToCharOffsets(bytes: ByteArray, charset: Charset): IntArray {
+        val decoder = charset.newDecoder()
+            .onMalformedInput(CodingErrorAction.REPLACE)
+            .onUnmappableCharacter(CodingErrorAction.REPLACE)
+        val offsets = IntArray(bytes.size + 1)
+        val work = ByteBuffer.allocate(8) // carry prefix + one new byte is at most 4 bytes
+        val outBuf = CharBuffer.allocate(4)
+        val carry = ByteArray(4)
+        var carryLen = 0
+        var chars = 0
+        for (i in bytes.indices) {
+            work.clear()
+            if (carryLen > 0) {
+                work.put(carry, 0, carryLen)
+                carryLen = 0
+            }
+            work.put(bytes[i])
+            work.flip()
+            outBuf.clear()
+            decoder.decode(work, outBuf, false)
+            val remaining = work.remaining()
+            if (remaining > 0) {
+                val pos = work.position()
+                work.get(carry, 0, remaining)
+                carryLen = remaining
+            }
+            chars += outBuf.position()
+            offsets[i + 1] = chars
+        }
+        outBuf.clear()
+        decoder.decode(ByteBuffer.allocate(0), outBuf, true) // flush a trailing partial sequence
+        offsets[bytes.size] = chars + outBuf.position()
+        return offsets
     }
 
     // ------------------------------------------------------------------

@@ -1,5 +1,6 @@
 pluginManagement {
     repositories {
+        google()
         gradlePluginPortal()
         mavenCentral()
     }
@@ -7,6 +8,7 @@ pluginManagement {
 
 dependencyResolutionManagement {
     repositories {
+        google()
         mavenCentral()
     }
 }
@@ -17,3 +19,4 @@ rootProject.name = "local-tts-reader"
 include(":core-model")
 include(":core-ebook")
 include(":core-locate")
+include(":app")

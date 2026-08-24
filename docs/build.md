@@ -8,10 +8,11 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
 ./gradlew ktlintCheck                   # or detekt, per repo config
 ```
 
-The repo currently contains a JVM-only Gradle setup — three modules (`core-model`,
-`core-ebook`, `core-locate`) — so `./gradlew test` runs all 70 tests without the
-Android SDK. The Android modules and their targets arrive with the app foundation
-slice.
+Three pure-JVM modules (`core-model`, `core-ebook`, `core-locate`) build and test
+without the Android SDK — `./gradlew :core-locate:test :core-ebook:test` runs their
+74 tests. The `app` module (F1 scaffold) is wired into the same build, so the
+aggregate `./gradlew test` needs the SDK once `app` tasks run; use the containerized
+toolchain for the full suite (`tools/docker-build.sh test`).
 
 ## Android toolchain in Docker (recommended)
 
