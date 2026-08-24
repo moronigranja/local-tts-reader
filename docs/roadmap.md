@@ -25,6 +25,12 @@ sentence boundaries ("Dr."/"e.g." safe), front/back-matter chapters stripped wit
 position guard (never strips the whole book), kept chapters retain spine indexes.
 End-to-end contract test: parse → segment → index-ready. **56 tests green.**
 
+**C5 (domain core) done (same day):** `BookImporter` — format detection → parse →
+segment → index + LibraryEntry, with typed outcomes (`Added`/`Unchanged`/`Failed`),
+content-hash idempotency (identical re-import skips work, changed file = new book),
+batch import with progress, failures never touch the index. The SAF picker + library
+UI (the Android half of C5/C6) arrive with F1. **70 tests green.**
+
 ## Assumptions
 
 - Everything Android (foundation, player, share receiver, OCR, Room, Compose) needs the
