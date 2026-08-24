@@ -2,7 +2,7 @@
 
 ```
 core-model/       Book, Chapter/Section, TextPassage, LibraryEntry (no Android deps)
-core-ebook/       EBookParser interface + format parsers (epub, azw3/kf8, mobi/azw: PalmDOC LZ77 + HUFF/CDIC); defensive
+core-ebook/       EBookParser interface + format parsers (epub, azw3/kf8, mobi/azw: PalmDOC LZ77 + HUFF/CDIC), passage segmentation + BookImporter (parse→segment→index); defensive
 core-locate/      TextIndex + matcher (n-gram recall over indexed books); no Android deps
 core-ocr/         on-device OCR (tess-two) behind OCRService interface; eng+spa+fra+deu+por+ita
 core-tts/         TTSEngine interface + engine impls (CosyVoice3 primary, Kokoro fallback); model + language-pack download/caching

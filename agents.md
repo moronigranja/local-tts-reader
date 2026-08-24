@@ -7,7 +7,7 @@ reading the code and updating the doc (not by contradicting it silently).
 ## What this is
 
 A **greenfield Android app** that reads the user's book library aloud using **on-device
-text-to-speech** from an **open-weight model** (primary target: Kokoro-82M). Everything
+text-to-speech** from an **open-weight model** (primary target: Fun-CosyVoice3-0.5B, fallback: Kokoro-82M). Everything
 runs offline. No cloud, no account, no telemetry.
 
 Three capabilities, one pipeline:

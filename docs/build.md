@@ -8,9 +8,10 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
 ./gradlew ktlintCheck                   # or detekt, per repo config
 ```
 
-The repo currently contains a JVM-only Gradle setup (`settings.gradle.kts` + the
-`core-locate` module), so `./gradlew :core-locate:test` works without the Android SDK.
-The Android modules and their targets arrive with the app foundation slice.
+The repo currently contains a JVM-only Gradle setup — three modules (`core-model`,
+`core-ebook`, `core-locate`) — so `./gradlew test` runs all 70 tests without the
+Android SDK. The Android modules and their targets arrive with the app foundation
+slice.
 
 ## Android toolchain in Docker (recommended)
 
@@ -39,4 +40,5 @@ tools/docker-build.sh assembleDebug      # full APK
   have fixture-based tests (valid + malformed inputs).
 - Keep instrumented tests minimal and deterministic; prefer them only for audio/
   playback and UI flows that unit tests cannot reach.
-- CI must be green before a change is considered complete.
+- CI must be green before a change is considered complete — **lands with the CI
+  slice (roadmap V2)**; no CI exists yet.

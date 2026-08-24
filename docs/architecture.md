@@ -69,7 +69,7 @@ file (SAF) ─EBookSource─▶ EBookFormats.parserFor(fileName) ─▶ Parser.p
 
 ```
 shared snippet → normalize → word n-grams → recall vs every indexed passage
-  → MatchResult(bookId, chapterIndex, passageIndex, confidence) or null below threshold (0.6, configurable)
+  → MatchResult(bookId, bookTitle, chapterIndex, chapterTitle, passageIndex, confidence) or null below threshold (0.6, configurable)
 ```
 
 - `TextIndex`: in-memory, synchronized writes, snapshot reads (queries never block
@@ -102,5 +102,6 @@ shared snippet → normalize → word n-grams → recall vs every indexed passag
 ## 7. Status
 
 2026-08-24: core-model, core-ebook (epub + mobi/kf8 + segmentation + importer),
-core-locate implemented, 62+ tests green. core-tts/core-ocr/core-persistence and all
-feature/app modules pending the Android foundation (roadmap F1, Docker toolchain).
+core-locate implemented, 70 tests green (core-locate 24 + core-ebook 46).
+core-tts/core-ocr/core-persistence and all feature/app modules pending the Android
+foundation (roadmap F1, Docker toolchain).

@@ -47,8 +47,9 @@ repo (`Dockerfile`, `tools/docker-build.sh`).
 
 ```
 core-model/    Canonical domain: Book, Chapter, TextPassage, LibraryEntry
-core-ebook/    EBookParser abstraction + EPUB parser (defensive, XXE-safe)
+core-ebook/    EPUB + MOBI/KF8 parsers, passage segmentation, import pipeline
 core-locate/   Book/passage matching core (pure JVM, no Android deps)
+tools/         Fixture generator (gen_mobi_fixtures.py), containerized-build helper (docker-build.sh)
 docs/          Planning, conventions, module layout, build, roadmap
 agents.md      Entry point for AI agents working in this repo — read first
 settings.gradle.kts, gradle/   JVM-only Gradle setup (Android modules come later)

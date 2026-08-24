@@ -20,4 +20,15 @@ kotlin {
 dependencies {
     api(project(":core-model")) // parsers return Book
     implementation(project(":core-locate")) // BookImporter indexes into TextIndex
+    testImplementation(libs.junit.jupiter)
+    testRuntimeOnly(libs.junit.platform.launcher)
+}
+
+tasks.test {
+    // Fixture helpers read "core-ebook/src/test/resources/..." (repo-root-relative).
+    useJUnitPlatform()
+    workingDir = rootProject.projectDir
+    testLogging {
+        events("passed", "failed", "skipped")
+    }
 }

@@ -24,7 +24,7 @@ this app. The app identifies which book + chapter/passage the shared text came f
 Share (text or image)
   → ShareReceiver (ACTION_SEND) extracts payload
   → image → OCRService (tess-two) → text;  text/plain → as-is
-  → TextIndex.query(snippet) → MatchResult(bookId, passageIndex, confidence)?
+  → TextIndex.query(snippet, minConfidence) → MatchResult(bookId, bookTitle, chapterIndex, chapterTitle, passageIndex, confidence)?
   → "Found: book · chapter · passage" + "Start listening here"  (player wiring = next slice)
 ```
 Low confidence (below threshold) ⇒ "not found in library — import it first".
@@ -39,7 +39,7 @@ Low confidence (below threshold) ⇒ "not found in library — import it first".
   cross-book text scores ≤0.05); snippets <4 tokens → unigram recall; best passage wins,
   ties → earliest.
 - `TextIndex`: holds `IndexedBook`s (each with ordered `Passage`s), precomputes per-passage
-  gram sets, `query(snippet): MatchResult?` (null below threshold).
+  gram sets, `query(snippet, minConfidence): MatchResult?` (null below threshold).
 - **Confidence threshold.** Recall fraction: 1.0 = every word-group in the shared text
   appears in a passage (verbatim/contiguous/truncated). Default threshold **0.6**,
   **configurable in settings**. Below threshold ⇒ "not found". Chosen high enough to avoid
@@ -61,9 +61,9 @@ re-parses. Segmented chapters keep their original spine indexes.
 **Status.** `core-locate` implemented and **24 JUnit tests pass** — verified in this
 environment by compiling with the standalone Kotlin 2.4.10 compiler and running via JUnit
 Platform console 6.1.3 (`java -jar junit-platform-console-standalone.jar execute`).
-`TextMatcher`/`TextIndex` are pure JVM; the repo has a minimal JVM-only Gradle setup
-(settings.gradle.kts + `core-locate`) so `gradle test` works on any machine without the
-Android SDK. OCR (`tess-two`) and the `ShareReceiver` are Android components — designed
+`TextMatcher`/`TextIndex` are pure JVM; the repo ships a Gradle wrapper plus three
+JVM-only modules (`core-model`, `core-ebook`, `core-locate`), so `./gradlew test`
+works on any machine without the Android SDK. OCR (`tess-two`) and the `ShareReceiver` are Android components — designed
 here, verified on-device later.
 
 **Recorded decisions.** Default confidence threshold **0.6, configurable in settings**;

@@ -90,3 +90,9 @@ must be justified in a PR (hard-facts.md).
 This environment lacks Gradle/Android SDK; the pure-JVM modules are compiled and
 tested with the downloaded Kotlin compiler + JUnit console. Gradle (`gradlew`) configs
 exist for normal machines; the rig is the proof source until then (build.md).
+
+## 18. Gradle wrapper pulled forward from F1 (2026-08-24)
+The wrapper is pure-JVM and README/build.md/docker-build.sh already document
+`./gradlew` commands; landing it now makes those true and shrinks F1 by one item.
+The sandbox Kotlin-compiler rig (decision #17) remains the proof source until the
+Android toolchain lands.

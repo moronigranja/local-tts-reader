@@ -7,8 +7,8 @@ this repo's environment without the Android SDK.
 **Status (2026-08-24):** F2 + C1 done — `core-model` canonical types (Book/Chapter/
 TextPassage/LibraryEntry); `core-locate` consumes them, duplicate models deleted;
 `EpubParser` (EPUB2/3, NCX + nav TOCs, heading fallback, lenient malformed-XHTML
-extraction, XXE-hardened XML, content-hash book ids) with fixture tests. **40 tests
-green** (core-locate 24 + core-ebook 16).
+extraction, XXE-hardened XML, content-hash book ids) with fixture tests. **70 tests
+green** (core-locate 24 + core-ebook 46).
 
 **C2 + C3 done (same day):** `MobiParser` covers both halves — KF8 (.azw3/.kf8, type
 0xFFFFFFFF/248: text records concatenate into the content ZIP, shared OPF/nav reader)
@@ -56,7 +56,7 @@ UI (the Android half of C5/C6) arrive with F1. **70 tests green.**
 
 | ID | Item | Est. | Notes |
 |---|---|---|---|
-| F1 | Android toolchain + app scaffold: SDK, Gradle wrapper, `app` module, manifest, minSdk 26, version catalog (androidx/compose/room/coroutines), debug signing | 3–4 d | Needs a real machine/CI; toolchain in Docker (`Dockerfile`, `tools/docker-build.sh`). Package: `com.moronigranja.localttsreader`. |
+| F1 | Android toolchain + app scaffold: SDK, `app` module, manifest, minSdk 26, version catalog (androidx/compose/room/coroutines), debug signing | 3–4 d | Needs a real machine/CI; toolchain in Docker (`Dockerfile`, `tools/docker-build.sh`). Package: `com.moronigranja.localttsreader`. |
 | F2 | `core-model`: canonical Book/Chapter/TextPassage/LibraryEntry; re-point `core-locate` onto it (drop duplicate models) + tests | 2–3 d | **Sandbox-doable.** |
 
 **Decisions before F1:** package name **`com.moronigranja.localttsreader`** (confirmed

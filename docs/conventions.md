@@ -54,5 +54,7 @@
 - Behavior covered by a test that fails without the change.
 - No silent fallbacks that mask failure (missing language, corrupt file → clear state).
 - No new blocking permissions or dependencies without noting the tradeoff.
-- `./gradlew ktlintCheck` and `./gradlew testDebugUnitTest` green.
+- `./gradlew ktlintCheck` and `./gradlew testDebugUnitTest` green — **lands with the
+  Android foundation (roadmap F1)**; the JVM-only core modules have no lint plugin or
+  instrumented-test target yet.
 - The relevant doc(s) updated if a convention or fact changed.
