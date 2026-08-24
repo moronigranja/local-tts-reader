@@ -22,6 +22,8 @@ started yet.
 ## Repository layout
 
 ```
+core-model/    Canonical domain: Book, Chapter, TextPassage, LibraryEntry
+core-ebook/    EBookParser abstraction + EPUB parser (defensive, XXE-safe)
 core-locate/   Book/passage matching core (pure JVM, no Android deps)
 docs/          Planning, conventions, module layout, build, roadmap
 agents.md      Entry point for AI agents working in this repo — read first

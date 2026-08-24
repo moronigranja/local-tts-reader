@@ -1,7 +1,6 @@
 package com.moronigranja.localttsreader.locate
 
-import com.moronigranja.localttsreader.locate.model.IndexedBook
-import com.moronigranja.localttsreader.locate.model.MatchResult
+import com.moronigranja.localttsreader.model.Book
 
 /**
  * In-memory text index over imported books, populated by the import pipeline (§8):
@@ -15,35 +14,53 @@ import com.moronigranja.localttsreader.locate.model.MatchResult
  */
 class TextIndex {
 
-    private val books = linkedMapOf<String, IndexedBook>()
-    private val gramSets = mutableMapOf<String, List<TextMatcher.PassageGrams>>()
+    private data class PassageRef(
+        val chapterIndex: Int,
+        val chapterTitle: String?,
+        val passageIndex: Int,
+        val grams: TextMatcher.PassageGrams,
+    )
+
+    private data class BookIndex(
+        val id: String,
+        val title: String,
+        val passages: List<PassageRef>,
+    )
+
+    private val books = linkedMapOf<String, BookIndex>()
 
     @Synchronized
-    fun add(book: IndexedBook) {
-        books[book.id] = book
-        gramSets[book.id] = book.passages.map {
-            TextMatcher.indexGrams(TextNormalizer.normalize(it.text))
-        }
+    fun add(book: Book) {
+        books[book.id] = BookIndex(book.id, book.title, flatten(book))
     }
 
     @Synchronized
     fun remove(bookId: String) {
         books.remove(bookId)
-        gramSets.remove(bookId)
     }
 
     @Synchronized
     fun clear() {
         books.clear()
-        gramSets.clear()
     }
 
     @Synchronized
     fun bookCount(): Int = books.size
 
+    private fun flatten(book: Book): List<PassageRef> =
+        book.chapters.flatMap { chapter ->
+            chapter.passages.mapIndexed { index, passage ->
+                PassageRef(
+                    chapterIndex = chapter.index,
+                    chapterTitle = chapter.title,
+                    passageIndex = index,
+                    grams = TextMatcher.indexGrams(TextNormalizer.normalize(passage.text)),
+                )
+            }
+        }
+
     @Synchronized
-    private fun snapshot(): List<Pair<IndexedBook, List<TextMatcher.PassageGrams>>> =
-        books.values.map { book -> book to (gramSets[book.id] ?: emptyList()) }
+    private fun snapshot(): List<BookIndex> = books.values.toList()
 
     /**
      * Best match for [snippet] across all indexed books, or null when no passage reaches
@@ -54,12 +71,18 @@ class TextIndex {
         val normalized = TextNormalizer.normalize(snippet)
         if (normalized.isEmpty()) return null
         var best: MatchResult? = null
-        for ((book, passageGrams) in snapshot()) {
-            for ((index, passage) in book.passages.withIndex()) {
-                val grams = passageGrams.getOrNull(index) ?: continue
-                val recall = TextMatcher.scoreNormalized(normalized, grams)
+        for (book in snapshot()) {
+            for (passage in book.passages) {
+                val recall = TextMatcher.scoreNormalized(normalized, passage.grams)
                 if (best == null || recall > best.confidence) {
-                    best = MatchResult(book, passage, recall)
+                    best = MatchResult(
+                        bookId = book.id,
+                        bookTitle = book.title,
+                        chapterIndex = passage.chapterIndex,
+                        chapterTitle = passage.chapterTitle,
+                        passageIndex = passage.passageIndex,
+                        confidence = recall,
+                    )
                 }
             }
         }

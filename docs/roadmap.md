@@ -4,6 +4,12 @@ Planning doc (2026-08-24). Estimates are working **days** for a single experienc
 developer; ranges reflect risk. "Sandbox-doable" = pure JVM, buildable + testable in
 this repo's environment without the Android SDK.
 
+**Status (2026-08-24):** F2 + C1 done — `core-model` canonical types (Book/Chapter/
+TextPassage/LibraryEntry); `core-locate` consumes them, duplicate models deleted;
+`EpubParser` (EPUB2/3, NCX + nav TOCs, heading fallback, lenient malformed-XHTML
+extraction, XXE-hardened XML, content-hash book ids) with fixture tests. **40 tests
+green** (core-locate 24 + core-ebook 16).
+
 ## Assumptions
 
 - Everything Android (foundation, player, share receiver, OCR, Room, Compose) needs the

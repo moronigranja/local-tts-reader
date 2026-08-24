@@ -18,14 +18,5 @@ kotlin {
 }
 
 dependencies {
-    api(project(":core-model")) // public API exposes Book/MatchResult locations
-    testImplementation(libs.junit.jupiter)
-    testRuntimeOnly(libs.junit.platform.launcher)
-}
-
-tasks.test {
-    useJUnitPlatform()
-    testLogging {
-        events("passed", "failed", "skipped")
-    }
+    api(project(":core-model")) // parsers return Book
 }

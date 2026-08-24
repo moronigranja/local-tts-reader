@@ -1,7 +1,8 @@
 package com.moronigranja.localttsreader.locate
 
-import com.moronigranja.localttsreader.locate.model.IndexedBook
-import com.moronigranja.localttsreader.locate.model.Passage
+import com.moronigranja.localttsreader.model.Book
+import com.moronigranja.localttsreader.model.Chapter
+import com.moronigranja.localttsreader.model.TextPassage
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNotEquals
 import org.junit.jupiter.api.Assertions.assertNotNull
@@ -15,35 +16,36 @@ class TextIndexTest {
     // Fixtures: two books, several passages (public-domain excerpts).
     // ------------------------------------------------------------------
 
-    private val mobyDick = IndexedBook(
+    private val mobyDick = Book(
         id = "b1",
         title = "Moby-Dick",
-        passages = listOf(
-            Passage(0, 0, null,
-                "Call me Ishmael. Some years ago—never mind how long precisely—having little or " +
+        chapters = listOf(
+            Chapter(0, null, listOf(
+                TextPassage("Call me Ishmael. Some years ago—never mind how long precisely—having little or " +
                     "no money in my purse,"),
-            Passage(0, 1, null,
-                "I thought I would sail about a little and see the watery part of the world."),
+                TextPassage("I thought I would sail about a little and see the watery part of the world."),
+            )),
         ),
     )
 
-    private val prideAndPrejudice = IndexedBook(
+    private val prideAndPrejudice = Book(
         id = "b2",
         title = "Pride and Prejudice",
-        passages = listOf(
-            Passage(0, 0, "Chapter 1",
-                "It is a truth universally acknowledged, that a single man in possession of a " +
+        chapters = listOf(
+            Chapter(0, "Chapter 1", listOf(
+                TextPassage("It is a truth universally acknowledged, that a single man in possession of a " +
                     "good fortune, must be in want of a wife."),
-            Passage(1, 0, "Chapter 1",
-                "However little known the feelings or views of such a man may be on his first " +
+            )),
+            Chapter(1, "Chapter 1", listOf(
+                TextPassage("However little known the feelings or views of such a man may be on his first " +
                     "entering a neighbourhood,"),
-            Passage(1, 1, "Chapter 1",
-                "this truth is so well fixed in the minds of the surrounding families, that he " +
+                TextPassage("this truth is so well fixed in the minds of the surrounding families, that he " +
                     "is considered as the rightful property of some one or other of their daughters."),
+            )),
         ),
     )
 
-    private val papPassage1 = prideAndPrejudice.passages[1]
+    private val papPassage1 = prideAndPrejudice.chapters[1].passages[0].text
 
     private fun defaultIndex(): TextIndex = TextIndex().apply {
         add(mobyDick)
@@ -95,18 +97,18 @@ class TextIndexTest {
 
     @Test
     fun `verbatim snippet scores exactly 1`() {
-        assertEqualsClose(1.0, TextMatcher.score(papPassage1.text, papPassage1.text))
+        assertEqualsClose(1.0, TextMatcher.score(papPassage1, papPassage1))
     }
 
     @Test
     fun `middle chunk of a passage scores 1`() {
         val chunk = "the feelings or views of such a man may be on his first entering"
-        assertEqualsClose(1.0, TextMatcher.score(chunk, papPassage1.text))
+        assertEqualsClose(1.0, TextMatcher.score(chunk, papPassage1))
     }
 
     @Test
     fun `truncated prefix scores 1`() {
-        assertEqualsClose(1.0, TextMatcher.score("However little known the feelings or views", papPassage1.text))
+        assertEqualsClose(1.0, TextMatcher.score("However little known the feelings or views", papPassage1))
     }
 
     @Test
@@ -114,7 +116,7 @@ class TextIndexTest {
         // One corrupted word ("v1ews": l→1, a common OCR confusion) + case + smart
         // quotes in a 19-word sentence: score stays comfortably above the 0.6 default.
         val noisy = "HOWEVER \u201Clittle KNOWN the feelings or v1ews of such a man may be on his first entering a neighbourhood"
-        val score = TextMatcher.score(noisy, papPassage1.text)
+        val score = TextMatcher.score(noisy, papPassage1)
         assertTrue(score >= 0.6, "score was $score")
     }
 
@@ -124,20 +126,20 @@ class TextIndexTest {
         // error on a book page; the score should degrade but stay clearly above zero
         // (partial credit), which is what "not confident → not found" is supposed to look like.
         val noisy = "HOWEVER \u201Clittle KNOWN the feelings or v1ews of such a man may be on h1s first entering a ne1ghbourhood"
-        val score = TextMatcher.score(noisy, papPassage1.text)
+        val score = TextMatcher.score(noisy, papPassage1)
         assertTrue(score in 0.4..0.6, "score was $score")
     }
 
     @Test
     fun `reordered text scores near zero`() {
         val reordered = "neighbourhood entering first his of man such a views feelings known little however"
-        val score = TextMatcher.score(reordered, papPassage1.text)
+        val score = TextMatcher.score(reordered, papPassage1)
         assertTrue(score < 0.3, "score was $score")
     }
 
     @Test
     fun `unrelated text scores zero`() {
-        assertEqualsClose(0.0, TextMatcher.score("quantum entanglement emitted zephyrs over the fjord at midnight", papPassage1.text))
+        assertEqualsClose(0.0, TextMatcher.score("quantum entanglement emitted zephyrs over the fjord at midnight", papPassage1))
     }
 
     // ------------------------------------------------------------------
@@ -146,12 +148,12 @@ class TextIndexTest {
 
     @Test
     fun `query finds verbatim snippet with confidence 1`() {
-        val result = defaultIndex().query(papPassage1.text, minConfidence = 0.6)
+        val result = defaultIndex().query(papPassage1, minConfidence = 0.6)
         assertNotNull(result)
         result!!
-        assertEquals("b2", result.book.id)
-        assertEquals(1, result.passage.chapterIndex)
-        assertEquals(0, result.passage.passageIndex)
+        assertEquals("b2", result.bookId)
+        assertEquals(1, result.chapterIndex)
+        assertEquals(0, result.passageIndex)
         assertEqualsClose(1.0, result.confidence)
     }
 
@@ -161,7 +163,7 @@ class TextIndexTest {
         val result = defaultIndex().query(noisy, minConfidence = 0.6)
         assertNotNull(result, "OCR-noisy snippet should match above threshold")
         result!!
-        assertEquals("b2", result.book.id)
+        assertEquals("b2", result.bookId)
         assertTrue(result.confidence >= 0.6, "confidence was ${result.confidence}")
     }
 
@@ -173,8 +175,9 @@ class TextIndexTest {
         val result = defaultIndex().query(fromMoby, minConfidence = 0.6)
         assertNotNull(result)
         result!!
-        assertEquals("b1", result.book.id)
-        assertEquals(0, result.passage.passageIndex)
+        assertEquals("b1", result.bookId)
+        assertEquals(0, result.chapterIndex)
+        assertEquals(0, result.passageIndex)
         assertEqualsClose(1.0, result.confidence)
     }
 
@@ -207,13 +210,13 @@ class TextIndexTest {
     @Test
     fun `query ties keep the earliest indexed book`() {
         val shared = "The quick brown fox jumps over the lazy dog while counting stars at dawn"
-        val first = IndexedBook("A", "First", listOf(Passage(0, 0, null, shared)))
-        val second = IndexedBook("B", "Second", listOf(Passage(0, 0, null, shared)))
+        val first = Book("A", "First", chapters = listOf(Chapter(0, null, listOf(TextPassage(shared)))))
+        val second = Book("B", "Second", chapters = listOf(Chapter(0, null, listOf(TextPassage(shared)))))
         val index = TextIndex().apply { add(first); add(second) }
         val result = index.query(shared, minConfidence = 0.6)
         assertNotNull(result)
         result!!
-        assertEquals("A", result.book.id)
+        assertEquals("A", result.bookId)
     }
 
     @Test
@@ -228,7 +231,11 @@ class TextIndexTest {
     fun `re-adding the same book id replaces its content`() {
         val index = defaultIndex()
         val replacement = prideAndPrejudice.copy(
-            passages = listOf(Passage(0, 0, null, "The mystery of the green lighthouse unfolded slowly across the dunes")),
+            chapters = listOf(
+                Chapter(0, null, listOf(
+                    TextPassage("The mystery of the green lighthouse unfolded slowly across the dunes"),
+                )),
+            ),
         )
         index.add(replacement)
         assertNull(index.query("However little known the feelings", minConfidence = 0.6))
@@ -241,7 +248,7 @@ class TextIndexTest {
         val index = defaultIndex()
         index.clear()
         assertEquals(0, index.bookCount())
-        assertNull(index.query(papPassage1.text, minConfidence = 0.6))
+        assertNull(index.query(papPassage1, minConfidence = 0.6))
     }
 
     @Test
@@ -252,16 +259,16 @@ class TextIndexTest {
             "first entering a neighbourhood this truth is so well fixed in the minds"
         val index = defaultIndex().apply { remove("b1") } // isolate: only b2 could win anyway
         val result = index.query(spanning, minConfidence = 0.6) ?: return // below-threshold acceptable
-        assertEquals("b2", result.book.id)
-        assertEquals(1, result.passage.chapterIndex)
+        assertEquals("b2", result.bookId)
+        assertEquals(1, result.chapterIndex)
     }
 
     @Test
     fun `book titles are preserved in the result`() {
-        val result = defaultIndex().query(papPassage1.text, minConfidence = 0.6)
+        val result = defaultIndex().query(papPassage1, minConfidence = 0.6)
         assertNotNull(result)
         result!!
-        assertEquals("Pride and Prejudice", result.book.title)
-        assertNotEquals("Moby-Dick", result.book.title)
+        assertEquals("Pride and Prejudice", result.bookTitle)
+        assertNotEquals("Moby-Dick", result.bookTitle)
     }
 }
