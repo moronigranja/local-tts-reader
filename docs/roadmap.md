@@ -73,6 +73,10 @@ them); Room 2.8.4's kapt processor needed a forced `kotlin-metadata-jvm` 2.4.10
 (decisions #22). **98 tests green** (core-locate 32 + core-ebook 50 +
 core-persistence 9 + feature-library 7).
 
+Candidate features from other local-TTS reader apps (Audiobookify, heard.quest)
+are logged in [ideas.md](ideas.md) — a pool, not commitments; ideas graduate here
+when decided.
+
 ## Assumptions
 
 - Everything Android (foundation, player, share receiver, OCR, Room, Compose) needs the

@@ -1,7 +1,9 @@
 # Feature plans
 
 One doc per planned feature, written when the feature is planned in detail (before its
-implementation slice). Roadmap (docs/roadmap.md) tracks status.
+implementation slice). Roadmap (docs/roadmap.md) tracks status; unplanned candidates
+from other local-TTS reader apps live in [ideas.md](../ideas.md) (a pool, not
+commitments).
 
 | Feature | Doc | Status |
 |---|---|---|
