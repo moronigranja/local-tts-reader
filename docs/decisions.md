@@ -127,3 +127,25 @@ Consequences: v1 = Kokoro-82M primary, CosyVoice3 remains behind the gate in the
 fallback tier; `spike-tts` stays in the repo to re-run the gate when a DiT
 acceleration path exists; AR codec-token engines (hard-facts watch item) are the
 documented bypass if narration quality checks out.
+
+## 22. Persistence stack: Room 2.8.4 on kapt + forced kotlin-metadata-jvm; LibraryStore in core-model (2026-08-25)
+P1/P2 landed Room on the existing kapt path (Hilt already there; no KSP plugin
+exists for Kotlin 2.4 as of this date — KSP tops out at 2.3.11). Room 2.8.4's
+kapt processor bundles a kotlin-metadata-jvm reader capped at metadata **2.3.0**,
+while Kotlin 2.4.10's own stdlib/coroutines classes carry 2.4.0 metadata — so
+processing any suspend DAO method crashes the processor, no matter what the
+module emits (the decision #19 class of problem, now inside a dependency).
+Fix: `resolutionStrategy.force("org.jetbrains.kotlin:kotlin-metadata-jvm:2.4.10")`
+on the module's kapt configurations — the reader API is backward-compatible.
+Scoped to `core-persistence`; lift the force when Room/KSP support Kotlin 2.4
+metadata.
+Schema: version 1, `exportSchema = false` (schema-drift check arrives with CI/V2),
+migrations forward-only, **no destructive fallback** — a schema bump without a
+migration fails loudly rather than wiping the library.
+`LibraryStore` (books flow + add) is the domain contract in core-model;
+`InMemoryLibraryStore` (unit tests) and `RoomLibraryStore` (production) implement
+it. Authors are stored U+001F-joined in one column; if a real author name ever
+contains U+001F, switch to a child table first.
+The cached-parses table is the launch-time rebuild input; the rebuild is
+mirror-set (purge ids absent from the cache), so it is idempotent and merges
+safely with concurrent imports.

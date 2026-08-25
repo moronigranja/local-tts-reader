@@ -6,7 +6,7 @@ core-ebook/       EBookParser interface + format parsers (epub, azw3/kf8, mobi/a
 core-locate/      TextIndex + matcher (n-gram recall over indexed books); no Android deps
 core-ocr/         on-device OCR (tess-two) behind OCRService interface; eng+spa+fra+deu+por+ita
 core-tts/         TTSEngine interface + engine impls (CosyVoice3 primary, Kokoro fallback); model + language-pack download/caching
-core-persistence/ Room schema, daos, migrations
+core-persistence/ LIVE — Room schema v1 (books, cached passages, progress, settings), DAOs, LibraryStore impl + launch-time index rebuild (P1/P2)
 feature-library/  SAF import + library list UI (Compose, Hilt) — C5/C6; search pending
 feature-reader/   text display + navigation (planned)
 feature-share/    ACTION_SEND receiver: text + screenshot → TextIndex → resume point (planned)

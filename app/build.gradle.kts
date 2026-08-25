@@ -48,5 +48,6 @@ dependencies {
     implementation(project(":core-model"))
     implementation(project(":core-ebook"))
     implementation(project(":core-locate"))
+    implementation(project(":core-persistence"))
     implementation(project(":feature-library"))
 }

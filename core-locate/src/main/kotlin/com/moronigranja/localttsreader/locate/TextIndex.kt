@@ -51,6 +51,10 @@ class TextIndex {
     @Synchronized
     fun contains(bookId: String): Boolean = books.containsKey(bookId)
 
+    /** Indexed book ids in insertion order — the launch-time rebuild's purge set (P2). */
+    @Synchronized
+    fun bookIds(): Set<String> = books.keys.toSet()
+
     private fun flatten(book: Book): List<PassageRef> =
         book.chapters.flatMap { chapter ->
             chapter.passages.mapIndexed { index, passage ->

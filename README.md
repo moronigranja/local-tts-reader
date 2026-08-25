@@ -6,17 +6,20 @@ open-weight text-to-speech**. No cloud, no account, no telemetry.
 ## Status
 
 Early development. **Implemented and tested (pure JVM, no Android dependency):**
-- `core-locate` — book/passage identification core (24 tests)
+- `core-locate` — book/passage identification core + launch-time index rebuild (32 tests)
 - `core-ebook` — EPUB + MOBI/KF8 parsers, passage segmentation, import pipeline
   (50 tests: parsers incl. MOBI7 NCX chapters, fixtures, segmentation, importer)
 
 **Built (Android, Docker toolchain):**
+- `core-persistence` (P1/P2) — Room schema (books, cached passages, progress,
+  settings), `LibraryStore` contract, launch-time TextIndex rebuild from cached
+  parses — never re-parses (9 Robolectric-verified tests)
 - `feature-library` (C5/C6) — SAF multi-file import (progress, typed failures,
   idempotent re-import) + library list UI, Hilt-wired (7 unit tests)
 - `app` — manifest, minSdk 26, Compose entry, Hilt composition root, debug signing;
   `tools/docker-build.sh assembleDebug` produces an APK
 
-**Not built yet:** TTS player, share receiver, OCR, Room persistence — the pending
+**Not built yet:** TTS player + engine core, share receiver, OCR — the pending
 slices on this foundation.
 
 ## Limitations (current)
@@ -33,9 +36,10 @@ slices on this foundation.
 - **Parsers** are verified against generated fixtures; a pass over real-world books
   is pending (needs your files).
 - **Share-and-identify** only recognizes books already imported into the library.
-- **TTS:** engine selection is gated on an on-device benchmark (CosyVoice3-0.5B target,
-  Kokoro-82M fallback); models and language packs are on-demand downloads, never
-  bundled. Portuguese comes via the fallback engines.
+- **TTS:** the on-device benchmark is settled (CosyVoice3-0.5B on the S22 Ultra is
+  far from realtime on CPU — decisions #21): v1 uses Kokoro-82M as primary with
+  CosyVoice3 gated behind the fallback tier; models and language packs are on-demand
+  downloads, never bundled. Portuguese comes via the fallback engines.
 
 ## Capabilities
 
@@ -54,7 +58,7 @@ slices on this foundation.
 ```
 core-model/    Canonical domain: Book, Chapter, TextPassage, LibraryEntry
 core-ebook/    EPUB + MOBI/KF8 parsers, passage segmentation, import pipeline
-core-locate/   Book/passage matching core (pure JVM, no Android deps)
+core-persistence/  Room library store: books, cached passages, progress, settings
 feature-library/  SAF import flow + library list UI (Compose, Hilt)
 app/           Hilt composition root, MainActivity → library screen
 tools/         Fixture generator (gen_mobi_fixtures.py), containerized-build helper (docker-build.sh)

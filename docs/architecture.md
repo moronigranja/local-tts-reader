@@ -21,10 +21,10 @@ the change.
 core-model      canonical domain: Book(id, title, authors, chapters), Chapter, TextPassage, LibraryEntry
 core-ebook      EBookParser + EBookFormats + EpubParser/MobiParser → Book;
                 BookSegmentation (grain, front/back matter); BookImporter (parse→segment→index)
-core-locate     TextIndex, TextMatcher, TextNormalizer, MatchResult (identification)
+core-locate     TextIndex, TextMatcher, TextNormalizer, MatchResult; IndexRebuilder (launch-time sync)
 core-ocr        (pending) tess-two OCR behind OCRService; language packs downloadable
 core-tts        (pending) TTSEngine + engine impls; model + language-pack download/caching
-core-persistence(pending) Room: library, progress, settings
+core-persistence (live) Room: books, cached passages, progress, settings; LibraryStore impl
 feature-library (live) SAF import + library list (Compose, Hilt); search pending
 feature-reader/share/player (pending) Compose UI + Android services
 app             (live) Hilt composition root, manifest, MainActivity → LibraryScreen
@@ -35,7 +35,9 @@ Current dependency edges:
 ```
 core-model  ←  core-ebook  (parsers return Book)
 core-model  ←  core-locate (TextIndex consumes Book)
+core-model  ←  core-persistence  (persists LibraryEntry; LibraryStore contract)
 core-locate ←  core-ebook  (BookImporter indexes into TextIndex — the import contract)
+core-persistence ←  feature-library  (Hilt provides the Room-backed LibraryStore)
 core-ebook  ←  feature-library  (SAF sources → BookImporter)
 feature-library ←  app          (Hilt wires the composition root to the library screen)
 ```
@@ -54,7 +56,8 @@ Rules:
 
 ```
 file (SAF) ─EBookSource─▶ EBookFormats.parserFor(fileName) ─▶ Parser.parse ─▶ Book (raw)
-      ─▶ BookSegmentation.segment ─▶ TextIndex.add(book)  ─▶ LibraryEntry → (Room, pending)
+      ─▶ BookSegmentation.segment ─▶ TextIndex.add(book)  ─▶ LibraryEntry → Room
+            (passages cached in the same transaction — the launch-time rebuild source)
 ```
 
 - **Identity**: `Book.id` = SHA-256 of the container bytes. Content-addressed: no
@@ -77,7 +80,10 @@ shared snippet → normalize → word n-grams → recall vs every indexed passag
 
 - `TextIndex`: in-memory, synchronized writes, snapshot reads (queries never block
   import); per-passage gram sets precomputed at add time; linear scan until the
-  inverted-index follow-up.
+  inverted-index follow-up. Populated on import and **rebuilt at launch** from Room's
+  cached parses by `IndexRebuilder` — never re-parses a source file; mirror-set
+  semantics (ids absent from the cache are purged), idempotent under concurrent
+  imports (P2).
 - OCR (pending, core-ocr): tess-two behind `OCRService`, languages downloadable
   (`eng+spa+fra+deu+por+ita` start), screenshot downscale; feeds the same snippet path.
 
@@ -104,9 +110,9 @@ shared snippet → normalize → word n-grams → recall vs every indexed passag
 
 ## 7. Status
 
-2026-08-24: core-model, core-ebook (epub + mobi/kf8 + segmentation + importer),
-core-locate implemented — 74 JVM tests green (core-locate 24 + core-ebook 50).
-The `app` scaffold (F1) and `feature-library` (C5/C6: SAF import + library list,
-Hilt, 7 unit tests) landed the same day in the Docker toolchain — 81 tests total.
-core-tts/core-ocr/core-persistence, the share receiver, and the player are pending
-on this foundation.
+2026-08-25: core-model, core-ebook (epub + mobi/kf8 + segmentation + importer),
+core-locate, core-persistence (P1/P2 Room) implemented — **98 tests green**
+(core-locate 32 + core-ebook 50 + core-persistence 9 + feature-library 7).
+`app` scaffold (F1), `feature-library` (C5/C6), and the launch-time index rebuild
+(P2) are live in the Docker toolchain. Pending: core-tts, core-ocr, the share
+receiver, and the player.

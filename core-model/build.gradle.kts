@@ -16,3 +16,15 @@ kotlin {
         jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17)
     }
 }
+dependencies {
+    implementation(libs.kotlinx.coroutines.core) // LibraryStore's observable flow contract
+    testImplementation(libs.junit.jupiter)
+    testRuntimeOnly(libs.junit.platform.launcher)
+}
+
+tasks.test {
+    useJUnitPlatform()
+    testLogging {
+        events("passed", "failed", "skipped")
+    }
+}

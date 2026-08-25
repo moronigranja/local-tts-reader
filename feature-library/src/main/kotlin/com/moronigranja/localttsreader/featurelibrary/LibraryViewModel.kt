@@ -7,6 +7,7 @@ import com.moronigranja.localttsreader.ebook.EBookSource
 import com.moronigranja.localttsreader.ebook.ImportFailureReason
 import com.moronigranja.localttsreader.ebook.ImportOutcome
 import com.moronigranja.localttsreader.model.LibraryEntry
+import com.moronigranja.localttsreader.model.LibraryStore
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.CoroutineDispatcher
@@ -19,7 +20,7 @@ import kotlinx.coroutines.withContext
 /**
  * Drives the import flow: batches [EBookSource]s through the domain [BookImporter]
  * on the IO dispatcher, publishes progress as [Importing], appends [Added]
- * entries to the [LibraryRepository], and lands on [ImportUiState.Done] with the
+ * entries to the [LibraryStore], and lands on [ImportUiState.Done] with the
  * batch summary — for every outcome, including all-failed batches.
  *
  * [ioDispatcher] is qualifier-injected so unit tests can hand a virtual dispatcher
@@ -28,7 +29,7 @@ import kotlinx.coroutines.withContext
  */
 @HiltViewModel
 class LibraryViewModel @Inject constructor(
-    private val repository: LibraryRepository,
+    private val repository: LibraryStore,
     private val importer: BookImporter,
     @IoDispatcher private val ioDispatcher: CoroutineDispatcher,
 ) : ViewModel() {
@@ -56,7 +57,7 @@ class LibraryViewModel @Inject constructor(
         }
     }
 
-    private fun buildSummary(outcomes: List<ImportOutcome>): ImportUiState.Summary {
+    private suspend fun buildSummary(outcomes: List<ImportOutcome>): ImportUiState.Summary {
         var added = 0
         var unchanged = 0
         val failed = mutableListOf<Pair<String, String>>()

@@ -1,0 +1,58 @@
+package com.moronigranja.localttsreader.persistence
+
+import com.moronigranja.localttsreader.model.CachedBook
+import com.moronigranja.localttsreader.model.LibraryEntry
+import com.moronigranja.localttsreader.model.LibraryStore
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.stateIn
+import androidx.room.withTransaction
+
+/**
+ * Room-backed [LibraryStore] (P1/P2 swap target): [books] streams library rows
+ * in import order; [add] persists the book and its full parsed passages **in one
+ * transaction** — that passages cache is what the launch-time index rebuild
+ * consumes, so a relaunch never re-parses (P2).
+ *
+ * Book ids are content hashes (decisions #11), so [add] is naturally
+ * idempotent: [androidx.room.Upsert] replaces rows on the same id.
+ *
+ * Note: [books] entries carry an empty `chapters` list on purpose — the list UI
+ * needs title/authors only; the full parse is reachable via [cachedBooks].
+ */
+class RoomLibraryStore(
+    private val database: LibraryDatabase,
+    private val scope: CoroutineScope,
+) : LibraryStore {
+
+    override val books: StateFlow<List<LibraryEntry>> = database.bookDao().observeAll()
+        .map { rows -> rows.map { it.toLibraryEntry() } }
+        .stateIn(scope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    override suspend fun add(entry: LibraryEntry) {
+        database.withTransaction {
+            // Replace, not append: the passages cache must mirror this entry's
+            // parse exactly. Same-id re-adds with a differing (empty) chapter
+            // list would otherwise leave stale rows behind.
+            database.passageDao().deleteByBook(entry.book.id)
+            database.bookDao().upsert(entry.bookEntity())
+            database.passageDao().upsertAll(entry.book.cachedPassages())
+        }
+    }
+
+    /** Every book's cached parse, in import order — the rebuild's input (P2). */
+    suspend fun cachedBooks(): List<CachedBook> {
+        val books = database.bookDao().all()
+        val passagesByBook = database.passageDao().all().groupBy { it.bookId }
+        return books.map { book ->
+            CachedBook(
+                id = book.id,
+                title = book.title,
+                authors = decodeAuthors(book.authors),
+                passages = passagesByBook[book.id].orEmpty().map { it.toCachedPassage() },
+            )
+        }
+    }
+}

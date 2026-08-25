@@ -51,10 +51,14 @@ dependencies {
     implementation(libs.hilt.android)
     kapt(libs.hilt.compiler)
     debugImplementation(libs.compose.ui.tooling)
+    // PersistenceModule constructs the Room database; core-persistence only
+    // exposes it via project(), so Room itself must be on this classpath.
+    implementation(libs.room.runtime)
 
     implementation(project(":core-model"))
     implementation(project(":core-ebook"))
     implementation(project(":core-locate"))
+    implementation(project(":core-persistence"))
 
     testImplementation(libs.junit.jupiter)
     testRuntimeOnly(libs.junit.platform.launcher)

@@ -15,8 +15,13 @@ dependencyResolutionManagement {
 
 rootProject.name = "local-tts-reader"
 
-// JVM-only modules; the Android app modules arrive with the app foundation slice.
+// Pure-JVM modules (testable without the Android SDK) plus the Android
+// app modules (toolchain in Docker, see tools/docker-build.sh) and the
+// T3 measurement harness.
 include(":core-model")
 include(":core-ebook")
 include(":core-locate")
+include(":core-persistence")
+include(":app")
+include(":feature-library")
 include(":spike-tts")

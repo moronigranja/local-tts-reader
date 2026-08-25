@@ -55,8 +55,23 @@ throttle. The open fidelity defect is fixed: `Pipeline.flowGenerate` fed the flo
 estimator a stale snapshot of the initial noise (never rebuilt per step), yielding
 a hot compressed mel (mean −0.9) and clipped buzzing audio; after the fix device
 mels match host (−5.3, prompt scale), audio RMS 0.05–0.08, no clip. Gate verdict
-stands, now final: CPU fails the realtime bar; Kokoro v1 primary, CosyVoice3 gated
-fallback (decisions #21).
+  stands, now final: CPU fails the realtime bar; Kokoro v1 primary, CosyVoice3 gated
+  fallback (decisions #21).
+
+**P1 + P2 done (2026-08-25):** `core-persistence` — Room schema v1 (books, cached
+passages, progress, settings key-value incl. match threshold 0.6), migrations
+forward-only (no destructive fallback). `LibraryStore` contract lands in
+core-model (InMemory impl for unit tests; `RoomLibraryStore` for production);
+`IndexRebuilder` in core-locate syncs the TextIndex to the cached parses at
+launch — the "never re-parse" contract (P2) — with mirror-set semantics (ids
+absent from the cache are purged), so it is idempotent and merges safely with a
+concurrent import. feature-library now persists through Hilt
+(`PersistenceModule`); its ViewModel keeps the same `books` surface. DAO/store
+round-trips run under Robolectric against in-memory SQLite. Also: restored
+`app`/`feature-library` to `settings.gradle.kts` (the T3 spike commit had dropped
+them); Room 2.8.4's kapt processor needed a forced `kotlin-metadata-jvm` 2.4.10
+(decisions #22). **98 tests green** (core-locate 32 + core-ebook 50 +
+core-persistence 9 + feature-library 7).
 
 ## Assumptions
 

@@ -1,21 +1,22 @@
 # Build, run, test
 
 ```bash
-./gradlew assembleDebug                 # build an installable APK
-./gradlew testDebugUnitTest             # unit tests (logic, parsers, state)
-./gradlew assembleDebugAndroidTest      # instrumented tests
-run; use the containerized toolchain for the full suite (`tools/docker-build.sh
-test`).
-+
-+No ktlint/detekt plugins are configured yet — those lint/format tasks arrive with the
-+CI slice (roadmap V2).
+./gradlew testDebugUnitTest             # unit tests (logic, parsers, state, Room DAOs via Robolectric)
+./gradlew assembleDebugAndroidTest      # instrumented tests (compile; run on a device)
+# without the Android SDK use the containerized toolchain (below) for anything
+# that touches Android modules
+```
+
+No ktlint/detekt plugins are configured yet — those lint/format tasks arrive with the
+CI slice (roadmap V2).
 
 Three pure-JVM modules (`core-model`, `core-ebook`, `core-locate`) build and test
-without the Android SDK — `./gradlew :core-locate:test :core-ebook:test` runs their
-74 tests. The `app` and `feature-library` Android modules (F1, C5/C6) are wired into
-the same build, so the aggregate `./gradlew test` needs the SDK once Android tasks
-run; use the containerized toolchain for the full suite (`tools/docker-build.sh
-test`).
+without the Android SDK — `./gradlew :core-locate:test :core-ebook:test :core-model:test`
+runs their unit tests. The Android modules (`app`, `feature-library`,
+`core-persistence`) are wired into the same build; their unit tests need the SDK —
+`core-persistence` additionally runs the Room DAO/store tests under Robolectric.
+The aggregate `./gradlew test` needs the SDK once Android tasks run; use the
+containerized toolchain for the full suite (`tools/docker-build.sh test`).
 
 ## T3 CosyVoice3 spike (`spike-tts`)
 

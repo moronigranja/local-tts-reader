@@ -8,6 +8,7 @@ import com.moronigranja.localttsreader.ebook.EpubFixture.ncx
 import com.moronigranja.localttsreader.ebook.EpubFixture.opf
 import com.moronigranja.localttsreader.ebook.EpubFixture.zip
 import com.moronigranja.localttsreader.locate.TextIndex
+import com.moronigranja.localttsreader.model.InMemoryLibraryStore
 import java.io.ByteArrayInputStream
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.launch
@@ -48,7 +49,7 @@ class LibraryViewModelTest {
         EBookSource(name) { ByteArrayInputStream(bytes) }
 
     private fun viewModel() = LibraryViewModel(
-        LibraryRepository(),
+        InMemoryLibraryStore(),
         BookImporter(TextIndex()),
         mainDispatcherRule.testDispatcher,
     )
@@ -169,16 +170,16 @@ class LibraryViewModelTest {
     }
 
     @Test
-    fun `repository add appends and dedupes by book id`() {
-        val repository = LibraryRepository()
+    fun `store add appends and dedupes by book id`() = runTest(mainDispatcherRule.testDispatcher) {
+        val store = InMemoryLibraryStore()
         val entry = BookImporter(TextIndex()).import(
             source("Novel.epub", epubBook("Novel", "Chapter 1", "Prose here.")),
         ) as com.moronigranja.localttsreader.ebook.ImportOutcome.Added
 
-        repository.add(entry.entry)
-        repository.add(entry.entry)
+        store.add(entry.entry)
+        store.add(entry.entry)
 
-        assertEquals(1, repository.books.value.size)
-        assertEquals("Novel", repository.books.value.first().book.title)
+        assertEquals(1, store.books.value.size)
+        assertEquals("Novel", store.books.value.first().book.title)
     }
 }
