@@ -108,14 +108,19 @@ forces the built-in-Kotlin migration — deferred follow-up). Compose BOM stays
 2026.06.01 (newer BOMs need compileSdk 37/AGP 9.1). Docker image unchanged
 (build-tools 36.0.0 = AGP 9 default).
 
-## 20. Sandbox rig retired; Docker toolchain is the single build/test path; builds run as the host uid (2026-08-25)
-Decisions #17/#18's standalone Kotlin-compiler rig existed only because this
-environment lacked Gradle/Android SDK. F1 + C5/C6 landed the toolchain, and the
-C5/C6 Docker-verified gates retired the rig — module tests now run via the repo's
-Gradle 9.1.0 wrapper: JVM modules on the host, Android modules in the
-`localtts-android` image (`tools/docker-build.sh`). That image runs Gradle as the
-invoking host user (`docker run --user`, HOME=/builder, cache volumes at
-/builder/.gradle + /builder/.local), so containerized builds never leave root-owned
-files that block host `./gradlew` runs; the SDK is baked but world-writable so AGP
-can unpack `.temp` components as any uid. Old root-owned cache volumes need a
-one-time `chown` (the script prints it).
+
+## 21. T3 CosyVoice3 gate result: CPU-only fails on the S22 Ultra; Kokoro stays v1 primary (2026-08-25)
+Measured via the `spike-tts` harness: jiangzhuo9357 int4 ONNX export (sokuji-
+audio-verified semantics), ORT 1.23.2 CPU-only, 6 threads, S22 Ultra (SM-S908U1).
+Per 10.1 s of audio: LLM ≈ 36–51 s, flow DiT ≈ 112–163 s, HiFT ≈ 9–10 s → RTF
+≈ 16–22, ~10× over the ~0.5–1×-realtime bar. The flow DiT is the wall (~72% of
+cost) and has no credible mobile acceleration path: ORT Vulkan EP / NNAPI /
+LiteRT-LM cover LLM-style ops only (bounded best case ≈ RTF 10–19). First
+measurement predates the tensor-lifecycle fix (RTF 22.2 → 15.6 after closing ORT
+inputs/outputs); on-device audio fidelity still has an open defect (hot mel /
+buzz) at handoff — the gate result is directionally settled, exact final RTF and
+audio verification land with the spike follow-up.
+Consequences: v1 = Kokoro-82M primary, CosyVoice3 remains behind the gate in the
+fallback tier; `spike-tts` stays in the repo to re-run the gate when a DiT
+acceleration path exists; AR codec-token engines (hard-facts watch item) are the
+documented bypass if narration quality checks out.

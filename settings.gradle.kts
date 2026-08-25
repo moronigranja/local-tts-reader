@@ -19,5 +19,4 @@ rootProject.name = "local-tts-reader"
 include(":core-model")
 include(":core-ebook")
 include(":core-locate")
-include(":app")
-include(":feature-library")
+include(":spike-tts")

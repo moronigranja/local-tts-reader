@@ -4,9 +4,11 @@
 ./gradlew assembleDebug                 # build an installable APK
 ./gradlew testDebugUnitTest             # unit tests (logic, parsers, state)
 ./gradlew assembleDebugAndroidTest      # instrumented tests
-adb install -r app/build/outputs/apk/debug/app-debug.apk
-./gradlew ktlintCheck                   # or detekt, per repo config
-```
+run; use the containerized toolchain for the full suite (`tools/docker-build.sh
+test`).
++
++No ktlint/detekt plugins are configured yet — those lint/format tasks arrive with the
++CI slice (roadmap V2).
 
 Three pure-JVM modules (`core-model`, `core-ebook`, `core-locate`) build and test
 without the Android SDK — `./gradlew :core-locate:test :core-ebook:test` runs their
@@ -15,6 +17,31 @@ the same build, so the aggregate `./gradlew test` needs the SDK once Android tas
 run; use the containerized toolchain for the full suite (`tools/docker-build.sh
 test`).
 
+## T3 CosyVoice3 spike (`spike-tts`)
+
+Experimental measurement harness (decision #21, handoff-2026-08-25.md): runs the
+CosyVoice3-0.5B ONNX pipeline (jiangzhuo9357 int4 export + sokuji-corrected
+semantics) on a physical device, per-stage timing, RTF, VmHWM/RSS and thermal
+headroom, and writes `out_runN.wav` + `results.json` to external filesDir.
+
+```bash
+tools/docker-build.sh :spike-tts:assembleDebug     # build (note: debug keystore
+                                                   # regenerates per docker run —
+                                                   # uninstall before install!)
+adb install spike-tts/build/outputs/apk/debug/spike-tts-debug.apk
+# stage models (3.5 GB) into internal storage — Android 11+ FUSE hides
+# adb-pushed files under Android/data/<pkg>:
+adb push /tmp/t3/models /data/local/tmp/models          # once
+adb shell "run-as com.moronigranja.localttsreader.spiketts sh -c \
+  'mkdir -p files/models && cp -r /data/local/tmp/models/. files/models/'"
+adb shell am start -n com.moronigranja.localttsreader.spiketts/.MainActivity
+adb logcat -s T3Spike                                   # RTF / stage timings
+# pull results:
+adb exec-out run-as com.moronigranja.localttsreader.spiketts cat \
+  /sdcard/Android/data/com.moronigranja.localttsreader.spiketts/files/out_run1.wav > out.wav
+```
+The prompt voice ships pre-resampled (`voices/sarah16.wav` / `sarah24.wav`);
+models are intentionally NOT committed (runtime download, decision #7).
 ## Android toolchain in Docker (recommended)
 
 The Android SDK + NDK is tens of thousands of files. Baking it into an image keeps the

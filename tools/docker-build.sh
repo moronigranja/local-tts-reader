@@ -27,9 +27,15 @@ fi
 # The cache volumes may still be root-owned from an earlier toolchain run; the
 # invoking uid must own them. Detect that and print the one-time migration instead of
 # failing cryptically in Gradle.
+#
+# Fresh volumes need no setup: this check mounts at the same paths as the build below,
+# so a brand-new volume is initialized from the image's sticky 1777 /builder/.gradle
+# and /builder/.local and is writable by any uid. Only legacy root-owned volumes (from
+# a toolchain predating that Dockerfile behavior) fail the check and trigger the
+# migration command below.
 if ! docker run --rm -u "$UID_NUM:$GID_NUM" \
-      -v android-gradle:/cache/check1 -v android-local:/cache/check2 \
-      "$IMAGE" sh -c 'test -w /cache/check1 && test -w /cache/check2'; then
+      -v android-gradle:/builder/.gradle -v android-local:/builder/.local \
+      "$IMAGE" sh -c 'test -w /builder/.gradle && test -w /builder/.local'; then
   echo "Gradle cache volumes are not writable by uid $UID_NUM (root-owned from an earlier toolchain)." >&2
   echo "Migrate once with:" >&2
   echo "  docker run --rm -u 0 -v android-gradle:/builder/.gradle -v android-local:/builder/.local \\" >&2

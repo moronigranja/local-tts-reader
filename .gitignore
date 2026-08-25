@@ -43,3 +43,6 @@ adb.log
 .DS_Store
 Thumbs.db
 *.swp
+
+# external idea file (evaluated; see docs/hard-facts.md AR watch item)
+gemini-idea.txt

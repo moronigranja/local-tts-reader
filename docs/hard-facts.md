@@ -93,6 +93,13 @@ Kokoro ships inside the app.
   | CosyVoice-300M | 300M (v1) | Moderate | 5 | Older gen; superseded by 0.5B v3. |
   | Qwen3-TTS | 1.7B | High | ~10 | Heavy; only with strong NPU quant. Long-term option. |
   | Coqui XTTS v2 | large | High | multilingual | Restrictive Coqui license — avoid. |
+- **AR codec-token family — watch item (2026-08-25).** Parallel-lane candidate that
+  removes the DiT entirely: an autoregressive LLM predicting discrete audio tokens
+  (Mini-Omni / Qwen2-Audio class, 0.5–1.5B) + a neural codec (SNAC / Mimi / EnCodec).
+  Motivated by the measured T3 result (flow DiT = ~72% of CosyVoice3's on-device RTF —
+  see decisions #21). Gate before it can be a primary: measured RTF/TTFA on the S22
+  Ultra **and** a narration-quality review (expressiveness for the audiobook use case
+  is unproven in that family).
 - **Portuguese (pt-BR) is a nice-to-have, not a blocker** (user 2026-08). CosyVoice3's
   official 9 languages exclude pt, but it is covered today through the fallback engines:
   Kokoro v1.0 ships 3 pt-BR voices, and Piper has per-language pt voice packs. Revisit

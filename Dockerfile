@@ -49,7 +49,11 @@ RUN yes | sdkmanager --licenses > /dev/null \
 
 # Writable (sticky) HOME base for the passed-through build uid; the SDK is baked
 # read-mostly but made world-writable so AGP can unpack .temp components as any uid.
-RUN mkdir -p /builder && chmod 1777 /builder \
+# The cache dirs are also pre-created sticky-world-writable: a fresh named volume
+# mounted at /builder/.gradle or /builder/.local is initialized from that ownership,
+# so first-run volumes are writable by any build uid with no root chown. Legacy
+# root-owned volumes (older toolchains) are still caught by docker-build.sh's check.
+RUN mkdir -p /builder/.gradle /builder/.local && chmod 1777 /builder /builder/.gradle /builder/.local \
     && chmod -R a+rwX "$ANDROID_HOME"
 
 RUN mkdir -p /workspace

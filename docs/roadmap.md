@@ -47,6 +47,16 @@ failure summary, and idempotent re-import; minimal Compose library list. Hilt
 replaces the in-memory repository and adds launch-time index rebuild. **81 tests
 green.**
 
+**T3 spike (2026-08-25):** harness `spike-tts` builds and runs on the S22 Ultra —
+jiangzhuo9357 int4 ONNX export + sokuji-verified pipeline semantics on ORT 1.23.2
+CPU. Host validation passed (7.64 s audio, RTF 5.83 desktop); on-device prompt
+processing matches the host exactly (162 speech tokens, 324 mel frames, mel means
+−5.63 vs −5.76). First on-device runs: RTF ≈ 15.6–22 (LLM 36–51 s, flow DiT
+112–163 s — the wall — HiFT 9–10 s per 10.1 s audio). Tensor-lifecycle fix cut
+RTF 22.2 → 15.6; **open item: device audio is hot/buzzing (flow mel ≈ 5 dB over
+prompt scale) — fidelity defect pending** (handoff-2026-08-25.md). Gate verdict and
+engine order: decisions #21.
+
 ## Assumptions
 
 - Everything Android (foundation, player, share receiver, OCR, Room, Compose) needs the
@@ -105,7 +115,7 @@ see conventions.md).
 |---|---|---|---|
 | T1 | `TTSEngine` interface + pack registry + download manager (explicit, resumable, verified, cached; language packs never bundled) | 3–4 d | |
 | T2 | Kokoro impl (reference `thewh1teagle/kokoro-onnx`) + pipeline tests + RTF baseline | 2–3 d | |
-| T3 | **CosyVoice3 spike**: verify community ONNX export on S22 Ultra; measure RTF/RAM/thermal → engine-order decision | 2–4 d | Risk: port may need fixes; flips primary/fallback order. |
+| T3 | **CosyVoice3 spike**: verify community ONNX export on S22 Ultra; measure RTF/RAM/thermal → engine-order decision | 2–4 d | Gate result: decisions #21 — CPU fails (~RTF 16–22), flow DiT is the wall; spike follow-up still open (audio fidelity) |
 | T4 | Player: foreground service, MediaSession, audio focus/ducking, transport controls, progress persistence | 4–6 d | |
 | T5 | Pre-generation queue (synthesize ahead of playback — non-realtime is acceptable), engine/language fallback UX (missing pack → download prompt) | 3–4 d | |
 
