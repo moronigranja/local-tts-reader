@@ -1,5 +1,5 @@
 plugins {
-    alias(libs.plugins.android.application)
+    alias(libs.plugins.android.library)
     alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
     alias(libs.plugins.kotlin.kapt)
@@ -7,15 +7,11 @@ plugins {
 }
 
 android {
-    namespace = "com.moronigranja.localttsreader"
+    namespace = "com.moronigranja.localttsreader.featurelibrary"
     compileSdk = 36
 
     defaultConfig {
-        applicationId = "com.moronigranja.localttsreader"
         minSdk = 26
-        targetSdk = 36
-        versionCode = 1
-        versionName = "0.1.0"
     }
 
     compileOptions {
@@ -32,6 +28,15 @@ android {
     buildFeatures {
         compose = true
     }
+
+    testOptions {
+        unitTests.all {
+            it.useJUnitPlatform()
+            it.testLogging {
+                events("passed", "failed", "skipped")
+            }
+        }
+    }
 }
 
 dependencies {
@@ -41,12 +46,17 @@ dependencies {
     implementation(libs.compose.ui.graphics)
     implementation(libs.compose.ui.tooling.preview)
     implementation(libs.compose.material3)
+    implementation(libs.lifecycle.viewmodel.compose)
     implementation(libs.androidx.activity.compose)
-    debugImplementation(libs.compose.ui.tooling)
     implementation(libs.hilt.android)
     kapt(libs.hilt.compiler)
+    debugImplementation(libs.compose.ui.tooling)
+
     implementation(project(":core-model"))
     implementation(project(":core-ebook"))
     implementation(project(":core-locate"))
-    implementation(project(":feature-library"))
+
+    testImplementation(libs.junit.jupiter)
+    testRuntimeOnly(libs.junit.platform.launcher)
+    testImplementation(libs.kotlinx.coroutines.test)
 }

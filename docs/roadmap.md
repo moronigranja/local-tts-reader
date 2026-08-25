@@ -7,8 +7,8 @@ this repo's environment without the Android SDK.
 **Status (2026-08-24):** F2 + C1 done — `core-model` canonical types (Book/Chapter/
 TextPassage/LibraryEntry); `core-locate` consumes them, duplicate models deleted;
 `EpubParser` (EPUB2/3, NCX + nav TOCs, heading fallback, lenient malformed-XHTML
-extraction, XXE-hardened XML, content-hash book ids) with fixture tests. **74 tests
-green** (core-locate 24 + core-ebook 50).
+extraction, XXE-hardened XML, content-hash book ids) with fixture tests. **81 tests
+green** (core-locate 24 + core-ebook 50 + feature-library 7).
 
 **C2 + C3 done (same day):** `MobiParser` covers both halves — KF8 (.azw3/.kf8, type
 0xFFFFFFFF/248: text records concatenate into the content ZIP, shared OPF/nav reader)
@@ -37,6 +37,15 @@ UI (the Android half of C5/C6) arrive with F1. **70 tests green.**
 earlier), `app` module (manifest, minSdk 26, Compose entry point), version catalog
 androidx/compose entries, debug signing. `tools/docker-build.sh assembleDebug`
 produces an APK in the container toolchain. **74 tests green.**
+
+**C5 + C6 done (same day):** `feature-library` Android module — SAF multi-file
+picker (persistable URI grants), import through `BookImporter` with progress, typed
+failure summary, and idempotent re-import; minimal Compose library list. Hilt
+(`@Singleton` TextIndex/importer/repository, `@HiltViewModel`) wired into `app`
+(`LocalTtsReaderApp`, `@AndroidEntryPoint` MainActivity). Docker-verified:
+`:feature-library:test` (7 tests) + `assembleDebug`. Room persistence (P1/P2)
+replaces the in-memory repository and adds launch-time index rebuild. **81 tests
+green.**
 
 ## Assumptions
 

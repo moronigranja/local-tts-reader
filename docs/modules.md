@@ -1,4 +1,4 @@
-# Module layout (proposed; keep it flat until it hurts)
+# Module layout (built modules are live; the rest are planned — split only when a cycle forces it)
 
 ```
 core-model/       Book, Chapter/Section, TextPassage, LibraryEntry (no Android deps)
@@ -7,11 +7,11 @@ core-locate/      TextIndex + matcher (n-gram recall over indexed books); no And
 core-ocr/         on-device OCR (tess-two) behind OCRService interface; eng+spa+fra+deu+por+ita
 core-tts/         TTSEngine interface + engine impls (CosyVoice3 primary, Kokoro fallback); model + language-pack download/caching
 core-persistence/ Room schema, daos, migrations
-feature-library/  list/search/import books (Compose)
-feature-reader/   text display + navigation
-feature-share/    ACTION_SEND receiver: text + screenshot → TextIndex → resume point
-feature-player/   playback service, transport, progress
-app/              DI graph, composition root, app bar, settings
+feature-library/  SAF import + library list UI (Compose, Hilt) — C5/C6; search pending
+feature-reader/   text display + navigation (planned)
+feature-share/    ACTION_SEND receiver: text + screenshot → TextIndex → resume point (planned)
+feature-player/   playback service, transport, progress (planned)
+app/              Hilt composition root, MainActivity → LibraryScreen — F1/C5/C6; app bar/settings pending
 ```
 
 Prefer one cohesive module per responsibility over feature sprawl. Add modules only when

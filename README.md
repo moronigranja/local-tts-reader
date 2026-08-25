@@ -10,12 +10,14 @@ Early development. **Implemented and tested (pure JVM, no Android dependency):**
 - `core-ebook` — EPUB + MOBI/KF8 parsers, passage segmentation, import pipeline
   (50 tests: parsers incl. MOBI7 NCX chapters, fixtures, segmentation, importer)
 
-**Built (F1 scaffold):** the `app` Android module — manifest, minSdk 26, Compose
-entry point, debug signing; `tools/docker-build.sh assembleDebug` builds it in the
-containerized toolchain (`Dockerfile`).
+**Built (Android, Docker toolchain):**
+- `feature-library` (C5/C6) — SAF multi-file import (progress, typed failures,
+  idempotent re-import) + library list UI, Hilt-wired (7 unit tests)
+- `app` — manifest, minSdk 26, Compose entry, Hilt composition root, debug signing;
+  `tools/docker-build.sh assembleDebug` produces an APK
 
-**Not built yet:** library UI, TTS player, share receiver, OCR — the feature layers
-on top of the F1 foundation.
+**Not built yet:** TTS player, share receiver, OCR, Room persistence — the pending
+slices on this foundation.
 
 ## Limitations (current)
 
@@ -53,10 +55,12 @@ on top of the F1 foundation.
 core-model/    Canonical domain: Book, Chapter, TextPassage, LibraryEntry
 core-ebook/    EPUB + MOBI/KF8 parsers, passage segmentation, import pipeline
 core-locate/   Book/passage matching core (pure JVM, no Android deps)
+feature-library/  SAF import flow + library list UI (Compose, Hilt)
+app/           Hilt composition root, MainActivity → library screen
 tools/         Fixture generator (gen_mobi_fixtures.py), containerized-build helper (docker-build.sh)
 docs/          Planning, conventions, module layout, build, roadmap
 agents.md      Entry point for AI agents working in this repo — read first
-settings.gradle.kts, gradle/   JVM-only Gradle setup (Android modules come later)
+settings.gradle.kts, gradle/   Gradle build (wrapper; JVM core modules + Android app modules)
 ```
 
 ## Build

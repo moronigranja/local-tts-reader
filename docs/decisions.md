@@ -96,3 +96,14 @@ The wrapper is pure-JVM and README/build.md/docker-build.sh already document
 `./gradlew` commands; landing it now makes those true and shrinks F1 by one item.
 The sandbox Kotlin-compiler rig (decision #17) remains the proof source until the
 Android toolchain lands.
+
+## 19. Toolchain revision: Gradle 9.1.0 + AGP 9.0.1 for Hilt (built-in-Kotlin opt-out) (2026-08-24)
+Hilt's gradle plugin requires AGP ≥ 9.0 since 2.59, and Hilt 2.58's processor
+cannot read Kotlin 2.4 metadata — with Kotlin 2.4.10 pinned, only AGP 9 works.
+AGP 9.0 requires Gradle ≥ 9.1.0, so the wrapper moved 8.14.3 → 9.1.0 (KGP
+2.4.10 band: 7.6.3–9.5.0). AGP 9's new DSL + built-in Kotlin break the classic
+kotlin-android/kapt path, so `android.newDsl=false` and
+`android.builtInKotlin=false` opt out (both supported until AGP 10, which
+forces the built-in-Kotlin migration — deferred follow-up). Compose BOM stays
+2026.06.01 (newer BOMs need compileSdk 37/AGP 9.1). Docker image unchanged
+(build-tools 36.0.0 = AGP 9 default).

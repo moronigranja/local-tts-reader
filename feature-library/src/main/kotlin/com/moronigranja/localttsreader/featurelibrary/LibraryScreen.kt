@@ -1,0 +1,168 @@
+package com.moronigranja.localttsreader.featurelibrary
+
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Card
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.TopAppBar
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.unit.dp
+import androidx.lifecycle.viewmodel.compose.viewModel
+import kotlinx.coroutines.launch
+
+/**
+ * The library list + import flow (C5/C6). Pick ebooks via SAF, import them through
+ * the Hilt-provided [LibraryViewModel], and see the result — with progress, a
+ * failure dialog when anything failed, and a snackbar for clean successes.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun LibraryScreen(viewModel: LibraryViewModel = viewModel()) {
+    val library by viewModel.library.collectAsState()
+    val importState by viewModel.importState.collectAsState()
+
+    val snackbarHostState = remember { SnackbarHostState() }
+    val scope = rememberCoroutineScope()
+    val context = LocalContext.current
+
+    // The last finished batch's summary; non-null while the result dialog is up.
+    var resultSummary by remember { mutableStateOf<ImportUiState.Summary?>(null) }
+
+    val launcher = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenMultipleDocuments(),
+    ) { uris ->
+        if (uris.isNotEmpty()) {
+            uris.forEach(context::takeReadPermission)
+            context.toEBookSources(uris).let(viewModel::import)
+        }
+    }
+
+    val doneState = importState as? ImportUiState.Done
+    LaunchedEffect(doneState) {
+        if (doneState != null) {
+            if (doneState.summary.failed.isNotEmpty()) {
+                resultSummary = doneState.summary
+            } else if (doneState.summary.added > 0) {
+                snackbarHostState.showSnackbar(
+                    "Added ${doneState.summary.added} · Unchanged ${doneState.summary.unchanged}",
+                )
+            }
+        }
+    }
+
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text("Library") },
+                actions = {
+                    TextButton(onClick = { launcher.launch(arrayOf("*/*")) }) {
+                        Text("Import books")
+                    }
+                },
+            )
+        },
+        snackbarHost = { SnackbarHost(snackbarHostState) },
+    ) { padding ->
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(padding),
+        ) {
+            (importState as? ImportUiState.Importing)?.let { importing ->
+                LinearProgressIndicator(
+                    progress = { importing.done / importing.total.toFloat() },
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Text(
+                    text = "Importing ${importing.done}/${importing.total} — ${importing.currentFileName}",
+                    style = MaterialTheme.typography.bodyMedium,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                )
+            }
+
+            if (library.isEmpty()) {
+                Box(
+                    modifier = Modifier.fillMaxSize(),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(
+                        text = "No books yet — import your first ebook",
+                        style = MaterialTheme.typography.bodyLarge,
+                    )
+                }
+            } else {
+                LazyColumn(
+                    modifier = Modifier.fillMaxSize(),
+                    contentPadding = PaddingValues(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    items(library, key = { it.book.id }) { entry ->
+                        Card(modifier = Modifier.fillMaxWidth()) {
+                            Column(modifier = Modifier.padding(16.dp)) {
+                                Text(
+                                    text = entry.book.title,
+                                    style = MaterialTheme.typography.titleMedium,
+                                )
+                                if (entry.book.authors.isNotEmpty()) {
+                                    Text(
+                                        text = entry.book.authors.joinToString(", "),
+                                        style = MaterialTheme.typography.bodyMedium,
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    resultSummary?.let { summary ->
+        AlertDialog(
+            onDismissRequest = { resultSummary = null },
+            title = { Text("Import finished") },
+            text = {
+                Column {
+                    Text("Added ${summary.added} · Unchanged ${summary.unchanged}")
+                    for ((fileName, message) in summary.failed) {
+                        Text(
+                            text = "$fileName: $message",
+                            style = MaterialTheme.typography.bodyMedium,
+                            modifier = Modifier.padding(top = 4.dp),
+                        )
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { resultSummary = null }) { Text("OK") }
+            },
+        )
+    }
+}

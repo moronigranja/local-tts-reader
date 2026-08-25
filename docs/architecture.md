@@ -25,16 +25,19 @@ core-locate     TextIndex, TextMatcher, TextNormalizer, MatchResult (identificat
 core-ocr        (pending) tess-two OCR behind OCRService; language packs downloadable
 core-tts        (pending) TTSEngine + engine impls; model + language-pack download/caching
 core-persistence(pending) Room: library, progress, settings
-feature-library/search/reader/player (pending) Compose UI + Android services
-app             (pending) Hilt composition root, manifest, app bar, settings
+feature-library (live) SAF import + library list (Compose, Hilt); search pending
+feature-reader/share/player (pending) Compose UI + Android services
+app             (live) Hilt composition root, manifest, MainActivity → LibraryScreen
 ```
 
-Current dependency edges (pure JVM only):
+Current dependency edges:
 
 ```
 core-model  ←  core-ebook  (parsers return Book)
 core-model  ←  core-locate (TextIndex consumes Book)
 core-locate ←  core-ebook  (BookImporter indexes into TextIndex — the import contract)
+core-ebook  ←  feature-library  (SAF sources → BookImporter)
+feature-library ←  app          (Hilt wires the composition root to the library screen)
 ```
 
 Rules:
@@ -102,6 +105,8 @@ shared snippet → normalize → word n-grams → recall vs every indexed passag
 ## 7. Status
 
 2026-08-24: core-model, core-ebook (epub + mobi/kf8 + segmentation + importer),
-core-locate implemented, 74 tests green (core-locate 24 + core-ebook 50). The `app`
-module scaffold (F1) landed the same day in the Docker toolchain; core-tts/core-ocr/
-core-persistence and the feature modules are still pending on it.
+core-locate implemented — 74 JVM tests green (core-locate 24 + core-ebook 50).
+The `app` scaffold (F1) and `feature-library` (C5/C6: SAF import + library list,
+Hilt, 7 unit tests) landed the same day in the Docker toolchain — 81 tests total.
+core-tts/core-ocr/core-persistence, the share receiver, and the player are pending
+on this foundation.
