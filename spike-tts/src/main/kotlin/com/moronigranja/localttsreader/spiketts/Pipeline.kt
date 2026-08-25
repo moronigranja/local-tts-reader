@@ -256,7 +256,6 @@ internal class Pipeline(private val sessions: Sessions) {
             1.0 - cos(it.toDouble() / N_TIMESTEPS * 0.5 * PI)
         }
 
-        val x2 = FloatArray(x.size * 2).also { x.copyInto(it); x.copyInto(it, x.size) }
         val xShape = longArrayOf(2, 80L, melLen.toLong())
         val mask2 = FloatArray(mask.size * 2).also { mask.copyInto(it); mask.copyInto(it, mask.size) }
         val maskShape = longArrayOf(2, 1L, melLen.toLong())
@@ -267,6 +266,11 @@ internal class Pipeline(private val sessions: Sessions) {
         var t = tSpan[0]
         var dt = tSpan[1] - tSpan[0]
         for (step in 1..N_TIMESTEPS) {
+            // The flow_estimator input is the CURRENT trajectory point doubled
+            // along the batch (numpy concat([x, x]) per step). It must be
+            // rebuilt here: feeding a snapshot of the initial noise froze the
+            // diffusion in place and produced a hot, clipped mel.
+            val x2 = FloatArray(x.size * 2).also { x.copyInto(it); x.copyInto(it, x.size) }
             val (vel, _) = runF32("flow_estimator", mapOf(
                 "x" to f32(x2, xShape),
                 "mask" to f32(mask2, maskShape),

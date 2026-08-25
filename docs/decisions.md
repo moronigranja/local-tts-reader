@@ -110,16 +110,19 @@ forces the built-in-Kotlin migration — deferred follow-up). Compose BOM stays
 
 
 ## 21. T3 CosyVoice3 gate result: CPU-only fails on the S22 Ultra; Kokoro stays v1 primary (2026-08-25)
-Measured via the `spike-tts` harness: jiangzhuo9357 int4 ONNX export (sokuji-
-audio-verified semantics), ORT 1.23.2 CPU-only, 6 threads, S22 Ultra (SM-S908U1).
-Per 10.1 s of audio: LLM ≈ 36–51 s, flow DiT ≈ 112–163 s, HiFT ≈ 9–10 s → RTF
-≈ 16–22, ~10× over the ~0.5–1×-realtime bar. The flow DiT is the wall (~72% of
-cost) and has no credible mobile acceleration path: ORT Vulkan EP / NNAPI /
-LiteRT-LM cover LLM-style ops only (bounded best case ≈ RTF 10–19). First
-measurement predates the tensor-lifecycle fix (RTF 22.2 → 15.6 after closing ORT
-inputs/outputs); on-device audio fidelity still has an open defect (hot mel /
-buzz) at handoff — the gate result is directionally settled, exact final RTF and
-audio verification land with the spike follow-up.
+Measured via the `spike-tts` harness (final, audio-verified run): jiangzhuo9357
+int4 ONNX export (sokuji-audio-verified semantics), ORT 1.23.2 CPU-only, 6
+threads, S22 Ultra (SM-S908U1), 3 runs on a cool device. Final RTF 14.7–17.5
+per 10.1–13.1 s of audio (LLM 32–50 s, flow DiT 107–133 s ≈ 72% of cost, HiFT
+8–10 s); VmHWM ≈ 2.4 GB, totalPss ≈ 333 MB, no thermal throttle. The flow DiT
+has no credible mobile acceleration path (ORT Vulkan EP / NNAPI / LiteRT-LM
+cover LLM-style ops only; bounded best case ≈ RTF 10–19). The spike's open
+fidelity defect is closed: a stale diffusion-input snapshot (flow `x2` never
+rebuilt per step) produced a hot/compressed mel (mean −0.9 vs prompt −5.6) and
+clipped buzzing audio; fixed in `Pipeline.flowGenerate`, device mels now match
+host (−5.3 ± 0.3, prompt scale) and audio is clean (RMS 0.05–0.08, peak < 0.7,
+no clip). Gate verdict unchanged and now final: **CPU fails the ~0.5–1×-realtime
+bar by ~15–30×; v1 primary = Kokoro-82M** (decisions #6).
 Consequences: v1 = Kokoro-82M primary, CosyVoice3 remains behind the gate in the
 fallback tier; `spike-tts` stays in the repo to re-run the gate when a DiT
 acceleration path exists; AR codec-token engines (hard-facts watch item) are the

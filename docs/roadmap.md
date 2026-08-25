@@ -47,15 +47,16 @@ failure summary, and idempotent re-import; minimal Compose library list. Hilt
 replaces the in-memory repository and adds launch-time index rebuild. **81 tests
 green.**
 
-**T3 spike (2026-08-25):** harness `spike-tts` builds and runs on the S22 Ultra —
-jiangzhuo9357 int4 ONNX export + sokuji-verified pipeline semantics on ORT 1.23.2
-CPU. Host validation passed (7.64 s audio, RTF 5.83 desktop); on-device prompt
-processing matches the host exactly (162 speech tokens, 324 mel frames, mel means
-−5.63 vs −5.76). First on-device runs: RTF ≈ 15.6–22 (LLM 36–51 s, flow DiT
-112–163 s — the wall — HiFT 9–10 s per 10.1 s audio). Tensor-lifecycle fix cut
-RTF 22.2 → 15.6; **open item: device audio is hot/buzzing (flow mel ≈ 5 dB over
-prompt scale) — fidelity defect pending** (handoff-2026-08-25.md). Gate verdict and
-engine order: decisions #21.
+**T3 spike (2026-08-25, resolved):** harness `spike-tts` builds and runs on the S22
+Ultra — jiangzhuo9357 int4 ONNX export + sokuji-verified pipeline semantics on ORT
+1.23.2 CPU. Final measured run (3 runs, cool device): RTF 14.7–17.5 (LLM 32–50 s,
+flow DiT 107–133 s — the wall — HiFT 8–10 s), VmHWM ≈ 2.4 GB, no thermal
+throttle. The open fidelity defect is fixed: `Pipeline.flowGenerate` fed the flow
+estimator a stale snapshot of the initial noise (never rebuilt per step), yielding
+a hot compressed mel (mean −0.9) and clipped buzzing audio; after the fix device
+mels match host (−5.3, prompt scale), audio RMS 0.05–0.08, no clip. Gate verdict
+stands, now final: CPU fails the realtime bar; Kokoro v1 primary, CosyVoice3 gated
+fallback (decisions #21).
 
 ## Assumptions
 

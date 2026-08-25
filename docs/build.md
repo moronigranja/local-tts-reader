@@ -19,7 +19,7 @@ test`).
 
 ## T3 CosyVoice3 spike (`spike-tts`)
 
-Experimental measurement harness (decision #21, handoff-2026-08-25.md): runs the
+Experimental measurement harness (decision #21): runs the
 CosyVoice3-0.5B ONNX pipeline (jiangzhuo9357 int4 export + sokuji-corrected
 semantics) on a physical device, per-stage timing, RTF, VmHWM/RSS and thermal
 headroom, and writes `out_runN.wav` + `results.json` to external filesDir.
