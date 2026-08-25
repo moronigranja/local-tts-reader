@@ -30,8 +30,14 @@ tools/docker-build.sh assembleDebug      # full APK
   `build-tools;36.0.0` and `ndk;27.2.12479018` (NDK is required by tess-two in
   core-ocr later). Bump pins when the toolchain moves.
 - `tools/docker-build.sh` runs any Gradle task in the image with `android-gradle` /
-  `android-local` volumes for caches. Built artifacts are root-owned (fine for
-  `adb install`).
+  `android-local` volumes for caches (mounted at `/builder/.gradle` and
+  `/builder/.local`). Builds run as the **invoking host user** (`docker run --user`),
+  so artifacts, the project `.gradle` cache, and volume contents are host-owned — a
+  host `./gradlew` is never blocked by root-owned files after a containerized build.
+- Cache volumes created by an earlier toolchain are root-owned; the script detects
+  that and prints a one-time migration command (`chown` via the image as root). Run
+  it once and it stays fixed; alternatively `docker volume rm android-gradle
+  android-local` starts fresh (slow first build).
 - **No emulator inside Docker** — KVM passthrough is host-dependent and flaky. Use a
   physical phone instead: enable Developer options → Wireless debugging, `adb connect
   <phone-ip>:<port>`, build, then `adb install -r app/build/outputs/apk/debug/app-debug.apk`.

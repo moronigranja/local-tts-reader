@@ -11,6 +11,13 @@
 # Version pins: platform/build-tools match the app's compileSdk; the NDK is needed by
 # tess-two (core-ocr, Tesseract native). Bump them when the toolchain moves.
 
+# Builds run as the invoking host user (tools/docker-build.sh passes --user), so
+# artifacts in the mounted workspace are never root-owned and host `./gradlew` runs
+# are never blocked by root-owned caches. /builder is the writable HOME base for that
+# uid; the cache volumes are mounted at /builder/.gradle and /builder/.local. The SDK
+# is baked into the image but kept writable so AGP can unpack components into
+# $ANDROID_HOME/.temp as any uid.
+
 FROM ubuntu:24.04
 
 ENV DEBIAN_FRONTEND=noninteractive
@@ -39,6 +46,11 @@ RUN yes | sdkmanager --licenses > /dev/null \
         "platforms;android-36" \
         "build-tools;36.0.0" \
         "ndk;27.2.12479018"
+
+# Writable (sticky) HOME base for the passed-through build uid; the SDK is baked
+# read-mostly but made world-writable so AGP can unpack .temp components as any uid.
+RUN mkdir -p /builder && chmod 1777 /builder \
+    && chmod -R a+rwX "$ANDROID_HOME"
 
 RUN mkdir -p /workspace
 WORKDIR /workspace
