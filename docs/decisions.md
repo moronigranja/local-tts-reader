@@ -107,3 +107,15 @@ kotlin-android/kapt path, so `android.newDsl=false` and
 forces the built-in-Kotlin migration — deferred follow-up). Compose BOM stays
 2026.06.01 (newer BOMs need compileSdk 37/AGP 9.1). Docker image unchanged
 (build-tools 36.0.0 = AGP 9 default).
+
+## 20. Sandbox rig retired; Docker toolchain is the single build/test path; builds run as the host uid (2026-08-25)
+Decisions #17/#18's standalone Kotlin-compiler rig existed only because this
+environment lacked Gradle/Android SDK. F1 + C5/C6 landed the toolchain, and the
+C5/C6 Docker-verified gates retired the rig — module tests now run via the repo's
+Gradle 9.1.0 wrapper: JVM modules on the host, Android modules in the
+`localtts-android` image (`tools/docker-build.sh`). That image runs Gradle as the
+invoking host user (`docker run --user`, HOME=/builder, cache volumes at
+/builder/.gradle + /builder/.local), so containerized builds never leave root-owned
+files that block host `./gradlew` runs; the SDK is baked but world-writable so AGP
+can unpack `.temp` components as any uid. Old root-owned cache volumes need a
+one-time `chown` (the script prints it).

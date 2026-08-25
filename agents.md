@@ -29,7 +29,7 @@ Three capabilities, one pipeline:
   data flows, cross-module contracts.
 - [docs/conventions.md](docs/conventions.md) — tech stack, code conventions, do's and
   don'ts, definition of done.
-- [docs/modules.md](docs/modules.md) — proposed module layout (keep it flat until it hurts).
+- [docs/modules.md](docs/modules.md) — module layout: built modules live, rest planned (split only when a cycle forces it).
 - [docs/build.md](docs/build.md) — how to build, run, and test.
 - [docs/features/](docs/features/) — feature plans (share-and-identify; player/TTS/settings pending).
 - [docs/decisions.md](docs/decisions.md) — decision log (why things are the way they are).

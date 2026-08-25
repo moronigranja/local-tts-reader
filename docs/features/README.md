@@ -5,10 +5,10 @@ implementation slice). Roadmap (docs/roadmap.md) tracks status.
 
 | Feature | Doc | Status |
 |---|---|---|
-| Share-and-identify (resume-from-share) | [share-and-identify.md](share-and-identify.md) | Planned; match core + index + importer done; share receiver/OCR pending F1 |
-| Content / import (library) | Roadmap C + [architecture.md](../architecture.md) §3; full UX doc pending | Domain core done (parsers, segmentation, importer); SAF/UI pending F1 |
+| Share-and-identify (resume-from-share) | [share-and-identify.md](share-and-identify.md) | Planned; match core + index + importer done; share receiver/OCR pending (roadmap S1/S2) |
+| Content / import (library) | Roadmap C + [architecture.md](../architecture.md) §3; full UX doc pending | Done: parsers, segmentation, importer, SAF import + library UI (C1–C6, `feature-library`/`app`); 81 tests total |
 | Player (playback, transport, resume, pre-generation) | Pending (roadmap T4/T5) | Not planned in detail |
-| TTS core (TTSEngine, language packs) | Pending (roadmap T1-T3); engine facts in [hard-facts.md](../hard-facts.md) | Design facts fixed; implementation pending F1 |
+| TTS core (TTSEngine, language packs) | Pending (roadmap T1-T3); engine facts in [hard-facts.md](../hard-facts.md) | Design facts fixed; implementation not started |
 | Settings (threshold, engines, languages) | Pending (roadmap V1) | Not planned in detail |
 
 **Convention:** a feature's doc is the source of truth for its decisions and status;

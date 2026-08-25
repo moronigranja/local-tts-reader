@@ -58,13 +58,15 @@ words split at sentence boundaries. The passage is the unit of both matching and
 resume, so its grain decides match precision; passages must stay stable across
 re-parses. Segmented chapters keep their original spine indexes.
 
-**Status.** `core-locate` implemented and **24 JUnit tests pass** — verified in this
-environment by compiling with the standalone Kotlin 2.4.10 compiler and running via JUnit
-Platform console 6.1.3 (`java -jar junit-platform-console-standalone.jar execute`).
-`TextMatcher`/`TextIndex` are pure JVM; the repo ships a Gradle wrapper plus three
-JVM-only modules (`core-model`, `core-ebook`, `core-locate`), so `./gradlew test`
-works on any machine without the Android SDK. OCR (`tess-two`) and the `ShareReceiver` are Android components — designed
-here, verified on-device later.
+**Status.** `core-locate` implemented and **24 JUnit tests pass** — pure JVM, no Android
+SDK needed (`./gradlew :core-locate:test`, or `tools/docker-build.sh :core-locate:test`).
+Match core + index are done; the import side they match against is done too: parsers,
+segmentation, and `BookImporter` in `core-ebook` (50 tests), plus the SAF import +
+library UI in `feature-library` (7 unit tests, Hilt, verified in the Docker toolchain) —
+**81 tests total** across the repo. `TextIndex` is an in-memory layer over the library
+store, rebuilt at launch; persistence is roadmap P1/P2 (Room). OCR (`tess-two`) and the
+`ShareReceiver` are the remaining Android components (roadmap S1/S2) — designed here,
+verified on-device later; player-resume wiring is the slice after that.
 
 **Recorded decisions.** Default confidence threshold **0.6, configurable in settings**;
 OCR = tess-two, `eng+spa+fra+deu+por+ita`, roman-alphabet curated set; slice = match
