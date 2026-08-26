@@ -23,7 +23,7 @@ core-ebook      EBookParser + EBookFormats + EpubParser/MobiParser → Book;
                 BookSegmentation (grain, front/back matter); BookImporter (parse→segment→index)
 core-locate     TextIndex, TextMatcher, TextNormalizer, MatchResult; IndexRebuilder (launch-time sync)
 core-ocr        (pending) tess-two OCR behind OCRService; language packs downloadable
-core-tts        (pending) TTSEngine + engine impls; model + language-pack download/caching
+core-tts        (live) TTSEngine interface + pack registry; model/language-pack download, verify + caching
 core-persistence (live) Room: books, cached passages, progress, settings; LibraryStore impl
 feature-library (live) SAF import + library list (Compose, Hilt); search pending
 feature-reader/share/player (pending) Compose UI + Android services
@@ -111,8 +111,9 @@ shared snippet → normalize → word n-grams → recall vs every indexed passag
 ## 7. Status
 
 2026-08-25: core-model, core-ebook (epub + mobi/kf8 + segmentation + importer),
-core-locate, core-persistence (P1/P2 Room) implemented — **98 tests green**
-(core-locate 32 + core-ebook 50 + core-persistence 9 + feature-library 7).
+core-locate, core-persistence (P1/P2 Room), and core-tts (T1: TTSEngine interface,
+pack registry, download manager) implemented — **136 tests green** (core-locate 32 +
+core-ebook 50 + core-persistence 9 + feature-library 7 + core-tts 38).
 `app` scaffold (F1), `feature-library` (C5/C6), and the launch-time index rebuild
-(P2) are live in the Docker toolchain. Pending: core-tts, core-ocr, the share
-receiver, and the player.
+(P2) are live in the Docker toolchain. Pending: the Kokoro engine impl (T2),
+core-ocr, the share receiver, and the player.

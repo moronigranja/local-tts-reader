@@ -10,13 +10,14 @@
 No ktlint/detekt plugins are configured yet — those lint/format tasks arrive with the
 CI slice (roadmap V2).
 
-Three pure-JVM modules (`core-model`, `core-ebook`, `core-locate`) build and test
-without the Android SDK — `./gradlew :core-locate:test :core-ebook:test :core-model:test`
-runs their unit tests. The Android modules (`app`, `feature-library`,
-`core-persistence`) are wired into the same build; their unit tests need the SDK —
-`core-persistence` additionally runs the Room DAO/store tests under Robolectric.
-The aggregate `./gradlew test` needs the SDK once Android tasks run; use the
-containerized toolchain for the full suite (`tools/docker-build.sh test`).
+Four pure-JVM modules (`core-model`, `core-ebook`, `core-locate`, `core-tts`)
+build and test without the Android SDK — `./gradlew :core-locate:test
+:core-ebook:test :core-model:test :core-tts:test` runs their unit tests. The
+Android modules (`app`, `feature-library`, `core-persistence`) are wired into the
+same build; their unit tests need the SDK — `core-persistence` additionally runs
+the Room DAO/store tests under Robolectric. The aggregate `./gradlew test` needs
+the SDK once Android tasks run; use the containerized toolchain for the full
+suite (`tools/docker-build.sh test`).
 
 ## T3 CosyVoice3 spike (`spike-tts`)
 

@@ -73,6 +73,15 @@ them); Room 2.8.4's kapt processor needed a forced `kotlin-metadata-jvm` 2.4.10
 (decisions #22). **98 tests green** (core-locate 32 + core-ebook 50 +
 core-persistence 9 + feature-library 7).
 
+**T1 done (2026-08-25):** `core-tts` (pure JVM) — `TTSEngine` interface (+
+SynthesisRequest/SynthesisOutcome), pack registry (engine → pack → status,
+`StateFlow`, coalesced concurrent downloads), download manager (explicit,
+resumable via Range, SHA-256-verified, cached; `.part` retained on cancel,
+corrupt data deleted, marker-file readiness — packs never bundled). Transport
+seam behind which the Android adapter lands later; `DefaultEngines` ships engine
+metadata only (pack URL+SHA pinned by downloading once during T2 — never
+fabricated). **136 tests green** (… + core-tts 38).
+
 Candidate features from other local-TTS reader apps (Audiobookify, heard.quest)
 are logged in [ideas.md](ideas.md) — a pool, not commitments; ideas graduate here
 when decided.
@@ -133,7 +142,7 @@ see conventions.md).
 
 | ID | Item | Est. | Notes |
 |---|---|---|---|
-| T1 | `TTSEngine` interface + pack registry + download manager (explicit, resumable, verified, cached; language packs never bundled) | 3–4 d | |
+| T1 | `TTSEngine` interface + pack registry + download manager (explicit, resumable, verified, cached; language packs never bundled) | 3–4 d | **Done 2026-08-25** (decisions #23). T2 now lands the Kokoro impl + first pinned pack descriptors |
 | T2 | Kokoro impl (reference `thewh1teagle/kokoro-onnx`) + pipeline tests + RTF baseline | 2–3 d | |
 | T3 | **CosyVoice3 spike**: verify community ONNX export on S22 Ultra; measure RTF/RAM/thermal → engine-order decision | 2–4 d | Gate result: decisions #21 — CPU fails (~RTF 16–22), flow DiT is the wall; spike follow-up still open (audio fidelity) |
 | T4 | Player: foreground service, MediaSession, audio focus/ducking, transport controls, progress persistence | 4–6 d | |

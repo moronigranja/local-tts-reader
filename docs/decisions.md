@@ -149,3 +149,33 @@ contains U+001F, switch to a child table first.
 The cached-parses table is the launch-time rebuild input; the rebuild is
 mirror-set (purge ids absent from the cache), so it is idempotent and merges
 safely with concurrent imports.
+## 23. T1: TTSEngine contract + pack registry + download manager in core-tts (2026-08-25)
+T1 ships `core-tts` (pure JVM): the `TTSEngine` interface, the pack registry
+(engine → pack → status), and the download manager. Design decisions:
+
+- **Pack descriptors are data; hashes are never fabricated.** A descriptor
+  (HTTPS URL + pinned SHA-256 + size) exists only once a real artifact has been
+  downloaded once and hashed — that happens during the engine slice (T2).
+  `DefaultEngines` ships engine metadata only until then, so no placeholder
+  URLs/hashes can ship by accident.
+- **The cache is the persistent pack state; no Room pack-state column.** A pack
+  is Ready iff a `.ready` marker sits next to its full-size artifact under
+  `<root>/packs/<engineId>/`. A full-size unverified file is hashed exactly once
+  on first use, then marked; the marker survives restarts, and deleting the pack
+  files deletes the marker with them. (P1's "language-pack state" settings key
+  is served by cache probing, not a separate table.)
+- **Transport seam = the single sanctioned socket use** (hard-facts
+  offline-first). `DownloadTransport` is the only network path; `JdkHttpTransport`
+  (java.net.http) covers JVM/testing, and an Android adapter lands behind the
+  same interface later — `java.net.http` isn't available on minSdk 26 devices.
+- **Four statuses** — NotDownloaded / Downloading / Ready / Failed. Failed is
+  per-session last-attempt memory (survives `refresh()`, cleared by the next
+  attempt) so the UI can surface it instead of silently resetting.
+- **Downloads:** resume via `Range` (206 append, 200 clean restart), per-chunk
+  cancellation that keeps the `.part`, streamed SHA-256 verify before promote,
+  corrupt artifacts deleted not cached, and concurrent requests for one pack
+  coalesced into a single transfer (a join bug here — awaiting the caller's own
+  fresh deferred instead of the in-flight one — was caught by the coalescing
+  test and fixed).
+- Consequence: **136 tests green** (+38 core-tts); T2 = Kokoro-82M impl behind
+  `TTSEngine` + the first real descriptor.
