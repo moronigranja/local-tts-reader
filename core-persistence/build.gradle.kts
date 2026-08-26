@@ -45,6 +45,7 @@ dependencies {
     ksp(libs.room.compiler)
 
     implementation(project(":core-model"))
+    implementation(project(":core-player")) // PlayerStore contract + player types (T4-1)
 
     testImplementation(libs.junit4)
     testImplementation(libs.vintage.engine)

@@ -486,3 +486,39 @@ the spike-tts wiring
 + `@aar`) is the reference for the app module.
 
 **Landed (2026-08-26): the T4-0 contract is code + tests.** `SynthesisOutcome.Audio.segments: List<SegmentAnchor>?` (contiguous sentence spans in seconds; `SegmentAnchor(startSeconds, endSeconds)`); `KokoroTimings.sentenceSegments` groups pause-shifted phoneme timings at `.!?…` marks — span *i* runs to the next sentence's first phoneme, the last to the audio end, so boundaries are gap-free and exact in the final audio; null for graphs without a duration output. Engine threads the shifted timings out of `insertPauses` (previously discarded). Tests: 3 new engine tests (mark split + contiguous spans, null without durations, single-span unmarked text) + real-model validation in `kokoroGrainSpike` (anchor count == sentence count; each interior boundary sits at the end of a rendered ≥150 ms pause run within 37/31 ms — 1–4 frames of the documented ±1-frame tolerance, no silence scanning needed). CosyVoice3 tier: null → read-along degrades to no per-sentence highlight, never estimated.
+
+## 33. Player state machine: single transactional write point + position ring (2026-08-26)
+T4-1 lands `core-player` (pure JVM) — the logic half of the v1 player
+(decisions #29); audio/synthesis stay with the engine (#31) and the Android
+edges (T4-2):
+
+- **The machine is the ONLY writer of player state.** Every write goes
+  through `PlayerStore.commitProgress` = progress row + optional ring push in
+  **one transaction** (Room `withTransaction`) — the resume row and the undo
+  ring can never drift (T4 carry-over note 3). `PlayerStore` is a
+  core-player contract with a Room impl (`RoomPlayerStore`) and an in-memory
+  impl for tests.
+- **Ring semantics:** a user-directed move **away** from the current position
+  (skip forward/backward, seek, play-from-elsewhere, accidental play) pushes
+  what is being left; natural forward advance never pushes; cap 10/book;
+  `popRing` = one-shot undo; completion pushes the ending so undo replays it.
+- **Positions are book-time** (offset at 1.0×): speed changes never move the
+  play point, and the per-book speed persists in the progress row (preset
+  restore, decisions #29 free-rider).
+- **Sleep timer:** Off / EndOfChapter (pauses at the chapter's last passage,
+  before the new chapter) / Duration (wall clock, fires once);
+  `advance(now)` is the tick.
+- **Bookmarks** snapshot the machine's position, so a bookmark is always
+  consistent with the resume row.
+- **Schema v2:** `progress` gains `offsetSeconds` + `speed` (backfilled 0 /
+  1.0 in the migration); new `bookmarks` + `position_history` tables;
+  forward-only `MIGRATION_1_2` (decisions #22). Verified by a legacy-DB
+  migration test: exact v1 DDL → open v2 → Room's post-migration TableInfo
+  validation + defaults + end-to-end store writes.
+- The edge contract is the events: `PassageAdvanced` / `PauseRequested` /
+  `PlaybackCompleted` + `LOADING→PLAYING` (`onAudioStarted`); T4-2 wires
+  MediaSession/audio/Compose to it.
+Consequences: T4-2 is thin wiring; the read-along highlight consumes
+`segments` (#31) against `position.offsetSeconds`. Test surface: 20
+core-player (transitions, ring, sleep, speed, bookmarks, failures) + 17
+persistence (store round-trips, cap, migration) — 37 new, all green.

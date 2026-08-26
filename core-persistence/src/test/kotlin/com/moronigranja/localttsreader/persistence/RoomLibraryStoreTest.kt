@@ -133,7 +133,10 @@ class RoomLibraryStoreTest {
         assertNull(dao.get("b1"))
 
         dao.upsert(ProgressEntity("b1", chapterIndex = 2, passageIndex = 3, updatedAtEpochMillis = 100))
-        assertEquals(ProgressEntity("b1", 2, 3, 100), dao.get("b1"))
+        assertEquals(
+            ProgressEntity("b1", chapterIndex = 2, passageIndex = 3, updatedAtEpochMillis = 100),
+            dao.get("b1"),
+        )
 
         dao.upsert(ProgressEntity("b1", chapterIndex = 2, passageIndex = 4, updatedAtEpochMillis = 200))
         assertEquals(4, dao.get("b1")!!.passageIndex)

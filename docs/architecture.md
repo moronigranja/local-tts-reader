@@ -24,7 +24,8 @@ core-ebook      EBookParser + EBookFormats + EpubParser/MobiParser → Book;
 core-locate     TextIndex, TextMatcher, TextNormalizer, MatchResult; IndexRebuilder (launch-time sync)
 core-ocr        (pending) tess-two OCR behind OCRService; language packs downloadable
 core-tts        (live) TTSEngine interface + pack registry; model/language-pack download, verify + caching
-core-persistence (live) Room: books, cached passages, progress, settings; LibraryStore impl
+core-player     (live) v1 player state machine: transport, transactional writes, ring, sleep timer, bookmarks; PlayerStore contract
+core-persistence (live) Room v2: books, cached passages, progress (offset+speed), settings, bookmarks, position_history; LibraryStore + PlayerStore impls
 feature-library (live) SAF import + library list (Compose, Hilt); search pending
 feature-reader/share/player (pending) Compose UI + Android services
 app             (live) Hilt composition root, manifest, MainActivity → LibraryScreen
@@ -38,6 +39,8 @@ core-model  ←  core-locate (TextIndex consumes Book)
 core-model  ←  core-persistence  (persists LibraryEntry; LibraryStore contract)
 core-locate ←  core-ebook  (BookImporter indexes into TextIndex — the import contract)
 core-persistence ←  feature-library  (Hilt provides the Room-backed LibraryStore)
+core-persistence ←  core-player  (RoomPlayerStore implements PlayerStore)
+core-player  ←  feature-library  (Hilt provides the PlayerStore binding)
 core-ebook  ←  feature-library  (SAF sources → BookImporter)
 feature-library ←  app          (Hilt wires the composition root to the library screen)
 ```
@@ -109,6 +112,12 @@ shared snippet → normalize → word n-grams → recall vs every indexed passag
    the player resumes there.
 
 ## 7. Status
+
+2026-08-26: core-player lands (T4-1, decisions #33) — the v1 player state
+machine on top of schema v2 (progress offset/speed, bookmarks, position
+ring); 37 new tests (20 core-player + 17 persistence). T4-2 (feature-player:
+MediaSession, audio output, docked Compose) consumes it via LOADING →
+PLAYING + PassageAdvanced/PauseRequested/PlaybackCompleted events.
 
 2026-08-25: core-model, core-ebook (epub + mobi/kf8 + segmentation + importer),
 core-locate, core-persistence (P1/P2 Room), and core-tts — TTSEngine interface,

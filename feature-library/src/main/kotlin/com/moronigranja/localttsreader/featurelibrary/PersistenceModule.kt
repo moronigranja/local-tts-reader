@@ -5,11 +5,14 @@ import androidx.room.Room
 import com.moronigranja.localttsreader.model.LibraryStore
 import com.moronigranja.localttsreader.persistence.BookDao
 import com.moronigranja.localttsreader.persistence.LibraryDatabase
+import com.moronigranja.localttsreader.persistence.MIGRATION_1_2
 import com.moronigranja.localttsreader.persistence.PassageDao
 import com.moronigranja.localttsreader.persistence.ProgressDao
 import com.moronigranja.localttsreader.persistence.RoomLibraryStore
+import com.moronigranja.localttsreader.persistence.RoomPlayerStore
 import com.moronigranja.localttsreader.persistence.SettingsDao
 import com.moronigranja.localttsreader.persistence.SettingsStore
+import com.moronigranja.localttsreader.player.PlayerStore
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -31,7 +34,9 @@ object PersistenceModule {
     @Provides
     @Singleton
     fun provideDatabase(@ApplicationContext context: Context): LibraryDatabase =
-        Room.databaseBuilder(context, LibraryDatabase::class.java, "local-tts-reader.db").build()
+        Room.databaseBuilder(context, LibraryDatabase::class.java, "local-tts-reader.db")
+            .addMigrations(MIGRATION_1_2)
+            .build()
 
     @Provides
     fun provideBookDao(database: LibraryDatabase): BookDao = database.bookDao()
@@ -59,4 +64,14 @@ object PersistenceModule {
     @Provides
     @Singleton
     fun provideSettingsStore(dao: SettingsDao): SettingsStore = SettingsStore(dao)
+
+    @Provides
+    fun provideBookmarkDao(database: LibraryDatabase) = database.bookmarkDao()
+
+    @Provides
+    fun provideHistoryDao(database: LibraryDatabase) = database.historyDao()
+
+    @Provides
+    @Singleton
+    fun providePlayerStore(database: LibraryDatabase): PlayerStore = RoomPlayerStore(database)
 }

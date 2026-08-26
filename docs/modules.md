@@ -6,7 +6,8 @@ core-ebook/       EBookParser interface + format parsers (epub, azw3/kf8, mobi/a
 core-locate/      TextIndex + matcher (n-gram recall over indexed books); no Android deps
 core-ocr/         on-device OCR (tess-two) behind OCRService interface; eng+spa+fra+deu+por+ita
 core-tts/         LIVE — TTSEngine + Kokoro-82M impl (T2, decisions #25/#28): espeak-ng phonemization (JNA), ORT session behind a compileOnly seam, pinned fp32 packs (kokoro-model + kokoro-voices @ model-files-v1.1). CosyVoice3 stays gated metadata-only
-core-persistence/ LIVE — Room schema v1 (books, cached passages, progress, settings), DAOs, LibraryStore impl + launch-time index rebuild (P1/P2)
+core-persistence/ LIVE — Room schema v2 (books, cached passages, progress + offset/speed, settings, bookmarks, position_history), DAOs, LibraryStore + PlayerStore impls, launch-time index rebuild (P1/P2, T4-1 #33)
+core-player/      LIVE — v1 player state machine (T4-1, decisions #33): transport, single transactional write point, undo-skip ring, sleep timer, speed, bookmarks; PlayerStore contract
 feature-library/  SAF import + library list UI (Compose, Hilt) — C5/C6; search pending
 feature-reader/   text display + navigation (planned)
 feature-share/    ACTION_SEND receiver: text + screenshot → TextIndex → resume point (planned)

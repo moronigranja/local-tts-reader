@@ -59,6 +59,7 @@ dependencies {
     implementation(project(":core-ebook"))
     implementation(project(":core-locate"))
     implementation(project(":core-persistence"))
+    implementation(project(":core-player")) // PlayerStore binding (T4-1)
 
     testImplementation(libs.junit.jupiter)
     testRuntimeOnly(libs.junit.platform.launcher)

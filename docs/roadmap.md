@@ -110,8 +110,12 @@ passes on the S22 Ultra (RTF 0.66–0.76, engine open 1.5 s, arm64 APK 21.1 MiB)
 espeak-ng Android bundle built and pinned (1.52.0 tag + data, #32); sherpa
 pivot dropped for v1 (upstream TTS has no word timestamps — #3705/#3727 open).
 The harness (`spike-tts` Kokoro instrumented benchmark + `:core-tts:kokoroGrainSpike`)
-stays in the repo. T4 is the next slice; V3's device pass downgrades from gate
-to routine re-check.
+stays in the repo. **T4-1 landed (2026-08-26, decisions #33):** `core-player`
+state machine (transport, transactional writes, undo-skip ring, sleep timer,
+speed, bookmarks) + Room schema v2 (progress offset/speed, bookmarks,
+position_history) — 37 new tests. **T4-2** (feature-player: MediaSession,
+audio output, docked read-along Compose) is the next slice, then T5/S/V1.
+V3's device pass downgrades from gate to routine re-check.
 
 ## Assumptions
 
