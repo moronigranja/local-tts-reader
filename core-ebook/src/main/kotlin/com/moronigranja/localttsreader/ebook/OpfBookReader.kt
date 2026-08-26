@@ -22,21 +22,23 @@ import javax.xml.parsers.ParserConfigurationException
  */
 internal object OpfBookReader {
 
-    // ------------------------------------------------------------------
-    // Entry points
-    // ------------------------------------------------------------------
-
     /** EPUB: locate content.opf through META-INF/container.xml. */
     fun findOpfPath(entries: Map<String, ByteArray>): String {
         val containerBytes = entries.lookup("META-INF/container.xml")
             ?: throw EBookParseException("META-INF/container.xml is missing")
-        val doc = parseXml(containerBytes, "container.xml")
-        val rootfile = doc.elementsByLocalName("rootfile").firstOrNull()
-            ?: throw EBookParseException("container.xml has no rootfile entry")
-        val fullPath = rootfile.getAttribute("full-path")
-        if (fullPath.isBlank()) throw EBookParseException("rootfile declares no full-path")
+        // The container is a fixed, tiny schema — extract full-path without an
+        // XML/DOM parse. Host Xerces and Android's Expat-backed DOM disagree on
+        // doctype/single-quote/BOM handling, and a broken container.xml must
+        // not depend on which parser the platform supplies (S-debug, 2026-08-26).
+        val fullPath = extractFullPath(String(containerBytes, Charsets.UTF_8))
+            ?: throw EBookParseException("container.xml has no rootfile full-path")
         return ZipEntries.normalizePath(fullPath)
     }
+
+private val FULL_PATH_RE = Regex("""full-path\s*=\s*["']([^"']+)["']""")
+    /** The rootfile element's full-path attribute, single- or double-quoted. */
+    internal fun extractFullPath(containerXml: String): String? =
+        FULL_PATH_RE.find(containerXml)?.groupValues?.get(1)
 
     fun parseBook(id: String, entries: Map<String, ByteArray>, opfPath: String, fallbackTitle: String): Book {
         val opfBytes = entries.lookup(opfPath)
@@ -174,10 +176,18 @@ internal object OpfBookReader {
     // XML (XXE-hardened) + entities
     // ------------------------------------------------------------------
 
+    fun parseXmlPublic(bytes: ByteArray, what: String): Document = parseXml(bytes, what)
+
     private fun parseXml(bytes: ByteArray, what: String): Document {
-        // Decode HTML-style entities first: real OPFs/NCXs use &nbsp; &rsquo; … which
-        // are not valid XML entities and would otherwise fail the parse.
-        val decoded = decodeEntities(String(bytes, Charsets.UTF_8))
+        // Real-world pre-processing before the DOM parse (S-debug, 2026-08-26):
+        // - a DOCTYPE is STRIPPED: host Xerces and Android's Expat disagree on
+        //   doctype/feature handling, and removal also guarantees external DTDs
+        //   are never fetched (the S22 is offline; a fetch killed the import);
+        // - a single-quoted XML declaration is normalized to double quotes
+        //   (legal XML, but Gutenberg publishes it and parser support varies);
+        // - HTML-style entities decode first (see NAMED_ENTITIES).
+        val prepared = normalizeDeclaration(stripDoctype(String(bytes, Charsets.UTF_8)))
+        val decoded = decodeEntities(prepared)
         try {
             return newDocumentBuilder().parse(ByteArrayInputStream(decoded.toByteArray(Charsets.UTF_8)))
         } catch (e: SAXException) {
@@ -185,6 +195,75 @@ internal object OpfBookReader {
         } catch (e: Exception) {
             throw EBookParseException("could not read $what", e)
         }
+    }
+
+    private const val singleQuote = '\''
+    private const val doubleQuote = '"'
+    private val XML_DECL_RE = Regex("""<\?xml[^>]*\?>""", RegexOption.IGNORE_CASE)
+
+    private fun normalizeDeclaration(s: String): String =
+        XML_DECL_RE.replace(s) { it.value.replace(singleQuote, doubleQuote) }
+
+    /**
+     * Removes a preamble `<!DOCTYPE …>` (internal subset included), case-
+     * insensitive. Doctype is only legal before the root element, so anything
+     * shaped like it AFTER the root opens (attribute values, text) is
+     * untouched — the scan stops at the first element open.
+     */
+    internal fun stripDoctype(s: String): String {
+        val sb = StringBuilder(s.length)
+        var i = 0
+        while (i < s.length) {
+            if (s[i] != '<') {
+                sb.append(s[i])
+                i++
+                continue
+            }
+            val next = if (i + 1 < s.length) s[i + 1] else ' '
+            when {
+                next.isLetter() -> { // the root element: preamble is over
+                    sb.append(s, i, s.length)
+                    return sb.toString()
+                }
+                next == '?' -> { // XML declaration: keep as-is (normalized later)
+                    sb.append(s[i])
+                    i++
+                }
+                next == '!' -> {
+                    if (s.regionMatches(i + 2, "DOCTYPE", 0, 7, ignoreCase = true)) {
+                        val end = doctypeEnd(s, i)
+                        if (end < 0) return s
+                        i = end
+                        // dropped: the doctype is gone, nothing appended
+                    } else {
+                        val end = s.indexOf('>', i)
+                        if (end < 0) return s
+                        sb.append(s, i, end + 1)
+                        i = end + 1
+                    }
+                }
+                else -> { // stray '<' before the root: keep
+                    sb.append(s[i])
+                    i++
+                }
+            }
+        }
+        return sb.toString()
+    }
+
+    /** Index just past the doctype's closing `>` (bracket-aware), or -1. */
+    private fun doctypeEnd(s: String, start: Int): Int {
+        var depth = 0
+        var i = start + 2
+        while (i < s.length) {
+            when (s[i]) {
+                '[' -> depth++
+                ']' -> if (depth > 0) depth-- else { i += 2; return i } // ']>'
+                '>' -> if (depth == 0) return i + 1
+            }
+            i++
+        }
+        return -1
     }
 
     private fun newDocumentBuilder(): DocumentBuilder {
@@ -196,12 +275,27 @@ internal object OpfBookReader {
             factory.setFeature("http://xml.org/sax/features/external-parameter-entities", false)
             factory.setFeature("http://apache.org/xml/features/nonvalidating/load-external-dtd", false)
         } catch (_: ParserConfigurationException) {
-            // Feature unsupported: parse anyway; none of the external-entity features
-            // below can then be active either (single factory instance).
+            // Feature unsupported: parse anyway; none of the external-entity
+            // features below can then be active either (single factory instance).
         }
-        factory.isXIncludeAware = false
-        factory.isExpandEntityReferences = false
+        // Android's Expat-backed JAXP factory THROWS UnsupportedOperationException
+        // on these two instead of accepting them (S-debug, 2026-08-26: the
+        // S22 import died with "does not support specification Unknown v0.0").
+        // Tolerate either flavor; skipping them is safe because doctypes are
+        // stripped before parse, so no external/entity expansion is reachable.
+        factoryConfigTolerant { factory.isXIncludeAware = false }
+        factoryConfigTolerant { factory.isExpandEntityReferences = false }
         return factory.newDocumentBuilder()
+    }
+
+    private inline fun <T> factoryConfigTolerant(block: () -> T) {
+        try {
+            block()
+        } catch (_: UnsupportedOperationException) {
+            // Android: the property is unsupported — the default is what we want anyway.
+        } catch (_: ParserConfigurationException) {
+            // Property rejected — same outcome.
+        }
     }
 
     private val NAMED_ENTITIES = mapOf(

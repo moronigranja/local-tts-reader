@@ -513,7 +513,7 @@ class PlaybackService : Service() {
     }
 
     /** The selected Kokoro voice (V1 settings); defaults to af_heart until chosen. */
-    private fun activeVoice(): String = settings.voice
+    private fun activeVoice(): String = settings.state.value.voice
 
     private fun stopEverything() {
         playerJob?.cancel()

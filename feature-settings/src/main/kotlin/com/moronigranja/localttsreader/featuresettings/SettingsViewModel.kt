@@ -65,7 +65,9 @@ class SettingsViewModel @Inject constructor(
     private val errors = MutableStateFlow<Map<String, String>>(emptyMap())
     private val voices = MutableStateFlow<List<String>>(emptyList())
 
-    private val core = combine(registry.packs, progress, errors, voices, settingsFlow()) { packs, prog, err, voices, prefs ->
+    // settings.state is push-based (AppSettings mirrors every write), so the
+    // UI reflects a change the moment the store lands — no polling.
+    private val core = combine(registry.packs, progress, errors, voices, settings.state) { packs, prog, err, voices, prefs ->
         SettingsUiState(
             packs = packs.map { packRow(it, prog[it.pack.id], err[it.pack.id]) },
             voices = voices,
@@ -86,29 +88,6 @@ class SettingsViewModel @Inject constructor(
             discoverVoices()
         }
     }
-
-    private fun settingsFlow() = kotlinx.coroutines.flow.flow {
-        while (true) {
-            settings.reload()
-            emit(
-                Prefs(
-                    threshold = settings.matchThreshold,
-                    voice = settings.voice,
-                    favorites = settings.favoriteVoices,
-                    theme = settings.themeMode.value,
-                    ocrLanguages = settings.ocrLanguages,
-                ),
-            )
-            kotlinx.coroutines.delay(REFRESH_MS)
-        }
-    }
-    private data class Prefs(
-        val threshold: Double,
-        val voice: String,
-        val favorites: List<String>,
-        val theme: ThemeMode,
-        val ocrLanguages: List<String>,
-    )
 
     private fun packRow(pack: PackState, prog: Double?, err: String?): PackRow =
         PackRow(
@@ -157,7 +136,8 @@ class SettingsViewModel @Inject constructor(
 
     fun setOcrLanguage(lang: String, enable: Boolean) {
         viewModelScope.launch {
-            val next = if (enable) (settings.ocrLanguages + lang).distinct() else settings.ocrLanguages - lang
+            val current = settings.state.value.ocrLanguages
+            val next = if (enable) (current + lang).distinct() else current - lang
             settings.setOcrLanguages(next)
         }
     }
@@ -180,7 +160,6 @@ class SettingsViewModel @Inject constructor(
     }
 
     private companion object {
-        const val REFRESH_MS = 2_000L
         const val TessEngineId = "tess-two"
     }
 }
@@ -188,6 +167,3 @@ class SettingsViewModel @Inject constructor(
 private fun MutableStateFlow<Map<String, String>>.update(key: String, value: String?) {
     this.value = if (value == null) this.value - key else this.value + (key to value)
 }
-
-private operator fun Map<String, Double>.plus(entry: Pair<String, Double>): Map<String, Double> = this + entry
-private operator fun Map<String, Double>.minus(key: String): Map<String, Double> = this - key

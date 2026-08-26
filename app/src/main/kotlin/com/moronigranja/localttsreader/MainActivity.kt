@@ -36,8 +36,8 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         pendingTarget = consumeTarget(intent)
         setContent {
-            val themeMode by appSettings.themeMode.collectAsState()
-            val dark = when (themeMode) {
+            val settingsState by appSettings.state.collectAsState()
+            val dark = when (settingsState.theme) {
                 ThemeMode.SYSTEM -> isSystemInDarkTheme()
                 ThemeMode.LIGHT -> false
                 ThemeMode.DARK -> true

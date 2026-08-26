@@ -172,7 +172,10 @@ class EpubParserTest {
     }
 
     @Test
-    fun `doctype entity declarations are rejected not expanded`() {
+    fun `doctype entities in the container are never expanded`() {
+        // Container full-path is regex-extracted (no XML parse on that path —
+        // Android DOM and host Xerces disagree on doctype files), so the
+        // entity declaration is inert: nothing fetched, nothing expanded.
         val evilContainer =
             """<!DOCTYPE container [<!ENTITY xxe SYSTEM "file:///etc/passwd">]>
 <container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container">
@@ -183,8 +186,9 @@ class EpubParserTest {
             "OEBPS/content.opf" to opf(title = "X", spine = listOf("c1" to "chap1.xhtml")),
             "OEBPS/chap1.xhtml" to chapterHtml(null, listOf("Hello.")),
         )
-        val error = assertThrows(EBookParseException::class.java) { EpubParser.parse(epub) }
-        assertTrue(error.message.orEmpty().contains("container.xml"))
+        val book = EpubParser.parse(epub)
+        assertEquals("X", book.title)
+        assertEquals(1, book.chapters.size)
     }
 
     // ------------------------------------------------------------------

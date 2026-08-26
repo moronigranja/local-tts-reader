@@ -7,11 +7,11 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 
 /**
- * The playback/UI hot-path mirror of [SettingsStore] (V1): the play loop and
- * the theme read plain fields + one flow — no database on the audio path —
- * while every write goes through the store and lands everywhere. Values
- * default to the store's defaults until [reload] runs (app start, settings
- * open); [reload] is idempotent and cheap.
+ * The settings mirror every UI/playback surface reads (V1): one immutable
+ * [Snapshot] in a StateFlow, updated on every write and on [reload] (app
+ * start, share entry, service command). Consumers observe the flow — the
+ * theme radio reflects a change the moment it lands — while the hot paths
+ * read `state.value.<field>` with no database and no polling.
  *
  * Pure JVM: Hilt annotations only (core-persistence has no Android deps).
  */
@@ -20,60 +20,55 @@ class AppSettings @Inject constructor(
     private val store: SettingsStore,
 ) {
 
-    @Volatile var voice: String = SettingsStore.DEFAULT_VOICE
-        private set
+    data class Snapshot(
+        val threshold: Double = SettingsStore.DEFAULT_MATCH_THRESHOLD,
+        val voice: String = SettingsStore.DEFAULT_VOICE,
+        val favorites: List<String> = emptyList(),
+        val theme: ThemeMode = ThemeMode.SYSTEM,
+        val ocrLanguages: List<String> = listOf(SettingsStore.DEFAULT_OCR_LANGUAGE),
+    )
 
-    @Volatile var matchThreshold: Double = SettingsStore.DEFAULT_MATCH_THRESHOLD
-        private set
-
-    @Volatile var ocrLanguages: List<String> = listOf(SettingsStore.DEFAULT_OCR_LANGUAGE)
-        private set
-
-    @Volatile var favoriteVoices: List<String> = emptyList()
-        private set
-
-    private val _themeMode = MutableStateFlow(ThemeMode.SYSTEM)
-    val themeMode: StateFlow<ThemeMode> = _themeMode.asStateFlow()
+    private val _state = MutableStateFlow(Snapshot())
+    val state: StateFlow<Snapshot> = _state.asStateFlow()
 
     suspend fun reload() {
-        voice = store.voice()
-        _themeMode.value = store.themeMode()
-        matchThreshold = store.matchThreshold()
-        ocrLanguages = store.ocrLanguages()
-        favoriteVoices = store.favoriteVoices()
+        _state.value = Snapshot(
+            threshold = store.matchThreshold(),
+            voice = store.voice(),
+            favorites = store.favoriteVoices(),
+            theme = store.themeMode(),
+            ocrLanguages = store.ocrLanguages(),
+        )
     }
 
     suspend fun setVoice(value: String) {
         store.setVoice(value)
-        voice = value
+        _state.value = _state.value.copy(voice = value)
     }
 
     suspend fun setThemeMode(value: ThemeMode) {
         store.setThemeMode(value)
-        _themeMode.value = value
+        _state.value = _state.value.copy(theme = value)
     }
 
     suspend fun setMatchThreshold(value: Double) {
         store.setMatchThreshold(value)
-        matchThreshold = value
+        _state.value = _state.value.copy(threshold = value)
     }
 
     suspend fun setOcrLanguages(value: List<String>) {
         store.setOcrLanguages(value)
-        ocrLanguages = value
+        _state.value = _state.value.copy(ocrLanguages = value)
     }
 
     suspend fun setFavoriteVoices(value: List<String>) {
         store.setFavoriteVoices(value)
-        favoriteVoices = value
+        _state.value = _state.value.copy(favorites = value)
     }
 
     suspend fun toggleFavorite(voiceName: String) {
-        val next = if (voiceName in favoriteVoices) {
-            favoriteVoices - voiceName
-        } else {
-            favoriteVoices + voiceName
-        }
+        val current = _state.value.favorites
+        val next = if (voiceName in current) current - voiceName else current + voiceName
         setFavoriteVoices(next)
     }
 }

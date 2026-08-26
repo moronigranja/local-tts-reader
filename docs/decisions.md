@@ -697,3 +697,42 @@ S-column is functionally complete (share + resume + gestures). Free-riders
 noted: ReaderScreen gained a startAt param (default null — no behavior
 change for normal opens); MainActivity consumes the extras exactly once
 via compose state. Open: none for this slice.
+
+## 39. S-debug: three manual-test regressions fixed (2026-08-26)
+The user's manual smoke found three real defects — the very class V2 exists to
+catch; all fixed with regression coverage:
+
+1. **Epub import: "could not read container.xml"** — root cause found ON DEVICE
+   with a real 24.8 MiB Gutenberg EPUB (staged via adb): Android's Expat-backed
+   `DocumentBuilderFactory` **throws `UnsupportedOperationException` on
+   `setXIncludeAware(false)` / `setExpandEntityReferences(false)`** (host
+   Xerces accepts them) — every OPF/NCX parse died in "could not read
+   content.opf" after the container itself failed or passed. Fixes: the two
+   factory configs are now tolerance-guarded (doctypes are stripped up front,
+   so entity/external expansion is unreachable either way); a single-quoted
+   XML declaration is normalized (Gutenberg publishes `<?xml version='1.0'
+   encoding='UTF-8'?>`); container.xml's full-path is extracted by regex (no
+   XML parse on that path at all). Verified: RealEpubImportProbe OK on-device
+   — 8 chapters / 2413 passages import, BookImporter lands Added.
+2. **Settings → download voices crashes the app** — `StackOverflowError` from
+   the private `operator fun Map.minus`/`plus` extensions in
+   SettingsViewModel: they shadow the stdlib operators and recurse on
+   themselves (line 193, confirmed in logcat twice). Deleted — the stdlib
+   map operators serve. Regression: SettingsViewModelTest (fake transport +
+   pinned descriptor) — download completes, clears progress, Ready; a
+   corrupt payload surfaces "checksum mismatch" typed, no recursion.
+3. **Theme radio doesn't reflect the change** — the settings screen polled
+   `settings.reload()` on a 2 s loop, so the radio lagged (the global palette
+   followed via a proper flow and changed instantly). AppSettings is now
+   push-based: one `StateFlow<Snapshot>` updated on every write; the screen
+   and MainActivity observe it — no polling anywhere. PlaybackService/Share
+   hot paths read `state.value.*` (still non-suspending). Regression:
+   setTheme is observed immediately (host VM test).
+Also fixed along the way: `SettingsViewModel.setOcrLanguage` read a removed
+field; AppSettings readers migrated (voice=`state.value.voice`, etc.).
+Verification: 4 device tests green (RealEpubImportProbe, VoiceSelectionE2e
+`voice=bm_george` ×2, PlayPositionE2e, PlaybackE2e); host JVM 240+; Docker
+unit sets green including the 3 new VM regression tests. docs: none beyond
+this entry; V2 remains the missing gate (CI wiring + running this growing
+instrumented set as a job) — the user's question, answered: testing is NOT
+done before v1 is done, and this smoke showed exactly why.

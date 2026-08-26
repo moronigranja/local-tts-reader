@@ -29,8 +29,8 @@ object ShareModule {
     ): ShareSnippetResolver = ShareSnippetResolver(
         index = index,
         rebuildGate = rebuildGate,
-        threshold = { settings.matchThreshold }, // cached mirror, no DB on the query path
+        threshold = { settings.state.value.threshold }, // cached mirror, no DB on the query path
         ocr = ocr,
-        ocrLanguages = { settings.ocrLanguages },
+        ocrLanguages = { settings.state.value.ocrLanguages },
     )
 }

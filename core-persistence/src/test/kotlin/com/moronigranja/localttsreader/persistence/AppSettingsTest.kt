@@ -20,11 +20,11 @@ class AppSettingsTest {
     @Test
     fun defaultsHoldBeforeReload() {
         val settings = AppSettings(SettingsStore(FakeSettingsDao()))
-        assertEquals(SettingsStore.DEFAULT_VOICE, settings.voice)
-        assertEquals(ThemeMode.SYSTEM, settings.themeMode.value)
-        assertEquals(SettingsStore.DEFAULT_MATCH_THRESHOLD, settings.matchThreshold, 0.0)
-        assertEquals(listOf("eng"), settings.ocrLanguages)
-        assertEquals(emptyList<String>(), settings.favoriteVoices)
+        assertEquals(SettingsStore.DEFAULT_VOICE, settings.state.value.voice)
+        assertEquals(ThemeMode.SYSTEM, settings.state.value.theme)
+        assertEquals(SettingsStore.DEFAULT_MATCH_THRESHOLD, settings.state.value.threshold, 0.0)
+        assertEquals(listOf("eng"), settings.state.value.ocrLanguages)
+        assertEquals(emptyList<String>(), settings.state.value.favorites)
     }
 
     @Test
@@ -39,11 +39,11 @@ class AppSettingsTest {
 
         val settings = AppSettings(store)
         settings.reload()
-        assertEquals("bm_george", settings.voice)
-        assertEquals(ThemeMode.DARK, settings.themeMode.value)
-        assertEquals(0.72, settings.matchThreshold, 0.0)
-        assertEquals(listOf("eng", "spa"), settings.ocrLanguages)
-        assertEquals(listOf("af_heart", "bm_george"), settings.favoriteVoices)
+        assertEquals("bm_george", settings.state.value.voice)
+        assertEquals(ThemeMode.DARK, settings.state.value.theme)
+        assertEquals(0.72, settings.state.value.threshold, 0.0)
+        assertEquals(listOf("eng", "spa"), settings.state.value.ocrLanguages)
+        assertEquals(listOf("af_heart", "bm_george"), settings.state.value.favorites)
     }
 
     @Test
@@ -57,12 +57,12 @@ class AppSettingsTest {
         settings.setMatchThreshold(0.5)
         settings.setOcrLanguages(listOf("deu"))
 
-        assertEquals("pf_dora", settings.voice)
+        assertEquals("pf_dora", settings.state.value.voice)
         assertEquals("pf_dora", store.voice())
-        assertEquals(ThemeMode.LIGHT, settings.themeMode.value)
-        assertEquals(0.5, settings.matchThreshold, 0.0)
+        assertEquals(ThemeMode.LIGHT, settings.state.value.theme)
+        assertEquals(0.5, settings.state.value.threshold, 0.0)
         assertEquals(0.5, store.matchThreshold(), 0.0)
-        assertEquals(listOf("deu"), settings.ocrLanguages)
+        assertEquals(listOf("deu"), settings.state.value.ocrLanguages)
         assertEquals(listOf("deu"), store.ocrLanguages())
     }
 
@@ -70,8 +70,8 @@ class AppSettingsTest {
     fun toggleFavoriteAddsAndRemoves() = runBlocking {
         val settings = AppSettings(SettingsStore(FakeSettingsDao()))
         settings.toggleFavorite("af_heart")
-        assertTrue("af_heart" in settings.favoriteVoices)
+        assertTrue("af_heart" in settings.state.value.favorites)
         settings.toggleFavorite("af_heart")
-        assertFalse("af_heart" in settings.favoriteVoices)
+        assertFalse("af_heart" in settings.state.value.favorites)
     }
 }
