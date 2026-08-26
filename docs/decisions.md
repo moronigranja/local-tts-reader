@@ -736,3 +736,19 @@ unit sets green including the 3 new VM regression tests. docs: none beyond
 this entry; V2 remains the missing gate (CI wiring + running this growing
 instrumented set as a job) — the user's question, answered: testing is NOT
 done before v1 is done, and this smoke showed exactly why.
+
+## 40. pt-BR spot check (2026-08-26, user request)
+The pinned Kokoro pt-BR voices were never exercised; both sides now are
+(core-tts test + instrumented test only — no main-code changes, the
+voice→language map already routed `pf_`/`pm_` to pt-br):
+- **Host** (PtBrVoiceHostTest, real model + espeak-ng pt-br G2P): `pf_dora`
+  and `pm_alex` synthesize "O rato roeu a roupa do rei de Roma." into Audio
+  (~24 kHz, sane duration, sentence anchors present for the read-along);
+  a wrong-family name (`pf_dora_typo`) is rejected typed with "unknown voice".
+- **Device** (PtVoiceE2eTest, S22): the pt-BR voice selected via settings
+  plays a Portuguese book through the real service to COMPLETED —
+  `voice=pf_dora` in the loop logs.
+Verified the pt-br espeak-ng identifier resolves in the staged bundle
+(phonemizer scan) through the successful synthesis itself. The post-v1
+pt-BR translation DECORATOR (core-translate, NMT output-side) remains a
+separate deferred slice — this test only covers the voice path, not it.
