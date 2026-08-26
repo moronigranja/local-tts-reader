@@ -30,6 +30,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 @Composable
 fun ShareResultScreen(
     onClose: () -> Unit,
+    onListen: (ShareResolution.Found) -> Unit = {},
     viewModel: ShareViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsState()
@@ -47,16 +48,20 @@ fun ShareResultScreen(
                         style = MaterialTheme.typography.bodyMedium,
                     )
                 }
-                is ShareUiState.Verdict -> VerdictContent(s.resolution, onClose)
+                is ShareUiState.Verdict -> VerdictContent(s.resolution, onClose, onListen)
             }
         }
     }
 }
 
 @Composable
-private fun VerdictContent(resolution: ShareResolution, onClose: () -> Unit) {
+private fun VerdictContent(
+    resolution: ShareResolution,
+    onClose: () -> Unit,
+    onListen: (ShareResolution.Found) -> Unit,
+) {
     when (resolution) {
-        is ShareResolution.Found -> FoundCard(resolution)
+        is ShareResolution.Found -> FoundCard(resolution, onListen)
         is ShareResolution.NotFound -> NotFoundCard(resolution)
         is ShareResolution.Failed -> Card {
             Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -71,7 +76,7 @@ private fun VerdictContent(resolution: ShareResolution, onClose: () -> Unit) {
 }
 
 @Composable
-private fun FoundCard(found: ShareResolution.Found) {
+private fun FoundCard(found: ShareResolution.Found, onListen: (ShareResolution.Found) -> Unit) {
     Card(modifier = Modifier.fillMaxWidth()) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text("Found in your library", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
@@ -85,6 +90,10 @@ private fun FoundCard(found: ShareResolution.Found) {
                 style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.outline,
             )
+            // S3: open the book at this passage and start listening there.
+            Button(onClick = { onListen(found) }, modifier = Modifier.fillMaxWidth()) {
+                Text("Listen here")
+            }
         }
     }
 }

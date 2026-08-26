@@ -32,10 +32,11 @@ import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.compose.foundation.clickable
 import com.moronigranja.localttsreader.featureplayer.playback.PlaybackUiState
 import com.moronigranja.localttsreader.player.PlayerPhase
+import com.moronigranja.localttsreader.player.PlayerPosition
 import com.moronigranja.localttsreader.player.SleepTimer
-
 /**
  * The docked reader+player (decisions #29): the current passage with the
  * active sentence highlighted from the engine's anchors (#31), and the
@@ -47,12 +48,21 @@ import com.moronigranja.localttsreader.player.SleepTimer
 fun ReaderScreen(
     bookId: String,
     onClose: () -> Unit,
+    startAt: PlayerPosition? = null,
     viewModel: ReaderViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsState()
 
-    LaunchedEffect(bookId) {
-        if (state.bookId != bookId) viewModel.play(bookId)
+    // S3: an explicit target passage (share "Listen here") starts playback
+    // there; otherwise normal resume/start.
+    LaunchedEffect(bookId, startAt) {
+        if (state.bookId != bookId || startAt != null) {
+            if (startAt != null) {
+                viewModel.playPosition(bookId, startAt.chapterIndex, startAt.passageIndex)
+            } else {
+                viewModel.play(bookId)
+            }
+        }
     }
 
     Scaffold(
@@ -91,9 +101,15 @@ fun ReaderScreen(
             if (state.passageText.isBlank() && state.phase == PlayerPhase.IDLE) {
                 Text("Tap play to start listening from this book.", textAlign = TextAlign.Center)
             }
+            // S3 "listen from here": tap the passage to (re)start playback at it.
             Text(
                 annotatedPassage(state, MaterialTheme.colorScheme.tertiaryContainer),
                 style = MaterialTheme.typography.bodyLarge.copy(lineHeight = 30.sp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable(enabled = state.positioned) {
+                        viewModel.playPosition(bookId, state.chapterIndex, state.passageIndex)
+                    },
             )
             Text(
                 "Ch ${state.chapterIndex + 1} · P ${state.passageIndex + 1} · ${"%.1f".format(state.offsetSeconds)}s",

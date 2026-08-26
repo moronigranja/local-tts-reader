@@ -671,3 +671,29 @@ real-engine runs green; on device `SharePipelineInstrumentedTest` OK (2 tests)
 — text branch resolves the quote, image branch decodes a rendered screenshot,
 OCRs it with legacy eng tessdata and resolves back to the passage. Host JVM
 suite 240 green. The manifest carries the activity; the app builds.
+
+## 38. S3: match → open at passage + "listen from here" (2026-08-26)
+The resume wiring closes the S → T loop; the share feature is now actionable.
+
+- **Share "Listen here"**: the found card carries a Listen action →
+  [ShareOpenHandler] (app-owned navigation seam, feature-share never names
+  MainActivity) → MainActivity with the [OpenTarget] extras contract
+  (bookId/chapter/passage, owned by feature-share, pure fromExtras parse).
+  MainActivity routes any such intent (onCreate, onNewIntent, process-death
+  replay) to ReaderScreen with startAt = the passage; READER plays there via
+  the existing ACTION_PLAY_POSITION and completes through the book.
+- **Reader gesture** (ideas #2 → "listen from here"): tapping the passage
+  text (re)starts playback at that passage — the single-passage reader makes
+  the ideas.md long-press moot (tap is discoverable; deviation recorded).
+  The docked path reuses Resume-style semantics.
+- **Verified on the S22** (PlayPositionE2eTest, OK 1 test): ACTION_PLAY_POSITION
+  1/0 on a 4-passage book lands `playing 1/0` first (not the book start),
+  runs 1/0 → 1/1 → 1/2 → PlaybackCompleted. The service seam the share gate
+  and the gesture both drive is measured; the UI glaze (button → activity
+  route) is compile-verified + extras-contract host-tested (fromExtras
+  round-trips, blank bookId rejected, absent chapter/passage → 0).
+Consequences: S or T are now reachable from each other; the roadmap's
+S-column is functionally complete (share + resume + gestures). Free-riders
+noted: ReaderScreen gained a startAt param (default null — no behavior
+change for normal opens); MainActivity consumes the extras exactly once
+via compose state. Open: none for this slice.

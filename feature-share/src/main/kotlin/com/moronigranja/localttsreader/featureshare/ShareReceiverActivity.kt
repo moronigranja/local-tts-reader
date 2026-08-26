@@ -20,12 +20,21 @@ import javax.inject.Inject
 class ShareReceiverActivity : ComponentActivity() {
 
     @Inject lateinit var appSettings: AppSettings
+    @Inject lateinit var openHandler: ShareOpenHandler
+
     private val viewModel: ShareViewModel by viewModels()
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContent {
             LaunchedEffect(Unit) { appSettings.reload() }
-            ShareResultScreen(onClose = { finish() })
+            ShareResultScreen(
+                onClose = { finish() },
+                onListen = { found ->
+                    // S3: the app-side handler opens MainActivity at the passage.
+                    openHandler.open(OpenTarget(found.bookId, found.chapterIndex, found.passageIndex))
+                    finish()
+                },
+            )
         }
         handleIntent(intent)
     }
