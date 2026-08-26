@@ -30,6 +30,9 @@ Three capabilities, one pipeline:
 - [docs/conventions.md](docs/conventions.md) — tech stack, code conventions, do's and
   don'ts, definition of done.
 - [docs/modules.md](docs/modules.md) — module layout: built modules live, rest planned (split only when a cycle forces it).
+- [docs/landscape.md](docs/landscape.md) — adjacent projects (sherpa-onnx engine,
+  candela app): what they validate, the license boundary, and the T2 engine direction
+  (decisions #24–#27).
 - [docs/build.md](docs/build.md) — how to build, run, and test.
 - [docs/features/](docs/features/) — feature plans (share-and-identify; player/TTS/settings pending).
 - [docs/decisions.md](docs/decisions.md) — decision log (why things are the way they are).

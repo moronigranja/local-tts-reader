@@ -92,6 +92,7 @@ tools/docker-build.sh assembleDebug
 - [docs/conventions.md](docs/conventions.md) — tech stack, do's and don'ts, definition
   of done
 - [docs/modules.md](docs/modules.md) — proposed module layout
+- [docs/landscape.md](docs/landscape.md) — how this app sits next to sherpa-onnx and candela; validated patterns and the license boundary
 - [docs/build.md](docs/build.md) — build/run/test, incl. the Docker toolchain
 - [docs/roadmap.md](docs/roadmap.md) — work breakdown with estimates
 - [docs/features/share-and-identify.md](docs/features/share-and-identify.md) — the
@@ -99,4 +100,5 @@ tools/docker-build.sh assembleDebug
 
 ## License
 
-[Apache License 2.0](LICENSE)
+[GNU General Public License v3.0](LICENSE) — the repo
+contains GPL-3.0-derived parser code (KindleUnpack ports), see decisions #27.

@@ -10,6 +10,11 @@ Logged 2026-08-25. Sources:
   and its 28 comments (post body + thread captured in the PDF print; links there:
   TestFlight, streamable demo — the demo video is since deleted).
 - **heard.quest** — a competitor mentioned in the thread (classic-books bundle).
+- **candela** (techempower-org) — Android audiobook/reader app, the closest shipped
+  sibling of this app: in-process sherpa-onnx TTS (Piper/Kokoro/KittenTTS/Supertonic),
+  hybrid reader, 34 sources. Reviewed 2026-08-25 → docs/landscape.md; **design
+  reference by choice — reuse is license-permitted since decisions #27; still not
+  copied (clean-room posture, #27).**
 - **Audiobookify in-app demo** — screen recording of the TestFlight build (2026-08,
   the owner's prints): home dashboard, onboarding, speed + sleep-timer menus, RSVP
   mode. Candidates below also cite these prints.
@@ -35,6 +40,12 @@ Logged 2026-08-25. Sources:
 | Saved speed presets | Audiobookify speed popover (print 3): "Hold a shortcut to save the current speed" | Speed changes already must preserve the play point (logged bug → T4 regression); presets are the same surface | T4 | No schema; global presets first, per-book override later |
 | Sleep timer incl. end-of-chapter | Audiobookify sleep-timer menu (print 4): 5m–1h, End of chapter, Off | Chapter boundaries already exist in the domain model — end-of-chapter stop is nearly free; the player needs a stop condition anyway | T4 | Session-local timer, no schema; end-of-chapter = stop at the next boundary |
 | Sync from Kindle (official export / Highlights-Reports API) | hard-facts "Legitimate sync sources" — Amazon returning the user's own data: the "Your Content and Documents"/"Download your data" export (reading position, last-read, highlights) and the read-only Highlights/Reports API (access-token, cursor pagination) | Manual resume (S3/T4) covers v1 without Amazon access; this automates position import from the user's own data, on-demand | Post-v1 slice (V-lane / new `core-sync`), not in roadmap | On-demand/scheduled only, never real-time; both paths are official read-only. The undocumented, rate-limited "Manage Your Contents and Documents" endpoint (DRM-free lending-eligible titles only) stays a possible future bridge, not a foundation (hard-facts) |
+| Per-fiction playback speed (auto-restore) | candela: speed dialed into one book restores on reopen | Progress is already per-book; a per-book settings key rides the same surface | T4 | Global preset + per-book override |
+| Voice library with favorites and tiers | candela Voice Library: engine-grouped, starred voices, quality tiers | V1 settings needs a voice picker anyway; stars/tiers are settings keys, no schema | V1 | Tiers map to pack sizes (Piper low/med/high ~14–28 MB) |
+| Auto language detection → voice routing | candela: mid-chapter language switch routes text to a matching voice | Multilingual books (en + fr/es dialogue) are common; detection opt-in | T5 / post-v1 | Needs detection + per-language voice mapping; post-v1 size |
+| Multi-engine parallel synthesis tuning | candela: 1–8 engine instances, per-engine thread pools, producer on an audio-priority thread | T5 pre-generation must fit the device's RTF; these are the levers | T5 (design reference — decisions #25) | Validate on S22 Ultra first; candela's Performance-modes wiki is the reference |
+| Real-time translation to pt-BR (read EN books aloud in PT) | owner (2026-08-25; feasibility + complexity reviewed) | Kokoro v1.0 already ships pt-BR voices (voices-v1.0.bin); ONNX Runtime already in the stack; a `TTSEngine` decorator adds the stage without touching player/pipeline contracts | T5 + new `core-translate` (post-v1 slice) | NMT en→pt int8 (~30–80 MB; OPUS-MT CC-BY-4.0 — attribution; NLLB-600M CC-BY-NC — avoid). "Real-time" = hidden behind the pre-gen queue, not simultaneous interpretation. Translation failure degrades to the original text; index/matching unaffected (output-side only) |
+| Offline chapter pre-generation (manual "generate X chapters" + scheduled overnight while charging) | owner (2026-08-25) | Shifts synthesis cost off the go — listening becomes pure AudioTrack playback; makes the CosyVoice3 fallback tier viable despite the #21 RTF gate (overnight ≈3 ch/night at RTF 16; whole-book for Kokoro); composes with the translation decorator (translate + generate while charging) | T5 extension + `core-tts` job core; WorkManager adapter + per-book toggle in V1 | PCM ~10 MB/h (24 kHz 16-bit mono); cache key = engine+voice+speed+translation config (settings change ⇒ re-generate); LRU eviction under a disk budget; charging-gated via WorkManager constraints; skip generation while actively playing; candela's PCM chapter cache validates the cache side |
 ## Validated, no action
 
 - **DRM-free stance + AZW3**: Audiobookify refuses DRM and defers AZW3; we already
@@ -43,6 +54,14 @@ Logged 2026-08-25. Sources:
 - **Tiny app, models fetched in-app**: matches decision #7 (downloadable packs,
   nothing bundled). Confirmed direction.
 - **Free, no account**: matches our offline-first/no-cloud ethos (hard-facts).
+- **Voice packs: flat single-file downloads, fp32 weights** — candela regressed
+  INT8→fp32 (vocoder fuzz, Samsung-tablet reports) and pre-extracts tarballs
+  server-side; adopted as decisions #26.
+- **In-process native TTS engine on Android** — candela ships sherpa-onnx in-process
+  down to low-end chips; our architecture/conventions assume the same; the raw
+  kokoro-onnx port (T2, decisions #25) re-confirms on our hardware at the V3 pass.
+- **System TTS as degraded fallback** — candela ships zero-download System TTS;
+  matches conventions ("documented degraded fallback"); no feature work.
 
 ## Risk note (not a feature)
 
