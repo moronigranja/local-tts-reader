@@ -298,7 +298,10 @@ pool now carries a decision-status table:
   CosyVoice3 tier viable despite #21), pt-BR translation decorator (new
   `core-translate`, CC-BY-4.0 NMT with attribution, degrades to the original),
   TODAY stats dashboard (new local per-day minutes table), Kindle official-export
-  sync (already deferred), RSVP, classics bundle, auto language detection.
+  sync (already deferred), **app export/backup + restore** (positions, library,
+  settings, optional books — added at review follow-up; small versioned-zip
+  `core-backup` slice; content-hash book ids make restore idempotent), RSVP,
+  classics bundle, auto language detection.
 - **Ideas-only:** accelerator/int8 delegates (do not assume — measure at V3) and
   multi-engine parallel tuning (design reference until the S22 pass).
 - Consequence: pt-BR moves from "fallback-engines nice-to-have" to first-class via

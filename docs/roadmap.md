@@ -203,6 +203,11 @@ Idea-pool graduates, deliberately outside v1's critical path (T4/T5/S/V):
   restructure (offline-first holds).
 - **Kindle official-export / Highlights-API sync** — on-demand position import from
   the user's own data (already deferred by decision; manual resume covers v1).
+- **App export/backup + restore** (positions, library index, settings, optional book
+  files) — small versioned-zip slice (V-lane / `core-backup`, decisions #29):
+  settings/library/progress JSON + `books/` optional; content-hash book ids make
+  restore idempotent (re-import → same bookId → progress reattaches); cached parses
+  ride along to honor "never re-parse"; pack cache re-downloads, stays out.
 - **Pool items without a v1 dependency: RSVP speed-reading, public-domain classics
   bundle, auto language detection → voice routing.**
 - Ideas-only (no roadmap): accelerator/int8 delegates (measure at V3, do not assume),
