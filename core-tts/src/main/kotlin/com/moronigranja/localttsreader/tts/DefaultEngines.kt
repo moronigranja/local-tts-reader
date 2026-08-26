@@ -1,13 +1,14 @@
 package com.moronigranja.localttsreader.tts
 
+import com.moronigranja.localttsreader.tts.kokoro.KokoroPacks
+
 /**
  * The known engines (hard-facts engine table + decisions #21), metadata only.
  *
- * Pack descriptors — URL + pinned SHA-256 of the exact artifact — are
- * intentionally absent: hashes are produced by downloading each artifact once
- * during the engine slice (T2) and are never fabricated. Until then the
- * registry tracks zero concrete packs; the settings UI renders the engine list,
- * and download management goes live with the first descriptor (Kokoro, T2).
+ * Pack descriptors are pinned from the actual artifacts — each SHA-256/URL
+ * was produced by downloading the artifact once during the engine slice (T2),
+ * never fabricated. The registry tracks download state per descriptor; the
+ * settings UI renders the engine list and surfaces the download action.
  */
 object DefaultEngines {
     val cosyVoice3: EngineSpec = EngineSpec(
@@ -21,12 +22,16 @@ object DefaultEngines {
         id = "kokoro-82m",
         displayName = "Kokoro-82M",
         tier = EngineTier.PRIMARY, // v1 primary (decisions #21)
-        // hard-facts: v1.0 "9 groups incl. pt-BR"; exact BCP-47 codes pinned at T2.
-        languages = setOf("en", "fr", "de", "es", "it", "pt", "ja", "zh", "ko"),
+        // The languages the pinned v1.0 voice pack actually serves (T2): the
+        // 54 voices cover en-US/en-GB, fr, es, it, pt-BR, ja, zh, hi — the
+        // release pack ships no German or Korean voices.
+        languages = setOf("en", "fr", "es", "it", "pt", "ja", "zh", "hi"),
     )
 
     val descriptors: List<EngineDescriptor> = listOf(
-        EngineDescriptor(kokoro, emptyList()),
+        EngineDescriptor(kokoro, KokoroPacks.all),
+        // CosyVoice3 stays metadata-only until its pack is pinned (gated on the
+        // DiT acceleration finding; decisions #21/#23).
         EngineDescriptor(cosyVoice3, emptyList()),
     )
 }

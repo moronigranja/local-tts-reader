@@ -57,6 +57,8 @@ hard-facts, conventions, modules, architecture, build, roadmap, decisions, featu
 Owner chose public + Apache-2.0 (fits the open-weight/offline ethos). DRM specifics
 sanitized before publishing (no tool names, no key-derivation mechanics in public docs).
 
+Superseded by #27 (2026-08-25): the license is now GPL-3.0.
+
 ## 11. Book identity = SHA-256 of container bytes (2026-08-24)
 Content-addressed: no cloud, deterministic across machines, idempotent re-import
 (same file twice → "Unchanged", no re-parse); same name + changed content = distinct
@@ -179,3 +181,97 @@ T1 ships `core-tts` (pure JVM): the `TTSEngine` interface, the pack registry
   test and fixed).
 - Consequence: **136 tests green** (+38 core-tts); T2 = Kokoro-82M impl behind
   `TTSEngine` + the first real descriptor.
+## 24. GPL boundary: no reuse from candela or VoxSherpa-TTS (2026-08-25)
+The landscape review (docs/landscape.md) found candela — a shipped Android
+audiobook/reader that is the closest existing implementation of this app — and its
+engine AAR VoxSherpa-TTS are GPL-3.0. GPL code and GPL AARs cannot link into this
+Apache-2.0 project (#10) without contaminating it. Decision: candela/VoxSherpa are
+design references only — their docs, issues, and documented behavior, never their
+code. sherpa-onnx (Apache-2.0, the engine beneath VoxSherpa) stays a legal dependency
+option.
+
+**Superseded in part by #27 (2026-08-25):** this project is now GPL-3.0, so reuse
+from candela/VoxSherpa is license-permitted; the reference-only posture stands by
+choice (learning + architecture fit), not by law.
+
+## 25. T2 engine layer: raw JVM port of kokoro-onnx; sherpa-onnx documented pivot (2026-08-25)
+The landscape review (docs/landscape.md) surfaced sherpa-onnx (Apache-2.0; Java/Kotlin
+Android API; prebuilt TTS demo APK; Kokoro v1_0/v1_1 bundles incl. phonemizer assets)
+as the packaged engine candela ships in-process, vs the raw ONNX-Runtime port of
+thewh1teagle/kokoro-onnx (MIT). The review's key finding — Kokoro is not a bare ONNX
+call; phonemization is part of the pipeline — informed the implementation rather than
+reversing the choice: T2 (in progress in the working tree) implements the engine as a
+JVM port of kokoro-onnx (`SpeechPipeline` semantics) with espeak-ng phonemization via
+JNA (system shared library), ONNX Runtime behind a `compileOnly` Java-API seam (JVM
+jar for host tests/benchmark; the Android runtime ships inside the app, minSdk 26),
+and the first real descriptors pinned as flat fp32 packs (kokoro-onnx
+`model-files-v1.1`: `kokoro-v1.0.onnx` 325 MB + `voices-v1.0.bin` 28 MB, 54 voices —
+decisions #23/#26). The advertised languages follow the pinned pack (en, fr, es, it,
+pt, ja, zh, hi — v1.0 ships no German/Korean voices). sherpa-onnx remains the
+documented pivot if the V3 device pass (RTF on the S22 Ultra, APK-size/ABI cost)
+misses the bar — a `TTSEngine` impl swap; core-tts contracts and the pack seam are
+unchanged.
+
+## 26. Voice-pack defaults: flat single-file artifacts; fp32 weights (2026-08-25)
+Evidence from candela (docs/landscape.md): voice packs are re-hosted pre-extracted
+because on-device `.tar.bz2` extraction delayed first chapters tens of seconds on
+low-end hardware; and INT8 packs were regressed to fp32 because INT8 dynamic
+quantization added audible vocoder noise. Decision: pack descriptors (#23) point at
+single flat files — upstream tarballs get a server-side extraction re-host (the
+pack-servicing step candela's `voices-v2` plays); fp32 is the default until a
+measured RTF gate forces quantization, and even then only quantization-safe ops are
+candidates. Applied at T2 pack pinning.
+
+## 27. License: GPL-3.0, building stays in-house (2026-08-25)
+Owner decision after the landscape review: the repo publishes under GPL-3.0 from now
+on (supersedes #10) and keeps building the app itself — no copying from candela or
+VoxSherpa even though it is now license-permitted.
+Context/evidence: core-ebook's `HuffCdic.kt` and `MobiNcx.kt` are direct Kotlin ports
+of KindleUnpack code (GPL-3.0) — an Apache-2.0 repo already contained GPL-3.0-derived
+code, a latent compliance gap. Single author, so relicensing is the owner's call.
+Alternatives: keep Apache-2.0 + clean-room redo of the two parser files (extra days,
+and GPL reuse stays forbidden); GPL-3.0 + copy candela wholesale (fastest to a shipped
+player, forfeits the build-it-yourself learning and adopts a mismatched architecture).
+Consequences: `LICENSE` = GPL-3.0 full text; the KindleUnpack-derived parser code is
+now legally consistent with the repo license; Apache-2.0 (sherpa-onnx, CosyVoice3)
+and MIT (kokoro-onnx) dependencies stay compatible (one-way into GPL-3.0); candela/
+VoxSherpa code may be reused with attribution if ever wanted, but the clean-room
+posture is kept by choice (learning + architecture fit — landscape.md). Attribution
+obligations apply to any GPL code adopted later.
+## 28. T2 landed: Kokoro-82M engine + first pinned pack descriptors (2026-08-25)
+T2 ships the Kokoro engine behind `TTSEngine` in core-tts and closes the
+"hashes never fabricated" debt of #23. The engine is a JVM port of the
+kokoro-onnx `SpeechPipeline` (the #25 decision), with the following
+implementation facts worth keeping:
+
+- **Phonemization = phonemizer's espeak backend, ported.** espeak-ng is driven
+  through JNA with the exact phonemizer semantics (punctuation preserve/restore
+  with positions B/E/I/A, decimal-separator protection, stress kept, espeak's
+  line post-processing, `_`-separator removal). Ground-truth tests freeze the
+  reference strings (phonemizer 3.4.0 + system espeak-ng 1.52). Two port traps:
+  Kotlin's `String.split(String)` is literal — `Regex.escape` produces `\Q..\E`
+  quoting that silently never matches; and empty chunks MUST be filtered after
+  punctuation stripping or stray lines leak into the output.
+- **The graph contract is introspected, not assumed** (input_ids vs tokens,
+  int vs float speed, duration output presence, embedded `kokoro_config` vocab)
+  — the v1.1 export uses `input_ids`/float speed and carries durations + vocab;
+  packaged `config.json` was validated identical to the embedded metadata.
+- **JNA 5.17 moved `PointerByReference` to `com.sun.jna.ptr`** (the old package
+  is gone, not deprecated); JNA `Structure.newInstance` needs a public no-arg
+  class, so the espeak `VoiceStruct` is top-level, not a private inner class.
+  ONNX Runtime 1.23's `OrtSession.Result.get` returns `Optional`.
+- **Kotlin 2.4 dropped `kotlin.math.round(Double)`** — use `roundToLong()`.
+- **Pause insertion is ±1 frame (±0.01 s) unstable near the quiet threshold**:
+  numpy float32 pairwise vs sequential sums flip borderline quiet-frames. The
+  reference python pipeline itself varies 83264↔83504 samples across runs for
+  the same input, so this is accepted variance, not a bug; the oracle
+  comparison (correlation 0.995–0.997, exact sample counts on clean runs)
+  validates the port.
+- **First pinned descriptors (model-files-v1.1, flat fp32, #26):**
+  `kokoro-model` = kokoro-v1.0.onnx (325,505,369 B, sha beb0d184…df3a) and
+  `kokoro-voices` = voices-v1.0.bin (28,214,398 B, 54 voices, sha bca610b8…fbf7d).
+  Languages advertised = the pack's actual coverage (en, fr, es, it, pt, ja, zh,
+  hi); German/Korean have no v1.0 voices.
+- **Host RTF baseline (Ryzen 9 8945HS, fp32, ORT JVM): 0.15–0.23** vs the
+  realtime bar; device pass stays V3. Android adapters (OkHttp transport,
+  bundled espeak-ng) arrive with the player/settings slices.

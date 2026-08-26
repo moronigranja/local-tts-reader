@@ -111,9 +111,14 @@ shared snippet → normalize → word n-grams → recall vs every indexed passag
 ## 7. Status
 
 2026-08-25: core-model, core-ebook (epub + mobi/kf8 + segmentation + importer),
-core-locate, core-persistence (P1/P2 Room), and core-tts (T1: TTSEngine interface,
-pack registry, download manager) implemented — **136 tests green** (core-locate 32 +
-core-ebook 50 + core-persistence 9 + feature-library 7 + core-tts 38).
-`app` scaffold (F1), `feature-library` (C5/C6), and the launch-time index rebuild
-(P2) are live in the Docker toolchain. Pending: the Kokoro engine impl (T2),
-core-ocr, the share receiver, and the player.
+core-locate, core-persistence (P1/P2 Room), and core-tts — TTSEngine interface,
+pack registry, download manager (T1) **and the Kokoro-82M engine (T2, decisions
+#25/#28)**: espeak-ng phonemization via JNA, vocab-filtered tokens, balanced
+≤510-phoneme windows, ORT inference behind a compileOnly Java-API seam, librosa
+trim port, timing-aware pauses, PCM16 out; first pinned pack descriptors
+(kokoro-model fp32 + kokoro-voices, model-files-v1.1, exact SHA-256s). **179
+tests green** (core-locate 32 + core-ebook 50 + core-persistence 9 +
+feature-library 7 + core-tts 81). `app` scaffold (F1), `feature-library`
+(C5/C6), and the launch-time index rebuild (P2) are live in the Docker
+toolchain. Pending: core-ocr, the share receiver, the player, and the Android
+`DownloadTransport`/phonemizer adapters (V1/T4 wiring).

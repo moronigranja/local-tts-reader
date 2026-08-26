@@ -5,7 +5,7 @@ core-model/       Book, Chapter/Section, TextPassage, LibraryEntry (no Android d
 core-ebook/       EBookParser interface + format parsers (epub, azw3/kf8, mobi/azw: PalmDOC LZ77 + HUFF/CDIC), passage segmentation + BookImporter (parse→segment→index); defensive
 core-locate/      TextIndex + matcher (n-gram recall over indexed books); no Android deps
 core-ocr/         on-device OCR (tess-two) behind OCRService interface; eng+spa+fra+deu+por+ita
-core-tts/         LIVE — TTSEngine interface + pack registry + download manager (explicit, resumable, verified, cached); engine impls land with T2 (Kokoro) / the gated CosyVoice3
+core-tts/         LIVE — TTSEngine + Kokoro-82M impl (T2, decisions #25/#28): espeak-ng phonemization (JNA), ORT session behind a compileOnly seam, pinned fp32 packs (kokoro-model + kokoro-voices @ model-files-v1.1). CosyVoice3 stays gated metadata-only
 core-persistence/ LIVE — Room schema v1 (books, cached passages, progress, settings), DAOs, LibraryStore impl + launch-time index rebuild (P1/P2)
 feature-library/  SAF import + library list UI (Compose, Hilt) — C5/C6; search pending
 feature-reader/   text display + navigation (planned)

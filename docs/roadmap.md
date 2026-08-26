@@ -73,16 +73,33 @@ them); Room 2.8.4's kapt processor needed a forced `kotlin-metadata-jvm` 2.4.10
 (decisions #22). **98 tests green** (core-locate 32 + core-ebook 50 +
 core-persistence 9 + feature-library 7).
 
-**T1 done (2026-08-25):** `core-tts` (pure JVM) — `TTSEngine` interface (+
-SynthesisRequest/SynthesisOutcome), pack registry (engine → pack → status,
-`StateFlow`, coalesced concurrent downloads), download manager (explicit,
-resumable via Range, SHA-256-verified, cached; `.part` retained on cancel,
-corrupt data deleted, marker-file readiness — packs never bundled). Transport
-seam behind which the Android adapter lands later; `DefaultEngines` ships engine
-metadata only (pack URL+SHA pinned by downloading once during T2 — never
-fabricated). **136 tests green** (… + core-tts 38).
 
-Candidate features from other local-TTS reader apps (Audiobookify, heard.quest)
+**T2 done (2026-08-25):** Kokoro-82M behind `TTSEngine` in core-tts — a JVM port
+of thewh1teagle/kokoro-onnx `SpeechPipeline` (decisions #25): espeak-ng
+phonemization through JNA (a faithful port of phonemizer's espeak backend —
+punctuation preserve/restore, decimals, stress, line post-processing),
+vocab-filtered tokens (packaged `config.json` validated identical to the graph's
+embedded `kokoro_config`), balanced ≤510-phoneme windows, ORT inference behind a
+`compileOnly` Java-API session seam (JVM jar for host tests; the Android runtime
+ships in the app), librosa-trim port, batch-end + timing-aware pause insertion,
+PCM16 output. First **real pinned descriptors** (decisions #23/#26): `kokoro-model`
+(kokoro-v1.0.onnx, fp32, 325,505,369 B) + `kokoro-voices` (54 voices,
+28,214,398 B) @ model-files-v1.1, exact SHA-256s committed. The advertised
+languages follow the pack (en, fr, es, it, pt, ja, zh, hi — no de/ko voices in
+v1.0). Benchmark (`:core-tts:kokoroBenchmark`, downloads through the real
+registry): phonemes byte-identical to the reference pipeline and audio
+correlation 0.995–0.997 vs oracle WAVs, sample counts exact; host CPU RTF
+0.15–0.23 (Ryzen 9 8945HS, fp32). Pins: 54 voices × (510,1,256) style tensors;
+JNA 5.17 moved `PointerByReference` to `com.sun.jna.ptr`; Kotlin 2.4 dropped
+`kotlin.math.round(Double)` (use `roundToLong`). **179 tests green** (… +
+core-tts 38 → 81 incl. ground-truth phonemizer tests against espeak-ng 1.52).
+
+**2026-08-25 (landscape review):** sherpa-onnx + candela compared against this app —
+conclusions in [docs/landscape.md](docs/landscape.md); decisions #24→#27 (license:
+GPL-3.0, candela/VoxSherpa reference-only by choice), #25 (T2 engine layer = raw
+kokoro-onnx JVM port, sherpa-onnx the pivot), #26 (voice packs: flat single-file, fp32).
+
+Candidate features from other local-TTS reader apps (Audiobookify, heard.quest, candela)
 are logged in [ideas.md](ideas.md) — a pool, not commitments; ideas graduate here
 when decided.
 
@@ -143,7 +160,7 @@ see conventions.md).
 | ID | Item | Est. | Notes |
 |---|---|---|---|
 | T1 | `TTSEngine` interface + pack registry + download manager (explicit, resumable, verified, cached; language packs never bundled) | 3–4 d | **Done 2026-08-25** (decisions #23). T2 now lands the Kokoro impl + first pinned pack descriptors |
-| T2 | Kokoro impl (reference `thewh1teagle/kokoro-onnx`) + pipeline tests + RTF baseline | 2–3 d | |
+| T2 | Kokoro impl behind TTSEngine + pipeline tests + RTF baseline; engine layer = raw kokoro-onnx JVM port in progress (per #25, sherpa-onnx the pivot); packs fp32 flat (#26) | 2–3 d | **Done 2026-08-25** (decisions #25/#28); RTF 0.15–0.23 host baseline, oracle-verified |
 | T3 | **CosyVoice3 spike**: verify community ONNX export on S22 Ultra; measure RTF/RAM/thermal → engine-order decision | 2–4 d | Gate result: decisions #21 — CPU fails (~RTF 16–22), flow DiT is the wall; spike follow-up still open (audio fidelity) |
 | T4 | Player: foreground service, MediaSession, audio focus/ducking, transport controls, progress persistence | 4–6 d | |
 | T5 | Pre-generation queue (synthesize ahead of playback — non-realtime is acceptable), engine/language fallback UX (missing pack → download prompt) | 3–4 d | |
