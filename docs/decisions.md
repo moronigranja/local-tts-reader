@@ -367,8 +367,120 @@ Alternatives:
   port's `KokoroTimings` (7 tests) are the current source. If sherpa cannot, the
   pivot fails on that ground alone, regardless of RTF.
 
-Consequences: V3's engine measurements move ahead of T4 (roadmap reorder); the open
-landscape item becomes its own small spike instead of riding the player slice;
-#25's seam (TTSEngine + pack registry) keeps the pivot a config-level swap if the
-spike fails. If the spike passes, sherpa stays the documented reference and the
-port's Android adapter work (bundled espeak-ng, flat per #26) lands with T4.
+## 31. T4 synthesis grain: one passage blob + engine-computed sentence anchors (2026-08-26)
+Spike A settled the T4 carry-over question ("sentence-grain synthesis vs one PCM
+blob + anchors" — roadmap note 2) by measurement on the pinned real model
+(`:core-tts:kokoroGrainSpike`, two passages: 6-sentence en/af_heart, 4-sentence
+pt-br/pf_dora):
+
+- **Per-sentence calls inflate audio.** Joined sentence audios vs one blob:
+  en +0.07 s (+0.2 %, blob = 2 windows vs 6 sentence calls); pt +2.47 s
+  (+10.8 %, 1 window vs 4 calls) — each call re-renders window-start
+  context and its own prosodic contour. Listen-time drift is unbounded per
+  call and per text.
+- **No compute win.** Total synthesis ms: en blob 7.6 s vs joined 8.1 s
+  (+6.7 %); pt 3.7 s both (~±4 %) — extra windows/pads cancel any savings;
+  per-sentence RTF looks better only because the inflated audio is divided
+  into the same total compute.
+- **Seam behavior differs.** Sentence calls force uniform 241–273 ms pauses at
+  every boundary; the blob renders natural 250–670 ms pauses at sentence and
+  clause marks (the model's own phrasing, only topped up by insertPauses).
+- **Anchors.** The blob's boundary pauses are NOT reliably alignable to
+  sentences by silence scanning alone (clause marks render ≥200 ms pauses
+  too) — the engine's `KokoroTimings` (per-phoneme, already computed and
+  pause-shifted inside `insertPauses`, 7 tests; currently discarded) are the
+  only reliable boundary source. Sentence calls give trivial anchors but at
+  the seam cost above.
+
+Decision: **T4 synthesizes one passage per request (blob) and the engine exposes
+sentence-grain anchors in the outcome** — the player never re-splits or silence-
+scans. Concrete contract to land with T4:
+
+- `SynthesisOutcome.Audio` gains an optional `segments: List<SegmentAnchor>?`
+  (sentence spans in seconds produced from the phoneme timings each mark
+  boundary; null for engines without duration output — CosyVoice3 tier
+  degrades to no-read-along highlight, never estimated highlights).
+- Pause-shifted timings from `insertPauses` thread through instead of being
+  discarded.
+- Speed changes stay engine-side (timing anchors scale with the speed input).
+- Post-v1 pre-gen cache keys per passage (blob), not per sentence (cache keys
+  would otherwise freeze the seam artifacts).
+
+Consequences: T4's player contract and T5's cache keys are fixed before the
+player slice starts; the read-along highlight derives from one source of truth
+(the engine), not text re-segmentation. Spike files: `kokoroGrainSpike` task +
+`KokoroGrainSpike.kt` (measurements reproducible with `-PkokoroCache`); the same
+run wrote the on-device corpus for the #30 device spike (`kokoro-device-corpus.tsv`,
+raw pre-vocab-filter espeak-ng phonemes per corpus text).
+
+## 30b. Device half MEASURED — raw port passes on the S22 Ultra (2026-08-26)
+The #30 spike ran the raw port on the S22 (SM-S908U1, arm64, screen off/locked)
+via a new instrumented harness in spike-tts (`KokoroBenchmarkRunner` +
+`KokoroDeviceBenchmarkTest`, 2 passages — 40.4 s en/af_heart + 22.8 s pt-br/
+pf_dora, 3 runs, ORT with ALL_OPT + 6 intra-op threads):
+
+- **RTF 0.66–0.76 across runs** (en 0.69–0.74, pt 0.66–0.76) — the realtime bar
+  clears with ~35 % headroom; engine open 1.5 s. vs CosyVoice3's 14.7–17.5
+  (decisions #21): the engine-order verdict the draft was waiting for.
+- **Platform parity:** device audio matches the host render (en sample count
+  exact 970431 = 970431, correlation 0.996, RMS identical; pt off by one 10 ms
+  pause-frame = the documented #28 variance). Phonemization was the only
+  excluded stage (host-precomputed corpus; espeak-ng cost is ~ms/sentence) —
+  closed by #32.
+- **RAM:** VmHWM 1.41 GB / totalPss 1.31 GB (fp32 325 MB weights + ORT arenas);
+  V3 tuning candidates `enableCpuMemArena`/`doCopyInKernels`, fp16/int8 only
+  past the #26 measured gate.
+- **APK-size/ABI:** arm64-only debug APK 21.1 MiB (onnxruntime-android +
+  engine; models stay runtime downloads, decision #7).
+- Two harness findings: (1) a launched-but-keyguarded Activity freezes at
+  `__refrigerator` — benchmarks must run as instrumented tests or on an
+  unlocked screen; (2) ORT's no-options `createSession` stalled on the 325 MB
+  graph on device while the optioned path loads in ~1.5 s —
+  `OrtKokoroSession.open` now sets explicit `SessionOptions` (ALL_OPT + 6
+  threads, the T3-verified settings); host benchmarks shift slightly from #28.
+
+Gate conclusion: the raw port passes; the sherpa pivot is not needed for v1
+(and its TTS path cannot serve the read-along anchors yet — #3705/#3727 still
+open upstream). T4 proceeds on the raw port; #32's bundle closes the packaging
+scar; V3's device pass is now a routine RTF/RAM re-check, not a gate.
+
+## 32. espeak-ng Android bundle: 1.52.0 tag + matching data, flat pack (2026-08-26)
+The raw port's open scar (landscape.md "Android packaging of espeak-ng
+data/library") is closed: cross-compiled `libespeak-ng.so` with the NDK
+(arm64-v8a, ~2.1 MB) at the **1.52.0 release tag** — the exact version the #28
+ground-truth phonemizer oracle is frozen against — paired with the version's
+compiled `espeak-ng-data` (19 MB, arch-independent; taken from the system
+1.52.0 installation, byte-for-byte the data the host tests use).
+
+- Data generation cannot run in a cross build (the compiled generator is an
+  arm64 binary), and master's committed data dir is a 1.4 MB stub — hence
+  tag-pinned lib + tag-matched data.
+- Ships as a flat pack per #23/#26 (app loads `libespeak-ng.so` by explicit
+  path with `espeak-ng-data` staged next to it); pinned SHA-256 for the pack
+  descriptor: `734cc95a93217a68…` (lib), committed when T4 wires the download.
+- `tools/build-espeak-android.sh` reproduces the build in the toolchain image
+  (root container, apt cmake/ninja/git, NDK 27.2.12479018; `build/` outputs
+  gitignored).
+- 1.52.0's CMake fetches `sonic` via FetchContent (needs git in the
+  container); the library target builds clean, the data target must be
+  skipped in cross builds (it executes the arm64 binary on the host, fails).
+Consequences: T4's Android phonemizer adapter has no packaging risk left; a
+device re-run with phonemization on-device is a one-command exercise once the
+pack is wired.
+
+**Addendum (same day): the bundle RUNS on-device, phonemes byte-parity.**
+Wired into the spike harness (JNA + `libespeak-ng.so` staged under
+`files/espeak/` with `espeak-ng-data` next to it): on-device phonemization
+reproduces the host output exactly (en 730 chars, pt 496 chars — the #28
+oracle survives the platform), and the full-pipeline RTF (phonemization
+included) is 0.774 (en) / 0.754 (pt) on the S22 — the realtime bar still
+clears end-to-end. espeak-ng cost: ~10–40 ms per passage.
+
+**JNA-on-Android finding (load-bearing for T4):** the plain `jna` jar (5.17.0)
+ships NO Android natives (its 21 `jnidispatch.so` are all desktop), so T4's
+Android phonemizer adapter must depend on the **AAR**
+(`net.java.dev.jna:jna:5.17.0@aar`, ships `jni/<abi>/libjnidispatch.so`,
+resolved via `System.loadLibrary`) and exclude the jar that core-tts brings —
+the spike-tts wiring
+(`implementation(project(":core-tts")) { exclude(group = "net.java.dev.jna") }`
++ `@aar`) is the reference for the app module.

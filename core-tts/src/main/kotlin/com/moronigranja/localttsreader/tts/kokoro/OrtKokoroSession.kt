@@ -96,7 +96,16 @@ class OrtKokoroSession private constructor(
 
         fun open(modelFile: File): OrtKokoroSession {
             require(modelFile.isFile) { "model file not found: $modelFile" }
-            val session = OrtEnvironment.getEnvironment().createSession(modelFile.absolutePath)
+            // Explicit options mirror the device-verified T3 harness settings
+            // (spike-tts Sessions.kt): ALL_OPT graph optimization + 6 intra-op
+            // threads. ORT's no-options overload was observed to stall session
+            // creation of the 325 MB fp32 graph on the S22 Ultra (2026-08-26,
+            // decisions #30) while the optioned path loads in seconds.
+            val sessionOptions = OrtSession.SessionOptions().apply {
+                setOptimizationLevel(OrtSession.SessionOptions.OptLevel.ALL_OPT)
+                setIntraOpNumThreads(6)
+            }
+            val session = OrtEnvironment.getEnvironment().createSession(modelFile.absolutePath, sessionOptions)
             try {
                 val inputs = session.inputInfo
                 val tokenInput = when {

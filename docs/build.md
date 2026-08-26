@@ -44,6 +44,46 @@ adb exec-out run-as com.moronigranja.localttsreader.spiketts cat \
 ```
 The prompt voice ships pre-resampled (`voices/sarah16.wav` / `sarah24.wav`);
 models are intentionally NOT committed (runtime download, decision #7).
+## Kokoro on-device benchmark (decisions #30/#31, `spike-tts`)
+
+Runs the raw Kokoro-82M port (core-tts) on a phone: RTF, RAM, thermal, engine
+open time. The corpus ships pre-phonemized (host espeak-ng, written by
+`:core-tts:kokoroGrainSpike`), so the harness runs without an Android espeak-ng
+build; the full on-device phonemization bundle is decision #32.
+
+```bash
+tools/docker-build.sh :spike-tts:assembleDebug :spike-tts:assembleDebugAndroidTest
+adb uninstall com.moronigranja.localttsreader.spiketts 2>/dev/null; adb uninstall com.moronigranja.localttsreader.spiketts.test 2>/dev/null
+adb install spike-tts/build/outputs/apk/debug/spike-tts-debug.apk
+adb install -r -t spike-tts/build/outputs/apk/androidTest/debug/spike-tts-debug-androidTest.apk
+# stage packs + corpus (Android 11+ FUSE hides adb-pushed files under Android/data):
+#   host-side corpus: ./gradlew :core-tts:kokoroGrainSpike -PkokoroCache=<dir>
+adb push <dir>/kokoro-v1.0.onnx /data/local/tmp/kokoro-model
+adb push <dir>/voices-v1.0.bin /data/local/tmp/kokoro-voices
+adb push <dir>/kokoro-device-corpus.tsv /data/local/tmp/corpus.tsv
+adb shell "run-as com.moronigranja.localttsreader.spiketts sh -c \\
+  'mkdir -p files/models && cp /data/local/tmp/kokoro-model files/models/ && \\
+   cp /data/local/tmp/kokoro-voices files/models/ && cp /data/local/tmp/corpus.tsv files/'"
+# run: locked/off screen is fine — instrumented tests are exempt from the
+# process freezer (a launched-but-keyguarded Activity freezes in __refrigerator):
+adb logcat -c
+adb shell am instrument -w com.moronigranja.localttsreader.spiketts.test/androidx.test.runner.AndroidJUnitRunner
+adb logcat -d -s KokoroSpike   # per-run RTF + DONE
+# pull results (external files dir):
+adb exec-out run-as com.moronigranja.localttsreader.spiketts cat \
+  /sdcard/Android/data/com.moronigranja.localttsreader.spiketts/files/kokoro_results.json
+```
+
+## espeak-ng Android bundle (decision #32)
+
+Cross-compiles `libespeak-ng.so` (arm64-v8a) at the pinned espeak-ng release tag
+and pairs it with the matching `espeak-ng-data` (arch-independent, from the
+host installation) — the flat pack for the phonemizer adapter.
+
+```bash
+tools/build-espeak-android.sh   # outputs build/espeak-ng-152/{lib,espeak-ng-data}
+```
+
 ## Android toolchain in Docker (recommended)
 
 The Android SDK + NDK is tens of thousands of files. Baking it into an image keeps the

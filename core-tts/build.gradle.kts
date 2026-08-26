@@ -49,6 +49,20 @@ tasks.register<JavaExec>("kokoroBenchmark") {
     }
 }
 
+tasks.register<JavaExec>("kokoroGrainSpike") {
+    description = "Spike A: sentence-grain vs paragraph-blob synthesis measurements (decisions #31); also writes the on-device corpus"
+    group = "verification"
+    classpath = sourceSets.test.get().runtimeClasspath
+    mainClass.set("com.moronigranja.localttsreader.tts.kokoro.KokoroGrainSpikeKt")
+    // First optional arg: pack cache root (defaults to ~/.cache/local-tts-reader/packs).
+    val launcherArgs = mutableListOf<String>()
+    if (project.hasProperty("kokoroCache")) {
+        launcherArgs += project.property("kokoroCache") as String
+    }
+    if (launcherArgs.isNotEmpty()) {
+        args = launcherArgs
+    }
+}
 tasks.test {
     useJUnitPlatform()
     testLogging {

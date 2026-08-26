@@ -103,6 +103,16 @@ Candidate features from other local-TTS reader apps (Audiobookify, heard.quest, 
 are logged in [ideas.md](ideas.md) — a pool, not commitments; ideas graduate here
 when decided.
 
+**2026-08-26:** **C7 done** (TXT + Markdown import, committed) and the **pre-T4
+spikes measured** (decisions #31/#30b/#32): sentence-grain vs paragraph-blob —
+blob + engine-computed sentence anchors is the T4 contract; the raw Kokoro port
+passes on the S22 Ultra (RTF 0.66–0.76, engine open 1.5 s, arm64 APK 21.1 MiB);
+espeak-ng Android bundle built and pinned (1.52.0 tag + data, #32); sherpa
+pivot dropped for v1 (upstream TTS has no word timestamps — #3705/#3727 open).
+The harness (`spike-tts` Kokoro instrumented benchmark + `:core-tts:kokoroGrainSpike`)
+stays in the repo. T4 is the next slice; V3's device pass downgrades from gate
+to routine re-check.
+
 ## Assumptions
 
 - Everything Android (foundation, player, share receiver, OCR, Room, Compose) needs the

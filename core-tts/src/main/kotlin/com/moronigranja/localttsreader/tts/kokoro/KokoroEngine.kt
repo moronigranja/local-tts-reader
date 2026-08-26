@@ -182,17 +182,22 @@ class KokoroEngine internal constructor(
             modelFile: File,
             voicesFile: File,
             phonemizer: Phonemizer = EspeakPhonemizer.load(),
+            progress: (String) -> Unit = {},
         ): KokoroEngine {
             require(modelFile.isFile) { "model pack file not ready: $modelFile" }
             require(voicesFile.isFile) { "voices pack file not ready: $voicesFile" }
             val session = OrtKokoroSession.open(modelFile)
+            progress("session")
             return try {
                 val vocab = session.embeddedVocab.ifEmpty { KokoroVocabulary.resource() }
+                progress("vocab")
+                val voices = KokoroVoiceBank.load(voicesFile)
+                progress("voices")
                 KokoroEngine(
                     spec,
                     packs,
                     session,
-                    KokoroVoiceBank.load(voicesFile),
+                    voices,
                     KokoroTokenizer(vocab),
                     phonemizer,
                 )
