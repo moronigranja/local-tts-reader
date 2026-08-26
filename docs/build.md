@@ -117,14 +117,17 @@ tools/docker-build.sh assembleDebug      # full APK
   have fixture-based tests (valid + malformed inputs).
 - Keep instrumented tests minimal and deterministic; prefer them only for audio/
   playback and UI flows that unit tests cannot reach.
-- CI must be green before a change is considered complete — **lands with the CI
-  slice (roadmap V2)**; no CI exists yet.
+- CI must be green before a change is considered complete (roadmap V2, decisions
+  #41): `.github/workflows/ci.yml` runs the JVM suite + Docker Android build and
+  unit tests on every push/PR and assembles debug+release on tags.
 
 ## App preview on a device (T4-2 player)
 
-The player's engine needs its packs + the espeak-ng bundle staged in the app's
-internal storage until V1 wires the consent/download UI (decision #7 stays: no
-model data is ever bundled).
+The player's engine needs its packs + the espeak-ng bundle in the app's
+internal storage. V1's settings screen downloads kokoro model/voices/OCR
+languages on consent (decision #7 stays: no model data is ever bundled); the
+adb-staging path below is the offline/CI alternative — and the tessdata +
+sample-epub staging the OCR/share/import probes need.
 
 ```bash
 tools/docker-build.sh :app:assembleDebug
@@ -141,16 +144,38 @@ adb shell "run-as com.moronigranja.localttsreader sh -c \\
    cp -r /data/local/tmp/espeak-data/. files/espeak/espeak-ng-data/'"
 ```
 
-End-to-end playback check (locked-screen safe; keep media volume low):
+### Instrumented verification set (locked-screen safe; keep media volume low)
+
+Stage the OCR/import test data alongside the packs (S1/S-debug):
+
+```bash
+adb push ~/.cache/local-tts-reader/tessdata/eng.traineddata /data/local/tmp/eng.traineddata
+# a real epub (e.g. Gutenberg pg1342-images.epub) for the import probe:
+adb push pp.epub /data/local/tmp/pp.epub
+adb shell "run-as com.moronigranja.localttsreader sh -c \
+  'mkdir -p files/tesseract/tessdata files/import-probe && \
+   cp /data/local/tmp/eng.traineddata files/tesseract/tessdata/eng.traineddata && \
+   cp /data/local/tmp/pp.epub files/import-probe/pp.epub'"
+```
+
+End-to-end checks (run each test CLASS in its own invocation — the harness
+trips Room-reopen races when classes share one process):
 ```
 adb shell settings put system volume_music 0
 tools/docker-build.sh :app:assembleDebug :app:assembleDebugAndroidTest   # one invocation:
 adb uninstall com.moronigranja.localttsreader; adb uninstall com.moronigranja.localttsreader.test
 adb install app/build/outputs/apk/debug/app-debug.apk
 adb install -r -t app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
-# re-stage (uninstall wiped the files) then:
-adb shell am instrument -w com.moronigranja.localttsreader.test/androidx.test.runner.AndroidJUnitRunner
-# asserts the book plays through the real service+engine+AudioTrack to COMPLETED.
+# re-stage (uninstall wiped the files) then, per class:
+R=com.moronigranja.localttsreader.test/androidx.test.runner.AndroidJUnitRunner
+adb shell am instrument -w -e class com.moronigranja.localttsreader.PlaybackE2eTest $R
+adb shell am instrument -w -e class com.moronigranja.localttsreader.VoiceSelectionE2eTest $R
+adb shell am instrument -w -e class com.moronigranja.localttsreader.PlayPositionE2eTest $R
+adb shell am instrument -w -e class com.moronigranja.localttsreader.SharePipelineInstrumentedTest $R
+adb shell am instrument -w -e class com.moronigranja.localttsreader.OcrSmokeInstrumentedTest $R
+adb shell am instrument -w -e class com.moronigranja.localttsreader.RealEpubImportProbe $R
+adb shell am instrument -w -e class com.moronigranja.localttsreader.PtVoiceE2eTest $R
+# each asserts its slice through the real service/engine/AudioTrack on the device.
 ```
 Note: app + test APK must come from the SAME `tools/docker-build.sh` invocation
 — the debug keystore regenerates per run, and mismatched signatures abort the
