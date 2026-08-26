@@ -41,6 +41,19 @@ data class EngineDescriptor(
 }
 
 /**
+ * One sentence's span in the synthesized audio, in seconds from the start of
+ * the PCM. Spans are contiguous: sentence *i* runs from its first phoneme's
+ * start to the next sentence's first phoneme's start, and the last sentence
+ * runs to the end of the audio — the trailing pause after a mark belongs to
+ * the sentence that produced it, so a read-along highlight can interpolate
+ * position without silence scanning (decisions #31).
+ */
+data class SegmentAnchor(
+    val startSeconds: Double,
+    val endSeconds: Double,
+)
+
+/**
  * Cross-cutting engine contract (modules.md: "design against `TTSEngine`").
  * Every engine — Kokoro, CosyVoice3, any tier — is an implementor; swapping
  * engines is a wiring change, not a call-site change.
@@ -69,11 +82,18 @@ data class SynthesisRequest(
 )
 
 sealed interface SynthesisOutcome {
-    /** Signed 16-bit little-endian PCM. */
+    /**
+     * Signed 16-bit little-endian PCM. [segments] carries sentence anchors
+     * (decisions #31): non-null when the graph reports durations and the
+     * engine can place them — null for engines/tiers without a duration
+     * output (the CosyVoice3 fallback tier), which degrades the read-along
+     * to no per-sentence highlight rather than an estimated one.
+     */
     data class Audio(
         val pcm: ByteArray,
         val sampleRateHz: Int,
         val channelCount: Int = 1,
+        val segments: List<SegmentAnchor>? = null,
     ) : SynthesisOutcome
 
     /** A required pack is not downloaded; the caller should surface the download action. */

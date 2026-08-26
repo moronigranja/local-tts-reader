@@ -3,6 +3,7 @@ package com.moronigranja.localttsreader.tts.kokoro
 import com.moronigranja.localttsreader.tts.EngineSpec
 import com.moronigranja.localttsreader.tts.EngineTier
 import com.moronigranja.localttsreader.tts.PackKind
+import com.moronigranja.localttsreader.tts.SegmentAnchor
 import com.moronigranja.localttsreader.tts.SynthesisOutcome
 import com.moronigranja.localttsreader.tts.SynthesisRequest
 import com.moronigranja.localttsreader.tts.TtsPack
@@ -160,6 +161,39 @@ class KokoroEngineTest {
         val call = session.calls.single()
         assertEquals(listOf(vocab['h'], vocab['ə'], vocab['l'], vocab['ˈ'], vocab['o'], vocab['ʊ']), call.tokens.toList())
         assertEquals(256, call.styleRow.size)
+    }
+
+    @Test
+    fun `sentence anchors split the audio at marks and stay contiguous`() = runBlocking {
+        phonemizer.phonemes["en-us"] = "həlˈoʊ wˈɜːld! bˈaɪ bˈaɪ! cˈaɪt "
+        val audio = audioOf(engine().synthesize(SynthesisRequest("one two!")))
+        val segments = audio.segments ?: error("segments expected on a timings graph")
+        // Three sentences: before the first '!', between the two marks, after the last.
+        assertEquals(3, segments.size)
+        assertEquals(segments[0].endSeconds, segments[1].startSeconds, 1e-9, "gap-free adjacent spans")
+        assertEquals(segments[1].endSeconds, segments[2].startSeconds, 1e-9, "gap-free adjacent spans")
+        val total = audio.pcm.size / 2.0 / 24_000.0
+        assertEquals(total, segments.last().endSeconds, 1e-9, "last span runs to the audio end")
+        assertTrue(segments[0].endSeconds > segments[0].startSeconds + 1e-9)
+        assertTrue(segments[1].endSeconds > segments[1].startSeconds + 1e-9)
+    }
+
+    @Test
+    fun `sentence anchors are null without graph durations`() = runBlocking {
+        session = FakeSession(hasTimings = false)
+        phonemizer.phonemes["en-us"] = "həlˈoʊ! "
+        val audio = audioOf(engine().synthesize(SynthesisRequest("hello")))
+        assertEquals(null, audio.segments)
+    }
+
+    @Test
+    fun `unmarked text yields a single full-length anchor`() = runBlocking {
+        phonemizer.phonemes["en-us"] = "həlˈoʊ "
+        val audio = audioOf(engine().synthesize(SynthesisRequest("hello")))
+        val total = audio.pcm.size / 2.0 / 24_000.0
+        // First phoneme starts after the BOS pad's duration (100 fake samples);
+        // production trim removes that pad, pulling the start to ~0.
+        assertEquals(listOf(SegmentAnchor(FAKE_SAMPLES_PER_TOKEN / 24_000.0, total)), audio.segments)
     }
 
     private class RecordingPhonemizer : Phonemizer {

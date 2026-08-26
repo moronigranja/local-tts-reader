@@ -2,6 +2,7 @@ package com.moronigranja.localttsreader.tts.kokoro
 
 import com.moronigranja.localttsreader.tts.DefaultEngines
 import com.moronigranja.localttsreader.tts.PackCache
+import com.moronigranja.localttsreader.tts.SegmentAnchor
 import com.moronigranja.localttsreader.tts.SynthesisOutcome
 import com.moronigranja.localttsreader.tts.SynthesisRequest
 import java.io.File
@@ -124,6 +125,31 @@ fun main(args: Array<String>) {
         println("  blob:   ${blobBoundaries.joinToString(", ") { "%.0fms".format(it * 1000.0) }}")
         println("  joined: ${joinedBoundaries.joinToString(", ") { "%.0fms".format(it * 1000.0) }}")
 
+        // Decision #31 contract on the real model: sentence anchors from the
+        // engine must land inside the rendered pauses — each interior anchor
+        // boundary should sit at the start of a quiet run >= 150 ms (the
+        // pause the mark caused), within ~50 ms (frame + trim tolerance).
+        blob.segments?.let { segments ->
+            require(segments.size == passage.sentences.size) {
+                "anchor count ${segments.size} != sentences ${passage.sentences.size}"
+            }
+            // An interior boundary is the next sentence's first phoneme, which
+            // sits at the END of the pause run the mark caused — compare
+            // against run ends, not starts.
+            val quietEnds = quietRuns(blob.audio).filter { it.seconds() >= 0.150 }
+                .map { it.endSample / SAMPLE_RATE }
+            val drifts = segments.dropLast(1).map { boundary ->
+                quietEnds.minOf { kotlin.math.abs(it - boundary.endSeconds) }
+            }
+            println(
+                "anchors: ${segments.size} spans, boundary-pause drift max=%.0f ms".format(
+                    (drifts.maxOrNull() ?: 0.0) * 1000.0,
+                ),
+            )
+            val starts = segments.map { "%.2f".format(it.startSeconds) }.joinToString(", ")
+            println("  spans (s): $starts")
+        } ?: println("anchors: NOT PRESENT (no duration output?)")
+
         // Per-sentence in-blob duration, when boundary alignment is clean.
         if (blobBoundaries.size == passage.sentences.size - 1) {
             print("  in-blob v standalone (ms): ")
@@ -151,6 +177,7 @@ private data class Synthesized(
     val milliseconds: Long,
     val samples: Int,
     val audio: FloatArray,
+    val segments: List<SegmentAnchor>?,
 ) {
     val rtf: Double get() = milliseconds / 1000.0 / (samples / SAMPLE_RATE)
 
@@ -180,7 +207,7 @@ private fun synthesize(engine: KokoroEngine, text: String, voice: String): Synth
     val samples = FloatArray(audio.pcm.size / 2)
     val buffer = ByteBuffer.wrap(audio.pcm).order(ByteOrder.LITTLE_ENDIAN).asShortBuffer()
     for (i in samples.indices) samples[i] = buffer.get() / 32768.0f
-    return Synthesized(millis, samples.size, samples)
+    return Synthesized(millis, samples.size, samples, audio.segments)
 }
 
 private fun joinedBoundaries(sentences: List<Synthesized>): List<Double> {

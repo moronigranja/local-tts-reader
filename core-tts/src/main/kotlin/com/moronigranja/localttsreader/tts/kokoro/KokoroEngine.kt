@@ -1,6 +1,7 @@
 package com.moronigranja.localttsreader.tts.kokoro
 
 import com.moronigranja.localttsreader.tts.EngineSpec
+import com.moronigranja.localttsreader.tts.SegmentAnchor
 import com.moronigranja.localttsreader.tts.SynthesisOutcome
 import com.moronigranja.localttsreader.tts.SynthesisRequest
 import com.moronigranja.localttsreader.tts.TTSEngine
@@ -133,12 +134,16 @@ class KokoroEngine internal constructor(
         }
 
         val merged = concat(parts)
-        val withPauses = if (session.hasTimings && spoken.isNotEmpty()) {
-            KokoroTimings.insertPauses(merged, spoken, SAMPLE_RATE, SENTENCE_PAUSE, CLAUSE_PAUSE).first
-        } else {
-            merged
+        var withPauses = merged
+        var segments: List<SegmentAnchor>? = null
+        if (session.hasTimings && spoken.isNotEmpty()) {
+            val (audio, shifted) = KokoroTimings.insertPauses(merged, spoken, SAMPLE_RATE, SENTENCE_PAUSE, CLAUSE_PAUSE)
+            withPauses = audio
+            // Boundaries are the shifted timings, so they stay exact in the
+            // final audio regardless of pause insertion (decisions #31).
+            segments = KokoroTimings.sentenceSegments(shifted, audio.size / SAMPLE_RATE.toDouble())
         }
-        return SynthesisOutcome.Audio(pcm16(withPauses), SAMPLE_RATE, 1)
+        return SynthesisOutcome.Audio(pcm16(withPauses), SAMPLE_RATE, 1, segments)
     }
 
     override fun close() {

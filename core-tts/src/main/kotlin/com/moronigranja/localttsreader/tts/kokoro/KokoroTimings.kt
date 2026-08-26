@@ -1,5 +1,6 @@
 package com.moronigranja.localttsreader.tts.kokoro
 
+import com.moronigranja.localttsreader.tts.SegmentAnchor
 import kotlin.math.abs
 import kotlin.math.pow
 import kotlin.math.roundToInt
@@ -61,8 +62,31 @@ object KokoroTimings {
     // both sides.
     private const val REACH = 0.15
 
-    private const val SENTENCE_MARKS = ".!?…"
+    /** Characters that end a sentence (the read-along segmentation unit). */
+    const val SENTENCE_MARKS = ".!?…"
     private const val CLAUSE_MARKS = ",;:"
+
+    /**
+     * Contiguous sentence spans over [timings] — the pause-shifted list from
+     * [insertPauses], so the boundaries are exact positions in the final
+     * audio: sentence *i* goes from its first phoneme's start to the next
+     * sentence's first phoneme's start, the last to [totalSeconds]. Gap-free
+     * by construction; a phoneme stream without sentence marks is one span.
+     */
+    fun sentenceSegments(timings: List<Timing>, totalSeconds: Double): List<SegmentAnchor> {
+        if (timings.isEmpty()) return emptyList()
+        val starts = ArrayList<Double>()
+        starts += timings.first().start
+        for (index in 1 until timings.size) {
+            if (timings[index - 1].phoneme in SENTENCE_MARKS) starts += timings[index].start
+        }
+        val segments = ArrayList<SegmentAnchor>(starts.size)
+        for (i in starts.indices) {
+            val end = if (i + 1 < starts.size) starts[i + 1] else totalSeconds
+            segments += SegmentAnchor(starts[i], end)
+        }
+        return segments
+    }
 
     /**
      * Lengthens the pause after every mark and moves later timings along —
