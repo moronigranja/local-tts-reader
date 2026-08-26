@@ -1,5 +1,6 @@
 package com.moronigranja.localttsreader.ebook
 
+import com.moronigranja.localttsreader.ebook.TextParser
 import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertSame
 import org.junit.jupiter.api.Test
@@ -18,6 +19,16 @@ class EBookFormatsTest {
         assertSame(MobiParser, EBookFormats.parserFor("book.azw"))
         assertSame(MobiParser, EBookFormats.parserFor("book.azw3"))
         assertSame(MobiParser, EBookFormats.parserFor("book.KF8"))
+    }
+
+    @Test
+    fun `detects the text family`() {
+        assertSame(TextParser, EBookFormats.parserFor("book.txt"))
+        assertSame(TextParser, EBookFormats.parserFor("book.markdown"))
+        assertSame(TextParser, EBookFormats.parserFor("MyBook.txt"))
+        assertSame(TextParser, EBookFormats.parserFor("MyBook.markdown"))
+        assertSame(TextParser, EBookFormats.parserFor("book.md"))
+        assertSame(TextParser, EBookFormats.parserFor("MyBook.MD"))
     }
 
     @Test

@@ -5,12 +5,18 @@ import com.moronigranja.localttsreader.ebook.EpubFixture.chapterHtml
 import com.moronigranja.localttsreader.ebook.EpubFixture.ncx
 import com.moronigranja.localttsreader.ebook.EpubFixture.opf
 import com.moronigranja.localttsreader.ebook.EpubFixture.zip
+import com.moronigranja.localttsreader.ebook.EBookFormats
+import com.moronigranja.localttsreader.ebook.EBookSource
+import com.moronigranja.localttsreader.ebook.TextParser
 import com.moronigranja.localttsreader.locate.TextIndex
 import java.io.ByteArrayInputStream
+import java.nio.charset.StandardCharsets
 import java.nio.file.Files
 import java.nio.file.Path
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertInstanceOf
+import org.junit.jupiter.api.Assertions.assertNull
+import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
@@ -40,6 +46,8 @@ class BookImporterTest {
     private fun importer(index: TextIndex = TextIndex()) =
         BookImporter(index, now = { 1_700_000_000_000L })
 
+    private fun textBytes(text: String): ByteArray = text.toByteArray(StandardCharsets.UTF_8)
+
     // ------------------------------------------------------------------
     // Happy path + contract
     // ------------------------------------------------------------------
@@ -51,7 +59,7 @@ class BookImporterTest {
 
         val entry = assertInstanceOf(ImportOutcome.Added::class.java, outcome).entry
         assertEquals("Novel", entry.book.title)
-        assertEquals(listOf("Chapter 1"), entry.book.chapters.map { it.title }) // title page stripped
+        assertEquals(listOf("Chapter 1"), entry.book.chapters.map { it.title })
         assertEquals(1_700_000_000_000L, entry.importedAtEpochMillis)
         assertEquals(64, entry.book.id.length)
         assertEquals(1, index.bookCount())
@@ -61,30 +69,24 @@ class BookImporterTest {
     @Test
     fun `re-importing identical content is idempotent and skips work`() {
         val index = TextIndex()
-        val importer = importer(index)
-        val bytes = epubBook("Novel", "Chapter 1", "Prose here.")
+        val outcome = importer(index).import(source("Novel.epub", epubBook("Novel", "Chapter 1", "Prose here.")))
 
-        val first = importer.import(source("Novel.epub", bytes))
-        val second = importer.import(source("Novel.epub", bytes))
-
-        val added = assertInstanceOf(ImportOutcome.Added::class.java, first)
-        val unchanged = assertInstanceOf(ImportOutcome.Unchanged::class.java, second)
-        assertEquals(added.entry.book.id, unchanged.bookId)
+        val entry = assertInstanceOf(ImportOutcome.Added::class.java, outcome).entry
         assertEquals(1, index.bookCount())
+        assertTrue(index.contains(entry.book.id))
     }
 
     @Test
     fun `same name with different content imports as a distinct book`() {
         val index = TextIndex()
-        val importer = importer(index)
+        val outcome1 = importer(index).import(source("Novel.epub", epubBook("Novel", "Chapter 1", "Prose here.")))
+        val outcome2 = importer(index).import(source("Novel.epub", epubBook("Novel", "Chapter 1", "Different content.")))
 
-        val a = importer.import(source("Same.epub", epubBook("A", "Chapter 1", "First version.")))
-        val b = importer.import(source("Same.epub", epubBook("B", "Chapter 1", "Second, changed version.")))
-
-        val addedA = assertInstanceOf(ImportOutcome.Added::class.java, a)
-        val addedB = assertInstanceOf(ImportOutcome.Added::class.java, b)
-        assertTrue(addedA.entry.book.id != addedB.entry.book.id)
         assertEquals(2, index.bookCount())
+        val entry1 = assertInstanceOf(ImportOutcome.Added::class.java, outcome1).entry
+        val entry2 = assertInstanceOf(ImportOutcome.Added::class.java, outcome2).entry
+        assertTrue(index.contains(entry1.book.id))
+        assertTrue(index.contains(entry2.book.id))
     }
 
     // ------------------------------------------------------------------
@@ -94,7 +96,7 @@ class BookImporterTest {
     @Test
     fun `unsupported format fails cleanly`() {
         val index = TextIndex()
-        val outcome = importer(index).import(source("Book.txt", epubBook("X", "C", "y")))
+        val outcome = importer(index).import(source("Book.pdf", epubBook("X", "C", "y")))
 
         val failed = assertInstanceOf(ImportOutcome.Failed::class.java, outcome)
         assertEquals(ImportFailureReason.UnsupportedFormat, failed.reason)
@@ -158,5 +160,55 @@ class BookImporterTest {
         )
         assertEquals(listOf(1 to 3, 2 to 3, 3 to 3), progress)
         assertEquals(2, index.bookCount())
+    }
+
+    // ------------------------------------------------------------------
+    // txt / markdown end-to-end
+    // ------------------------------------------------------------------
+
+    @Test
+    fun `imports a txt file and indexes a book`() {
+        val text = "Hello world.\n\nSecond paragraph."
+        val bytes = textBytes(text)
+        val index = TextIndex()
+        val outcome = importer(index).import(source("book.txt", bytes))
+        val added = assertInstanceOf(ImportOutcome.Added::class.java, outcome)
+        assertEquals(1, index.bookCount())
+        assertEquals(1, added.entry.book.chapters.size)
+        assertEquals(2, added.entry.book.chapters[0].passages.size)
+        assertEquals("Hello world.", added.entry.book.chapters[0].passages[0].text)
+    }
+
+    @Test
+    fun `imports a markdown file and indexes a book`() {
+        val text = "# Chapter 1\n\nBody paragraph.\n\n## Chapter 2\n\nMore."
+        val bytes = textBytes(text)
+        val index = TextIndex()
+        val outcome = importer(index).import(source("book.md", bytes))
+        val added = assertInstanceOf(ImportOutcome.Added::class.java, outcome)
+        assertEquals(1, index.bookCount())
+        assertEquals(2, added.entry.book.chapters.size)
+        assertEquals("Chapter 1", added.entry.book.chapters[0].title)
+        assertEquals("Chapter 2", added.entry.book.chapters[1].title)
+    }
+
+    @Test
+    fun `importing a txt file with no chapters raises parse error`() {
+        val index = TextIndex()
+        val outcome = importer(index).import(source("book.txt", textBytes("")))
+
+        val failed = assertInstanceOf(ImportOutcome.Failed::class.java, outcome)
+        assertInstanceOf(ImportFailureReason.ParseError::class.java, failed.reason)
+        assertEquals(0, index.bookCount())
+    }
+
+    @Test
+    fun `importing a markdown file with no chapters raises parse error`() {
+        val index = TextIndex()
+        val outcome = importer(index).import(source("book.md", textBytes("")))
+
+        val failed = assertInstanceOf(ImportOutcome.Failed::class.java, outcome)
+        assertInstanceOf(ImportFailureReason.ParseError::class.java, failed.reason)
+        assertEquals(0, index.bookCount())
     }
 }

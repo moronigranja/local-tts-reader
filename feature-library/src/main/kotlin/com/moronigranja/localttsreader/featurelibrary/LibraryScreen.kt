@@ -42,6 +42,16 @@ import kotlinx.coroutines.launch
  * the Hilt-provided [LibraryViewModel], and see the result — with progress, a
  * failure dialog when anything failed, and a snackbar for clean successes.
  */
+/** MIME types the SAF picker offers. mobi/azw have no registered MIME type, so
+ *  providers report them as `application/octet-stream`; the importer still filters
+ *  by extension, so stray picks surface as a typed "format not supported" failure. */
+private val IMPORT_MIME_TYPES = arrayOf(
+    "application/epub+zip",
+    "text/plain",
+    "text/markdown",
+    "text/x-markdown",
+    "application/octet-stream",
+)
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun LibraryScreen(viewModel: LibraryViewModel = viewModel()) {
@@ -82,7 +92,7 @@ fun LibraryScreen(viewModel: LibraryViewModel = viewModel()) {
             TopAppBar(
                 title = { Text("Library") },
                 actions = {
-                    TextButton(onClick = { launcher.launch(arrayOf("*/*")) }) {
+                    TextButton(onClick = { launcher.launch(IMPORT_MIME_TYPES) }) {
                         Text("Import books")
                     }
                 },
