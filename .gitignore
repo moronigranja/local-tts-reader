@@ -47,3 +47,6 @@ Thumbs.db
 
 # Third-party app screenshots (reference material for the idea pool — not to be committed)
 docs/prints/
+
+# JVM crash heap dumps (daemon thrash artifacts)
+*.hprof
