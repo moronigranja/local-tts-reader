@@ -46,7 +46,24 @@ class PlaybackE2eTest {
         id = "t4-e2e-book",
         title = "E2E Test Book",
         chapters = listOf(
-            Chapter(0, "One", listOf(TextPassage("Hello world, this is the first passage. It has two sentences."))),
+            // Passage 1 is deliberately long (~15 s): the pre-generation queue
+            // (T5) synthesizes passage 2 while it plays — even on a throttled,
+            // locked-screen device a 1-passage head start finishes in time, so
+            // passage 2 MUST come out of the queue, not the synthesizer.
+            Chapter(
+                0,
+                "One",
+                listOf(
+                    TextPassage(
+                        "The hikers met at dawn by the old stone bridge. " +
+                            "Mist lay over the river and the town was quiet. " +
+                            "They packed the map, the thermos, and the climbing rope. " +
+                            "The trail rose gently through the pines for an hour. " +
+                            "Listen to the wind in the high branches and the birds. " +
+                            "It takes patience to reach the ridge before noon.",
+                    ),
+                ),
+            ),
             Chapter(1, "Two", listOf(TextPassage("And this is the very last passage of the test book. Goodbye."))),
         ),
     )
