@@ -4,6 +4,8 @@ import com.moronigranja.localttsreader.model.Book
 import com.moronigranja.localttsreader.model.CachedBook
 import com.moronigranja.localttsreader.model.Chapter
 import com.moronigranja.localttsreader.model.TextPassage
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.Deferred
 
 /**
  * Syncs a [TextIndex] to the cached library (P2): consumes the flat cached-parse
@@ -18,6 +20,16 @@ import com.moronigranja.localttsreader.model.TextPassage
  */
 class IndexRebuilder(private val index: TextIndex) {
 
+    private val ready = CompletableDeferred<Unit>()
+
+    /**
+     * Completes after the first successful [rebuild]. Share/query entry
+     * points that can start the process (ACTION_SEND) await this so a
+     * cold-start share never queries an empty index (the app launches the
+     * rebuild asynchronously at startup).
+     */
+    val readiness: Deferred<Unit> get() = ready
+
     fun rebuild(cache: List<CachedBook>) {
         for (cached in cache) {
             index.add(cached.toBook())
@@ -26,6 +38,7 @@ class IndexRebuilder(private val index: TextIndex) {
         for (id in index.bookIds()) {
             if (id !in cachedIds) index.remove(id)
         }
+        if (!ready.isCompleted) ready.complete(Unit)
     }
 
     /** Reconstructs the canonical [Book] from the flat cache rows. */

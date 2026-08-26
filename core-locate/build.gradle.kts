@@ -19,6 +19,7 @@ kotlin {
 
 dependencies {
     api(project(":core-model")) // public API exposes Book/MatchResult locations
+    implementation(libs.kotlinx.coroutines.core) // IndexRebuilder readiness gate (S2)
     testImplementation(libs.junit.jupiter)
     testRuntimeOnly(libs.junit.platform.launcher)
 }

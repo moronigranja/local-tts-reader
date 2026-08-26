@@ -11,6 +11,7 @@ core-player/      LIVE — v1 player state machine (T4-1, #33): transport, trans
 core-ocr/         LIVE — S1: OcrEngine seam, OcrImage/OcrResult, screenshot downscaler, six pinned legacy-traineddata packs (#36)
 feature-ocr/     LIVE — S1: TessTwoOcrEngine (tess-two 9.1.0) + TessDataStager + Hilt; LSTM models unusable on this binding (see #36)
 feature-settings/ LIVE — V1: settings screen, packs download UI, voice picker + favorites, threshold, OCR langs, theme; AndroidHttpTransport
+feature-share/    LIVE — S2: ACTION_SEND gateway (text+image), typed ShareSnippetResolver over the shared index, found/not-found UX (#37)
 feature-library/  SAF import + library list UI (Compose, Hilt) — C5/C6; search pending
 feature-reader/   text display + navigation (planned)
 feature-share/    ACTION_SEND receiver: text + screenshot → TextIndex → resume point (planned)

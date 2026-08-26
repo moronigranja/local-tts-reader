@@ -228,7 +228,7 @@ Idea-pool graduates, deliberately outside v1's critical path (T4/T5/S/V):
 - **pt-BR translation decorator** — new `core-translate` (a `TTSEngine` decorator,
   output-side only — matching/index untouched; NMT int8 ~30–80 MB, CC-BY-4.0 with
   attribution; transcription failure degrades to the original text).
-- **V1 settings shipped (2026-08-26, decisions #36)**: SettingsScreen (engine packs + download UI, voice picker + favorites, match threshold, OCR languages, theme), AppSettings hot-path mirror, AndroidHttpTransport, service reload-on-command. **S1 core-ocr shipped**: OcrEngine seam, downscaler, legacy 3.04.00 traineddata packs (tessdata_fast LSTM fails tess-two 9.1.0 init — recount in #36), TessTwoOcrEngine + stager; on-device OCR smoke green. S2 = share receiver.
+- **V1 settings shipped (2026-08-26, #36)**: SettingsScreen (packs download UI, voice picker + favorites, match threshold, OCR languages, theme), AppSettings mirror, AndroidHttpTransport. **S1 core-ocr shipped**: OcrEngine seam, downscaler, legacy 3.04.00 traineddata packs (tessdata_fast LSTM fails tess-two 9.1.0), TessTwoOcrEngine + stager. **S2 share receiver shipped (2026-08-26, #37)**: ACTION_SEND gateway, typed resolver (found/not-found hint/failed), threshold from settings, image OCR branch; cold-start index gate (IndexRebuilder.readiness + TextIndex.best); on-device text+image OK.
 - **TODAY stats dashboard** — new local per-day read/listen-minutes table + home
   restructure (offline-first holds).
 - **Kindle official-export / Highlights-API sync** — on-demand position import from

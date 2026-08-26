@@ -636,3 +636,38 @@ Consequences/tuning found on the S22:
 Open: S2 (share receiver) consumes OcrEngine + match threshold; the threshold's
 S3 "listen from here" usage; LSTM models via a maintained binding when
 accuracy demands it.
+
+## 37. S2: the share receiver (2026-08-26)
+The share gate from the roadmap, exactly scoped: an ACTION_SEND receiver
+(text/plain + image/*), a found/not-found result UX with the threshold from
+settings, and a typed pipeline. S3 (match → open book at passage) is next.
+
+- **feature-share**: `ShareReceiverActivity` — launcher-less, exported,
+  excludeFromRecents — with two SEND intent-filters. `ShareViewModel` reads
+  the intent once (config changes re-deliver the verdict, never re-run the
+  pipeline). Text goes straight to the index; images go [ImageDecoder]
+  (bounds-first sampled decode, then ARGB) → core-ocr downscale → the real
+  tess-two engine → the index.
+- **ShareSnippetResolver** (pure JVM, host-tested): normalizes, awaits the app's
+  async index rebuild (cold-start shares otherwise race an empty index) for up
+  to 10 s, then queries with the settings threshold (AppSettings mirror, V1).
+  Resolution is a sealed type: Found(book·chapter·passage·confidence) /
+  NotFound(reason + closest-candidate hint, dimmed) / Failed(message).
+- **core-locate additions**: `IndexRebuilder.readiness` (CompletableDeferred,
+  completes after the first rebuild) and `TextIndex.best()` (threshold-free
+  closest candidate — feeds the not-found hint; query() is now best() + gate).
+Three on-device findings:
+- tess-two/harness quirks consumed most of the verification budget: the Hilt
+  instrumented-test application override (test-manifest HiltTestApplication /
+  @CustomTestApplication) does not take effect in this AGP 9 project — the
+  share pipeline test builds the real components manually instead; the hilt
+  androidTest deps were removed again.
+- `BitmapFactory.decodeStream(inJustDecodeBounds=true)` returns **null by
+  design** — the decoder must not treat it as a read failure (fixed).
+- JUnit4 rejects non-`void` test methods: a trailing Boolean expression in a
+  runBlocking body (file.delete()) fails validation.
+Verified: 9 host tests (text/image/threshold/gate/cold-start) in Docker +
+real-engine runs green; on device `SharePipelineInstrumentedTest` OK (2 tests)
+— text branch resolves the quote, image branch decodes a rendered screenshot,
+OCRs it with legacy eng tessdata and resolves back to the passage. Host JVM
+suite 240 green. The manifest carries the activity; the app builds.

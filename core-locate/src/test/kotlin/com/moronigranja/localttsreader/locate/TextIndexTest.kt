@@ -192,6 +192,24 @@ class TextIndexTest {
     }
 
     @Test
+    fun `best returns the closest passage even below the threshold`() {
+        // A snippet that is recognizably from the book but too noisy for 0.6
+        // still surfaces as a candidate for the share not-found hint.
+        val noisy = "however little KNOWN the feelings or v1ews of such a man quantum zephyrs entanglement"
+        val result = defaultIndex().best(noisy)
+        assertTrue(result != null, "best must return a candidate for a noisy snippet")
+        result!!
+        assertEquals("b2", result.bookId, "closest passage still belongs to the right book")
+        assertTrue(result.confidence < 0.6, "and sits below the default threshold: ${result.confidence}")
+    }
+
+    @Test
+    fun `best returns null on an empty index or blank snippet`() {
+        assertNull(TextIndex().best("any sentence will produce nothing"))
+        assertNull(defaultIndex().best("   "))
+    }
+
+    @Test
     fun `query returns null for blank or punctuation-only snippet`() {
         val index = defaultIndex()
         assertNull(index.query("", minConfidence = 0.6))

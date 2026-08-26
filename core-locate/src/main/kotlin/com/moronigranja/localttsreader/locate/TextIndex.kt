@@ -67,15 +67,24 @@ class TextIndex {
             }
         }
 
-    @Synchronized
-    private fun snapshot(): List<BookIndex> = books.values.toList()
-
     /**
      * Best match for [snippet] across all indexed books, or null when no passage reaches
      * [minConfidence] (the user-configurable threshold from settings, default 0.6).
      * Ties keep the earliest book/passage in index (insertion) order.
      */
+    @Synchronized
     fun query(snippet: String, minConfidence: Double): MatchResult? {
+        return bestLocked(snippet)?.takeIf { it.confidence >= minConfidence }
+    }
+
+    @Synchronized
+    fun best(snippet: String): MatchResult? = bestLocked(snippet)
+
+    @Synchronized
+    private fun snapshot(): List<BookIndex> = books.values.toList()
+
+    @Synchronized
+    private fun bestLocked(snippet: String): MatchResult? {
         val normalized = TextNormalizer.normalize(snippet)
         if (normalized.isEmpty()) return null
         var best: MatchResult? = null
@@ -94,6 +103,6 @@ class TextIndex {
                 }
             }
         }
-        return best?.takeIf { it.confidence >= minConfidence }
+        return best
     }
 }
