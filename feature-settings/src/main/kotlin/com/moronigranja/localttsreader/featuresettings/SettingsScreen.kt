@@ -1,0 +1,261 @@
+package com.moronigranja.localttsreader.featuresettings
+
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.RadioButton
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Slider
+import androidx.compose.material3.Switch
+import androidx.compose.material3.Text
+import androidx.compose.material3.TopAppBar
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Star
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
+import com.moronigranja.localttsreader.persistence.ThemeMode
+import com.moronigranja.localttsreader.tts.PackStatus
+import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.compose.runtime.collectAsState
+
+/**
+ * V1 settings: engines + packs (download/status), voice picker + favorites,
+ * share match threshold, OCR languages, theme. Every row maps directly to a
+ * [SettingsViewModel] call — no logic in the view.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun SettingsScreen(
+    onBack: () -> Unit,
+    viewModel: SettingsViewModel = hiltViewModel(),
+) {
+    val state by viewModel.state.collectAsState()
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text("Settings") },
+                navigationIcon = {
+                    IconButton(onClick = onBack) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                    }
+                },
+            )
+        },
+    ) { padding ->
+        LazyColumn(
+            modifier = Modifier.fillMaxSize().padding(padding),
+            contentPadding = androidx.compose.foundation.layout.PaddingValues(16.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            item { SectionHeader("Engine") }
+            items(state.packs.filter { it.packId == "kokoro-model" || it.packId == "kokoro-voices" }) { row ->
+                PackRow(row, onDownload = { viewModel.download(row.packId) })
+            }
+            item {
+                Text(
+                    "espeak-ng: ${if (state.espeakReady) "ready" else "not staged"} — ${state.espeakDetail}",
+                    style = MaterialTheme.typography.bodySmall,
+                    modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp),
+                )
+            }
+
+            item { SectionHeader("Voice") }
+            if (state.voices.isEmpty()) {
+                item {
+                    Text(
+                        "Download the voices pack above to pick a voice.",
+                        style = MaterialTheme.typography.bodySmall,
+                        modifier = Modifier.padding(horizontal = 4.dp),
+                    )
+                }
+            } else {
+                items(state.voices) { voice ->
+                    VoiceRow(
+                        name = voice,
+                        selected = voice == state.selectedVoice,
+                        favorite = voice in state.favoriteVoices,
+                        onSelect = { viewModel.selectVoice(voice) },
+                        onToggleFavorite = { viewModel.toggleFavorite(voice) },
+                    )
+                }
+            }
+
+            item { SectionHeader("Share & reading") }
+            item {
+                Column {
+                    Text("Match threshold: ${"%.2f".format(state.matchThreshold)}", style = MaterialTheme.typography.bodyMedium)
+                    Text(
+                        "How closely a shared snippet must match a book passage.",
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                    Slider(
+                        value = state.matchThreshold.toFloat(),
+                        onValueChange = { viewModel.setThreshold(it.toDouble()) },
+                        valueRange = 0.3f..0.9f,
+                    )
+                }
+            }
+
+            item { SectionHeader("OCR languages") }
+            items(state.packs.filter { it.packId in OCR_PACK_IDS }) { row ->
+                PackRow(row, onDownload = { viewModel.download(row.packId) })
+                OcrLanguageRow(
+                    packId = row.packId,
+                    enabled = row.staged,
+                    selected = row.packId in state.ocrLanguages,
+                    onToggle = { viewModel.setOcrLanguage(row.packId, it) },
+                )
+            }
+
+            item { SectionHeader("Appearance") }
+            item {
+                Column {
+                    ThemeMode.entries.forEach { mode ->
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .selectable(
+                                    selected = state.themeMode == mode,
+                                    onClick = { viewModel.setTheme(mode) },
+                                )
+                                .padding(vertical = 4.dp),
+                        ) {
+                            RadioButton(selected = state.themeMode == mode, onClick = { viewModel.setTheme(mode) })
+                            Text(when (mode) {
+                                ThemeMode.SYSTEM -> "Follow system"
+                                ThemeMode.LIGHT -> "Light"
+                                ThemeMode.DARK -> "Dark"
+                            })
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun SectionHeader(title: String) {
+    Text(
+        title,
+        style = MaterialTheme.typography.titleMedium,
+        color = MaterialTheme.colorScheme.primary,
+        modifier = Modifier.padding(top = 16.dp, bottom = 4.dp),
+    )
+}
+
+@Composable
+private fun PackRow(row: PackRow, onDownload: () -> Unit) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text(row.displayName, style = MaterialTheme.typography.bodyMedium)
+            when {
+                row.progress != null -> {
+                    LinearProgressIndicator(
+                        progress = { row.progress.toFloat() },
+                        modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+                    )
+                    Text("${(row.progress * 100).toInt()}%", style = MaterialTheme.typography.labelSmall)
+                }
+                row.status == PackStatus.Ready -> Text(
+                    if (row.staged) "ready · installed" else "ready",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.primary,
+                )
+                row.error != null -> {
+                    Text("failed: ${row.error}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.error)
+                    TextButtonRetry(onClick = onDownload)
+                }
+                else -> Text(
+                    "${row.sizeBytes / 1_048_576} MiB — download required",
+                    style = MaterialTheme.typography.labelSmall,
+                )
+            }
+        }
+        if (row.progress == null && row.status != PackStatus.Ready) {
+            androidx.compose.material3.TextButton(onClick = onDownload) {
+                Text("Download")
+            }
+        } else if (row.status == PackStatus.Ready) {
+            Icon(Icons.Default.Check, contentDescription = "Ready", tint = MaterialTheme.colorScheme.primary)
+        }
+    }
+}
+
+@Composable
+private fun TextButtonRetry(onClick: () -> Unit) {
+    androidx.compose.material3.TextButton(onClick = onClick) {
+        Text("Retry")
+    }
+}
+
+@Composable
+private fun OcrLanguageRow(packId: String, enabled: Boolean, selected: Boolean, onToggle: (Boolean) -> Unit) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier.fillMaxWidth().padding(start = 8.dp, end = 4.dp, bottom = 8.dp),
+    ) {
+        Switch(
+            checked = selected && enabled,
+            onCheckedChange = onToggle,
+            enabled = enabled,
+        )
+        Text(
+            if (enabled) "Use for share OCR" else "Download above, then enable",
+            style = MaterialTheme.typography.bodySmall,
+            modifier = Modifier.padding(start = 8.dp),
+        )
+    }
+}
+
+@Composable
+private fun VoiceRow(
+    name: String,
+    selected: Boolean,
+    favorite: Boolean,
+    onSelect: () -> Unit,
+    onToggleFavorite: () -> Unit,
+) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier.fillMaxWidth().clickable(onClick = onSelect).padding(vertical = 2.dp),
+    ) {
+        Text(
+            name,
+            style = MaterialTheme.typography.bodyMedium,
+            color = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
+            modifier = Modifier.weight(1f),
+        )
+        IconButton(onClick = onToggleFavorite) {
+            Icon(
+                Icons.Filled.Star,
+                contentDescription = if (favorite) "Unfavorite $name" else "Favorite $name",
+                tint = if (favorite) MaterialTheme.colorScheme.tertiary else MaterialTheme.colorScheme.outline,
+            )
+        }
+    }
+}
+
+private val OCR_PACK_IDS = setOf("eng", "spa", "fra", "deu", "por", "ita")

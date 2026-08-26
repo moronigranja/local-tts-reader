@@ -589,3 +589,50 @@ pending the S22 reconnecting); the post-v1 WorkManager slice is now pure
 scheduling over a tested cache. Host suite: 36 core-player tests + 216 total
 green; feature-player excluded core-tts's jar JNA at the new core-player edge
 (the app AAR seam, #25/#32).
+
+## 36. V1 + S1: settings UI and the OCR core (2026-08-26)
+V1's settings surface and S1's OCR core land together, both fully verified:
+
+- **Settings UI (V1)**: SettingsScreen (engine + pack download/progress/error,
+  voice picker + favorites, share match threshold, OCR languages, theme
+  system/light/dark) routed from the library top bar; theme palette owned by
+  MainActivity off AppSettings.themeMode; match threshold and voice/favorites/
+  ocr-langs persisted in the existing `settings` table (SettingsStore extended,
+  Room schema untouched). **AppSettings** (core-persistence, pure JVM) is the
+  hot-path mirror: play loop + theme read fields/flows, writes go through the
+  store; PlaybackService reloads it at every play/resume/speed action, so
+  settings written by the UI apply at the next transport action.
+- **Packs (V1)**: the settings download UI drives the repository PackRegistry
+  over a new AndroidHttpTransport (HttpURLConnection, Range-resumable,
+  canonical redirect-following — decision #7 consent/resume/verify semantics,
+  the only sanctioned socket use on-device). Kokoro model/voices download to
+  the shared PackCache(filesDir) used by KokoroRuntime; the espeak-ng bundle
+  stays a staged artifact (no pinned host exists — status shown, manual path
+  documented). tessdata languages download to the same cache and stage into
+  the tess-two data path.
+- **core-ocr (S1)**: OcrEngine seam + OcrImage/OcrResult + bilinear
+  ScreenshotDownscaler (1600 px long-side cap, per-channel, edge-clamped) + the
+  six pinned traineddata desciptors — pure JVM, host-tested. feature-ocr wraps
+  tess-two 9.1.0: TessTwoOcrEngine (fresh TessBaseAPI per pass, IO dispatcher,
+  typed missing-tessdata failures) + TessDataStager (idempotent copy from the
+  pack cache into `<filesDir>/tesseract/tessdata/`).
+Consequences/tuning found on the S22:
+  - **tessdata_fast 4.0.0 LSTM models FAIL init on tess-two 9.1.0** (native
+    build is pre-LSTM; `init` returns false) — the pinned packs are now the
+    **legacy tessdata 3.04.00** artifacts (eng 21.9 MB … ita 14.2 MB; real
+    SHAs produced by one-time downloads; on-device ocr smoke test reads
+    rendered glyphs, and the device hash matched the pin exactly). Revisit
+    LSTM (accuracy) with a newer binding in a future slice.
+  - A test-only wiring fix surfaced a real bug: the service must reload
+    AppSettings — settings written by the UI were silently ignored by a
+    service that never refreshed its singleton.
+  - Instrumented verification: PlaybackE2eTest (full-book pregen completion),
+    VoiceSelectionE2eTest (persisted voice reaches the engine —
+    `voice=bm_george` in logs), OcrSmokeInstrumentedTest (tess reads
+    "HELLO WORLD 123" from rendered pixels); each ran as its own instrument
+    invocation (test classes sharing one process tripped Room-reopen races in
+    the harness — signature pairing across app/test APKs demands one build+run
+    invocation anyway, decision #34).
+Open: S2 (share receiver) consumes OcrEngine + match threshold; the threshold's
+S3 "listen from here" usage; LSTM models via a maintained binding when
+accuracy demands it.

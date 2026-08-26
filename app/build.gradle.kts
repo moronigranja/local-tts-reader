@@ -53,6 +53,9 @@ dependencies {
     implementation(project(":core-player")) // PlayerPhase etc. for the player surface
     implementation(project(":feature-library"))
     implementation(project(":feature-player"))
+    implementation(project(":feature-settings"))
+    implementation(project(":feature-ocr"))
+    implementation(project(":core-ocr"))
     // The engine's ORT + JNA runtimes ship app-side (decisions #25/#32): the
     // Android ORT AAR (core-tts is compileOnly) and JNA AAR (the plain jar
     // has no Android natives); core-tts's jar JNA is excluded below.

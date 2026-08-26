@@ -7,7 +7,7 @@ plugins {
 }
 
 android {
-    namespace = "com.moronigranja.localttsreader.featurelibrary"
+    namespace = "com.moronigranja.localttsreader.featuresettings"
     compileSdk = 36
 
     defaultConfig {
@@ -46,22 +46,20 @@ dependencies {
     implementation(libs.compose.ui.graphics)
     implementation(libs.compose.ui.tooling.preview)
     implementation(libs.compose.material3)
-    // material-icons-core: the settings gear on the library top bar.
-    implementation("androidx.compose.material:material-icons-core")
     implementation(libs.lifecycle.viewmodel.compose)
+    implementation(libs.androidx.hilt.navigation.compose)
+    // material-icons-core: back arrow + star icons.
+    implementation("androidx.compose.material:material-icons-core")
     implementation(libs.androidx.activity.compose)
     implementation(libs.hilt.android)
     ksp(libs.hilt.compiler)
     debugImplementation(libs.compose.ui.tooling)
-    // PersistenceModule constructs the Room database; core-persistence only
-    // exposes it via project(), so Room itself must be on this classpath.
-    implementation(libs.room.runtime)
 
     implementation(project(":core-model"))
-    implementation(project(":core-ebook"))
-    implementation(project(":core-locate"))
+    implementation(project(":core-tts")) { exclude(group = "net.java.dev.jna") }
+    implementation(project(":core-ocr"))
     implementation(project(":core-persistence"))
-    implementation(project(":core-player")) // PlayerStore binding (T4-1)
+    implementation(project(":feature-ocr"))
 
     testImplementation(libs.junit.jupiter)
     testRuntimeOnly(libs.junit.platform.launcher)

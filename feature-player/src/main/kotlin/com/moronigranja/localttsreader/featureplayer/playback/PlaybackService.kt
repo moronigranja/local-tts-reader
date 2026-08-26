@@ -33,6 +33,7 @@ import com.moronigranja.localttsreader.player.PlayerStore
 import com.moronigranja.localttsreader.player.passageText
 import com.moronigranja.localttsreader.player.pregen.PregenQueue
 import com.moronigranja.localttsreader.player.SleepTimer
+import com.moronigranja.localttsreader.persistence.AppSettings
 import com.moronigranja.localttsreader.persistence.RoomLibraryStore
 import com.moronigranja.localttsreader.tts.SegmentAnchor
 import com.moronigranja.localttsreader.tts.SynthesisOutcome
@@ -57,7 +58,6 @@ import kotlinx.coroutines.runBlocking
  * sleep-timer ticks, and a media notification. The docked reader UI observes
  * [PlaybackStateHolder] and drives this service with Intent actions.
  *
- * Voice is the default af_heart until V1 settings pick voices.
  */
 @AndroidEntryPoint
 class PlaybackService : Service() {
@@ -65,6 +65,7 @@ class PlaybackService : Service() {
     @Inject lateinit var store: PlayerStore
     @Inject lateinit var libraryStore: RoomLibraryStore
     @Inject lateinit var runtime: KokoroRuntime
+    @Inject lateinit var settings: AppSettings
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private var machine: PlayerStateMachine? = null
@@ -134,6 +135,7 @@ class PlaybackService : Service() {
         stopEverything()
         requestFocus()
         scope.launch {
+            settings.reload() // V1: settings written by the UI apply at the next play action
             val activeBook = runCatching { libraryStore.cachedBooks() }.getOrNull()
                 ?.firstOrNull { it.id == id }?.toBook() ?: return@launch
             book = activeBook
@@ -167,6 +169,7 @@ class PlaybackService : Service() {
         stopEverything()
         requestFocus()
         scope.launch {
+            settings.reload() // V1: voice/speed changes from settings apply on resume
             if (phase == PlayerPhase.COMPLETED) {
                 active.playFrom(PlayerPosition(active.bookId, 0, 0))
             } else {
@@ -221,6 +224,7 @@ class PlaybackService : Service() {
         val live = liveOffsetSeconds()
         stopEverything()
         scope.launch {
+            settings.reload() // speed change rebuilds the queue anyway; keep voice fresh
             active.pause(live)
             active.setSpeed(next)
             queue = buildQueue()
@@ -280,7 +284,7 @@ class PlaybackService : Service() {
             val pregen = queue?.take(position.chapterIndex, position.passageIndex)
             val outcome = pregen
                 ?.let { SynthesisOutcome.Audio(it.pcm, it.sampleRateHz, channelCount = 1, segments = it.segments) }
-                ?: (runtime.engine()?.synthesize(SynthesisRequest(text, DEFAULT_VOICE, speed = current.speed))
+                ?: (runtime.engine()?.synthesize(SynthesisRequest(text, activeVoice(), speed = current.speed))
                     ?: SynthesisOutcome.Failed("engine unavailable"))
             android.util.Log.d("PlaybackService", "loop: source=" + if (pregen != null) "pregen" else "synthesized")
             val audio = outcome as? SynthesisOutcome.Audio ?: run {
@@ -291,7 +295,7 @@ class PlaybackService : Service() {
             segments = audio.segments ?: emptyList()
             baselineOffset = position.offsetSeconds
             active.onAudioStarted()
-            android.util.Log.d("PlaybackService", "loop: playing ${position.chapterIndex}/${position.passageIndex} ${audio.pcm.size / 2} frames at ${current.speed}x")
+            android.util.Log.d("PlaybackService", "loop: playing ${position.chapterIndex}/${position.passageIndex} ${audio.pcm.size / 2} frames at ${current.speed}x voice=${activeVoice()}")
 
             val sliced = sliceForSpeed(audio.pcm, baselineOffset, audio.sampleRateHz, current.speed)
             output.play(sliced, audio.sampleRateHz)
@@ -499,14 +503,17 @@ class PlaybackService : Service() {
         val speed = active.state.value.speed
         return PregenQueue(
             book = activeBook,
-            voice = DEFAULT_VOICE,
+            voice = activeVoice(),
             speed = speed,
             synthesize = { text ->
-                runtime.engine()?.synthesize(SynthesisRequest(text, DEFAULT_VOICE, speed = speed))
+                runtime.engine()?.synthesize(SynthesisRequest(text, activeVoice(), speed = speed))
                     ?: SynthesisOutcome.Failed("engine unavailable")
             },
         )
     }
+
+    /** The selected Kokoro voice (V1 settings); defaults to af_heart until chosen. */
+    private fun activeVoice(): String = settings.voice
 
     private fun stopEverything() {
         playerJob?.cancel()
@@ -538,7 +545,6 @@ class PlaybackService : Service() {
     companion object {
         private const val CHANNEL_ID = "playback"
         private const val NOTIFICATION_ID = 42
-        private const val DEFAULT_VOICE = "af_heart"
         private const val TICK_MS = 1_000L
         private const val FRAME_MARGIN = 240 // 10 ms at 24 kHz
         private const val DUCK_VOLUME = 0.2f

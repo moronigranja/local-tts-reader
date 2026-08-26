@@ -92,12 +92,12 @@ class LibraryViewModelTest {
     fun `unsupported format fails with a typed message and leaves the library untouched`() = runTest(mainDispatcherRule.testDispatcher) {
         val vm = viewModel()
 
-        vm.import(listOf(source("book.txt", "hello".toByteArray())))
+        vm.import(listOf(source("notes.rtf", "{\rtf1 hello}".toByteArray())))
 
         val done = vm.importState.value as ImportUiState.Done
         assertEquals(0, done.summary.added)
         assertEquals(0, done.summary.unchanged)
-        assertEquals(listOf("book.txt" to "format not supported"), done.summary.failed)
+        assertEquals(listOf("notes.rtf" to "format not supported"), done.summary.failed)
         assertTrue(vm.library.value.isEmpty())
     }
 
@@ -141,7 +141,7 @@ class LibraryViewModelTest {
         vm.import(
             listOf(
                 source("Novel.epub", epubBook("Novel", "Chapter 1", "Prose here.")),
-                source("book.txt", "nope".toByteArray()),
+                source("notes.rtf", "{\rtf1 nope}".toByteArray()),
             ),
         )
 
@@ -149,14 +149,14 @@ class LibraryViewModelTest {
         val importings = states.filterIsInstance<ImportUiState.Importing>()
         assertTrue(importings.isNotEmpty(), "expected an Importing state in $states")
         assertEquals(2, importings.last().total)
-        assertEquals("book.txt", importings.last().currentFileName)
+        assertEquals("notes.rtf", importings.last().currentFileName)
         assertTrue(
             states.indexOf(importings.last()) < states.lastIndex,
             "Importing must precede the final state in $states",
         )
         val done = states.last() as ImportUiState.Done
         assertEquals(1, done.summary.added)
-        assertEquals(listOf("book.txt" to "format not supported"), done.summary.failed)
+        assertEquals(listOf("notes.rtf" to "format not supported"), done.summary.failed)
     }
 
     @Test
