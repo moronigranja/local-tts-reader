@@ -106,7 +106,7 @@ AGP 9.0 requires Gradle ≥ 9.1.0, so the wrapper moved 8.14.3 → 9.1.0 (KGP
 2.4.10 band: 7.6.3–9.5.0). AGP 9's new DSL + built-in Kotlin break the classic
 kotlin-android/kapt path, so `android.newDsl=false` and
 `android.builtInKotlin=false` opt out (both supported until AGP 10, which
-forces the built-in-Kotlin migration — deferred follow-up). Compose BOM stays
+forces the built-in-Kotlin migration — deferred to post-v1, decided 2026-08-25; the KSP2 finding under #22 removes the kapt wall but not the rest). Compose BOM stays
 2026.06.01 (newer BOMs need compileSdk 37/AGP 9.1). Docker image unchanged
 (build-tools 36.0.0 = AGP 9 default).
 
@@ -141,6 +141,22 @@ Fix: `resolutionStrategy.force("org.jetbrains.kotlin:kotlin-metadata-jvm:2.4.10"
 on the module's kapt configurations — the reader API is backward-compatible.
 Scoped to `core-persistence`; lift the force when Room/KSP support Kotlin 2.4
 metadata.
+**Follow-up (2026-08-25):** the "no KSP for Kotlin 2.4" fact above refers to
+the KSP1 line; KSP2 — the analysis-API reimplementation — decoupled from
+per-Kotlin versioning: release **2.3.11** (its 2.3.10 fix targets Kotlin 2.4.0
+default module names) works with Kotlin 2.4.10. **Migration done, verified
+same day:** all three kapt consumers moved to KSP2 (`com.google.devtools.ksp`
+2.3.11) — Room in core-persistence, Hilt in feature-library + app; the forced
+kotlin-metadata-jvm and the `kotlin-kapt` catalog alias are gone; the crash
+class was kapt's metadata-jar parsing, and KSP2 reads symbols via the analysis
+API instead. Bar met in the Docker toolchain: **179 tests green, 0 failures
+(ebook 50, locate 32, persistence 9, tts 81, feature-library 7)** and
+`assembleDebug` builds. One infra find: Gradle's default 384 MiB metaspace
+(no `org.gradle.jvmargs`) is insufficient under KSP2 + R8 dexing —
+`org.gradle.jvmargs=-Xmx4g -XX:MaxMetaspaceSize=1g` added to gradle.properties.
+The AGP 10 built-in-Kotlin conversion stays deferred to post-v1 (owner,
+2026-08-25): KSP2 removes the kapt wall from that migration but not the other
+costs (new DSL, KGP band ceiling, compileSdk/BOM unfreeze, toolchain).
 Schema: version 1, `exportSchema = false` (schema-drift check arrives with CI/V2),
 migrations forward-only, **no destructive fallback** — a schema bump without a
 migration fails loudly rather than wiping the library.
@@ -314,3 +330,45 @@ pool now carries a decision-status table:
   the v1 primary — the pinned Kokoro pack ships pf_dora/pm_alex/pm_santa (hard-facts
   updated); the roadmap's stale assumptions (CosyVoice3 primary) are corrected to
   the #21/#25 outcome.
+## 30. DRAFT (pending owner ratification) Engine layer: resolve raw-port vs sherpa-onnx before T4 (2026-08-25)
+
+The #25 pivot question ("sherpa-onnx the pivot if the V3 pass misses") was scheduled
+to be answered at the V3 device gate — after the player slice. T4 would build on the
+raw port's contracts with the espeak-ng Android-packaging scar still open (landscape
+open item: "the Android packaging of espeak-ng data/library is the open piece").
+Draft: close that scar with a focused on-device spike BEFORE T4, and pre-commit the
+fallback so the choice cannot drift.
+
+Evidence:
+- sherpa-onnx's Kokoro bundle ships the phonemizer as packaged assets (espeak-ng-data
+  ~26 MB, lexicons, tokens, voices.bin, rule FSTs — landscape); candela proves the
+  in-process path on Helio P22T-class hardware. The raw port's remaining edge is our
+  ground-truth phonemization oracle (byte-identical refs, #28) — fidelity insurance,
+  not product value.
+- The raw port is otherwise finished and measured on host (RTF 0.15–0.23; 81 core-tts
+  tests incl. oracle comparisons). The open risk is device-side: Android espeak-ng
+  packaging + S22 Ultra RTF/RAM/thermal + APK-size/ABI cost — all three measurable by
+  a small spike, none need T4.
+- Post-#27 both paths are license-clean: espeak-ng GPL-3.0 into a GPL-3.0 app;
+  sherpa-onnx Apache-2.0 one-way into GPL-3.0.
+
+Alternatives:
+- A. Status quo — V3 gate after T4: T4's engine-facing contracts, pre-gen queue keys
+  and Android TTSEngine adapters land on the raw port; a V3 miss refunds that wiring.
+- B. Pivot to sherpa now: closes the open scar immediately, but discards/relegates the
+  finished oracle-verified port and adopts a new native AAR surface before any
+  measurement says the port fails.
+- C. Draft choice — a pre-T4 "engine-on-device" spike (bundle espeak-ng for the
+  target ABI, run the port's Kokoro on the S22 Ultra, measure RTF/RAM/thermal +
+  APK-size/ABI), with the sherpa pivot pre-committed if it misses; T4 proceeds on
+  whichever engine the spike vindicates. The spike also carries a hard capability
+  check: sherpa's Kokoro path must expose per-phoneme timing anchors — the
+  sentence-sync read-along (the v1 thesis, #29) depends on them, and the raw
+  port's `KokoroTimings` (7 tests) are the current source. If sherpa cannot, the
+  pivot fails on that ground alone, regardless of RTF.
+
+Consequences: V3's engine measurements move ahead of T4 (roadmap reorder); the open
+landscape item becomes its own small spike instead of riding the player slice;
+#25's seam (TTSEngine + pack registry) keeps the pivot a config-level swap if the
+spike fails. If the spike passes, sherpa stays the documented reference and the
+port's Android adapter work (bundled espeak-ng, flat per #26) lands with T4.
