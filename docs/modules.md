@@ -1,4 +1,4 @@
-# Module layout (built modules are live; the rest are planned — split only when a cycle forces it)
+# Module layout — LIVE modules as of #41; add modules only when a cycle or build isolation forces it
 
 ```
 core-model/       Book, Chapter/Section, TextPassage, LibraryEntry (no Android deps)
@@ -13,10 +13,8 @@ feature-ocr/     LIVE — S1: TessTwoOcrEngine (tess-two 9.1.0) + TessDataStager
 feature-settings/ LIVE — V1: settings screen, packs download UI, voice picker + favorites, threshold, OCR langs, theme; AndroidHttpTransport
 feature-share/    LIVE — S2/S3: ACTION_SEND gateway (text+image), typed resolver, found/not-found UX, OpenTarget contract + Listen-here entry (#37/#38)
 feature-library/  SAF import + library list UI (Compose, Hilt) — C5/C6; search pending
-feature-reader/   text display + navigation (planned)
-feature-share/    ACTION_SEND receiver: text + screenshot → TextIndex → resume point (planned)
-feature-player/   playback service, transport, progress (planned)
-app/              Hilt composition root, MainActivity → LibraryScreen — F1/C5/C6; app bar/settings pending
+feature-player/   LIVE — playback service, MediaSession, pregen wiring (#34/#35); reader surface + S3 gestures (#38)
+app/              Hilt composition root: Library/Settings/Reader routes, S3 open-target intent handling, AppShareModule (Listen-here handler) — F1/C5/C6/#36/#38
 ```
 
 Prefer one cohesive module per responsibility over feature sprawl. Add modules only when

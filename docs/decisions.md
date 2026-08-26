@@ -752,3 +752,24 @@ Verified the pt-br espeak-ng identifier resolves in the staged bundle
 (phonemizer scan) through the successful synthesis itself. The post-v1
 pt-BR translation DECORATOR (core-translate, NMT output-side) remains a
 separate deferred slice — this test only covers the voice path, not it.
+
+## 41. V2: CI wiring (2026-08-26)
+The roadmap's V2 gate is in place up to the device: `.github/workflows/ci.yml`
+with two lanes matching the repo's tooling split:
+- **jvm-tests** (every push/PR): the pure-JVM modules — core-model/ebook/locate/
+  tts/player/ocr — no Android SDK on the runner. Real-model pack-dependent
+  tests (PtBrVoiceHostTest) skip via JUnit assumptions instead of failing on a
+  clean cache (the on-device PtVoiceE2eTest covers the same path).
+- **android-build** (every push/PR): `docker build -t localtts-android .` then
+  the docker-build.sh gate — both APKs (app + androidTest) plus every Android
+  module's unit tests (app, core-persistence, feature-settings/share/player/
+  library). Instrumented tests stay on the connected S22 (the staging + per-
+  class invocation workflow in build.md); CI compiles them.
+- **assemble-on-tag**: after both lanes, `:app:assembleDebug` +
+  `:app:assembleRelease` — the "assemble on tag" acceptance.
+Docs updated with it: modules.md stale "planned" lines removed (feature-player/
+reader/share now LIVE; app line rewritten; header reworded), roadmap carries
+the #39/#40/#41 markers. Both lanes verified locally command-for-command:
+host JVM 255 tests 0 failed; docker lane + release assemble BUILD SUCCESSFUL.
+Remaining for V2: nothing in CI scope — what stays manual is device-side
+instrumentation (no runner hardware), deliberately.

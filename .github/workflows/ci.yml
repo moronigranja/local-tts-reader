@@ -1,0 +1,59 @@
+# CI (V2, decisions #41): unit tests every push/PR; assemble gated on tags.
+#
+# Two lanes map cleanly onto the repo's tooling split:
+#   jvm-tests      — pure-JVM modules, no Android SDK needed (fast path).
+#   android-build  — Android modules inside the baked toolchain image
+#                    (tools/docker-build.sh, `docker build -t localtts-android .`);
+#                    builds the app + androidTest APKs and runs every module's
+#                    unit tests. Instrumented tests need a connected device and
+#                    stay manual (S22 staging workflow in build.md).
+#   assemble-on-tag — the roadmap's "assemble on tag" gate after both lanes.
+
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  jvm-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Pure-JVM module tests (no Android SDK)
+        run: |
+          ./gradlew --no-daemon \
+            :core-model:test :core-ebook:test :core-locate:test \
+            :core-tts:test :core-player:test :core-ocr:test
+
+  android-build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build the Android toolchain image
+        run: docker build -t localtts-android .
+      - name: Assemble both APKs + every Android unit test (Docker)
+        run: |
+          tools/docker-build.sh \
+            :app:assembleDebug :app:assembleDebugAndroidTest \
+            :app:testDebugUnitTest :core-persistence:testDebugUnitTest \
+            :feature-settings:testDebugUnitTest :feature-share:testDebugUnitTest \
+            :feature-player:testDebugUnitTest :feature-library:testDebugUnitTest
+
+  assemble-on-tag:
+    if: startsWith(github.ref, 'refs/tags/')
+    needs: [jvm-tests, android-build]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build the Android toolchain image
+        run: docker build -t localtts-android .
+      - name: Debug + release assemble gate
+        run: tools/docker-build.sh :app:assembleDebug :app:assembleRelease

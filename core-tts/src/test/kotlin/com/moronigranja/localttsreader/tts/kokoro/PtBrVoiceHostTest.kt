@@ -28,10 +28,13 @@ class PtBrVoiceHostTest {
         val cache = PackCache(File(home, ".cache/local-tts-reader/packs"))
         val model = cache.targetFile(KokoroPacks.model)
         val voices = cache.targetFile(KokoroPacks.voices)
-        assertTrue(model.isFile, "kokoro model pack missing")
-        assertTrue(voices.isFile, "kokoro voices pack missing")
         val espeakLib = File(home, ".cache/local-tts-reader/host-espeak/libespeak-ng.so")
-        assertTrue(espeakLib.isFile, "host espeak-ng missing")
+        // Real-model test: skipped on CI runners (no pack cache) instead of
+        // failing; the on-device PtVoiceE2eTest covers the same path there.
+        org.junit.jupiter.api.Assumptions.assumeTrue(
+            model.isFile && voices.isFile && espeakLib.isFile,
+            "kokoro packs + host espeak-ng staged at ~/.cache/local-tts-reader",
+        )
         val phonemizer = EspeakPhonemizer(espeakLib.absolutePath, File("/usr/share/espeak-ng-data").absolutePath)
         return KokoroEngine.open(
             spec = DefaultEngines.kokoro,
