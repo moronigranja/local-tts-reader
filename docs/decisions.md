@@ -293,6 +293,10 @@ pool now carries a decision-status table:
   verification, sleep timer incl. end-of-chapter, speed presets + per-book restore
   (T4); "Listen from here" passage gesture (S3); theme-follows-system + voice
   picker with favorites (V1; quality tiers parked until a second engine exists).
+  Review follow-ups folded into T4: **user bookmarks** (migration v2 `bookmarks`
+  table, long-press add, reader menu) and a **per-book position ring with an
+  undo-skip action** (`position_history`, capped rows/book) — undo over confirm
+  dialogs for accidental plays/skips.
 - **Post-v1 roadmap markers:** offline chapter pre-generation (T5 extension —
   WorkManager job core + config-keyed PCM cache; the lever that makes the
   CosyVoice3 tier viable despite #21), pt-BR translation decorator (new
@@ -300,8 +304,10 @@ pool now carries a decision-status table:
   TODAY stats dashboard (new local per-day minutes table), Kindle official-export
   sync (already deferred), **app export/backup + restore** (positions, library,
   settings, optional books — added at review follow-up; small versioned-zip
-  `core-backup` slice; content-hash book ids make restore idempotent), RSVP,
-  classics bundle, auto language detection.
+  `core-backup` slice; content-hash book ids make restore idempotent), **full
+  read/listen session log** (the T4 position ring grows into a timeline; the same
+  table feeds the stats dashboard), RSVP, classics bundle, auto language
+  detection.
 - **Ideas-only:** accelerator/int8 delegates (do not assume — measure at V3) and
   multi-engine parallel tuning (design reference until the S22 pass).
 - Consequence: pt-BR moves from "fallback-engines nice-to-have" to first-class via

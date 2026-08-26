@@ -167,7 +167,7 @@ see conventions.md).
 | T1 | `TTSEngine` interface + pack registry + download manager (explicit, resumable, verified, cached; language packs never bundled) | 3–4 d | **Done 2026-08-25** (decisions #23). T2 now lands the Kokoro impl + first pinned pack descriptors |
 | T2 | Kokoro impl behind TTSEngine + pipeline tests + RTF baseline; engine layer = raw kokoro-onnx JVM port in progress (per #25, sherpa-onnx the pivot); packs fp32 flat (#26) | 2–3 d | **Done 2026-08-25** (decisions #25/#28); RTF 0.15–0.23 host baseline, oracle-verified |
 | T3 | **CosyVoice3 spike**: verify community ONNX export on S22 Ultra; measure RTF/RAM/thermal → engine-order decision | 2–4 d | Gate result: decisions #21 — CPU fails (~RTF 16–22), flow DiT is the wall; spike follow-up still open (audio fidelity) |
-| T4 | Player = the v1 reader+player UX (decisions #29): foreground service, MediaSession, audio focus/ducking, transport controls, progress persistence, **docked playback with sentence-sync read-along** (T2 timings). Acceptance: read/listen progress single-source; speed preserves play point; route/focus switch robustness; Auto verify; sleep timer incl. end-of-chapter; speed presets + per-book restore | 5–7 d | Reshaped by decisions #29 — the product thesis |
+| T4 | Player = the v1 reader+player UX (decisions #29): foreground service, MediaSession, audio focus/ducking, transport controls, progress persistence, **docked playback with sentence-sync read-along** (T2 timings), **user bookmarks** (migration v2 table; long-press add, reader menu), **per-book position ring + undo-skip** (`position_history`, capped). Acceptance: read/listen progress single-source; speed preserves play point; route/focus switch robustness; Auto verify; sleep timer incl. end-of-chapter; speed presets + per-book restore | 5–7 d | Reshaped by decisions #29 + review follow-ups — the product thesis |
 | T5 | Pre-generation queue (synthesize ahead of playback — non-realtime is acceptable), engine/language fallback UX (missing pack → download prompt). Post-v1 marker: offline chapter pre-generation (WorkManager job core + PCM cache, decisions #29); multi-engine tuning stays a design reference | 3–4 d | |
 
 ## Phase 4 — Share-and-identify completion (~7–11 d) — `core-ocr` + `feature-share`
@@ -208,6 +208,9 @@ Idea-pool graduates, deliberately outside v1's critical path (T4/T5/S/V):
   settings/library/progress JSON + `books/` optional; content-hash book ids make
   restore idempotent (re-import → same bookId → progress reattaches); cached parses
   ride along to honor "never re-parse"; pack cache re-downloads, stays out.
+- **Full read/listen session log** — the T4 position ring (`position_history`)
+  grows into a session timeline; the same table feeds the TODAY stats dashboard
+  (decisions #29).
 - **Pool items without a v1 dependency: RSVP speed-reading, public-domain classics
   bundle, auto language detection → voice routing.**
 - Ideas-only (no roadmap): accelerator/int8 delegates (measure at V3, do not assume),
