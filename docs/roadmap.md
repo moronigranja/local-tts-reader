@@ -170,6 +170,16 @@ see conventions.md).
 | T4 | Player = the v1 reader+player UX (decisions #29): foreground service, MediaSession, audio focus/ducking, transport controls, progress persistence, **docked playback with sentence-sync read-along** (T2 timings), **user bookmarks** (migration v2 table; long-press add, reader menu), **per-book position ring + undo-skip** (`position_history`, capped). Acceptance: read/listen progress single-source; speed preserves play point; route/focus switch robustness; Auto verify; sleep timer incl. end-of-chapter; speed presets + per-book restore | 5–7 d | Reshaped by decisions #29 + review follow-ups — the product thesis |
 | T5 | Pre-generation queue (synthesize ahead of playback — non-realtime is acceptable), engine/language fallback UX (missing pack → download prompt). Post-v1 marker: offline chapter pre-generation (WorkManager job core + PCM cache, decisions #29); multi-engine tuning stays a design reference | 3–4 d | |
 
+**T4 carry-over design notes (idea review, 2026-08-25):** (1) the engine computes
+per-phoneme timings internally, but `SynthesisOutcome` carries only PCM — sentence-sync
+needs timing anchors exposed through the player contract (extend the interface, decide
+the shape in T4); (2) decide sentence-grain synthesis vs one PCM blob + anchors for the
+highlight — affects engine output and future cache keys (post-v1 pre-gen); (3) progress +
+`position_history` (+ bookmarks) writes must be a single transactional point in the
+player state machine, or ring and resume row drift; (4) pause insertion is ±1 frame
+(±0.01 s) near the quiet threshold (decisions #28) — anchor alignment must tolerate it,
+don't chase bit-exact timing.
+
 ## Phase 4 — Share-and-identify completion (~7–11 d) — `core-ocr` + `feature-share`
 
 | ID | Item | Est. | Notes |
