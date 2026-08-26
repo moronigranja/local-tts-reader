@@ -69,3 +69,18 @@ Logged 2026-08-25. Sources:
   neural-engine access for third-party apps. Android analog: OEM background
   restrictions / Doze could kill long-running foreground playback — the player must
   use a proper foreground service and handle being re-killed gracefully (T4).
+
+## Decision status (2026-08-25, decisions #29)
+
+| Idea | Disposition |
+|---|---|
+| Docked player + sentence-sync read-along | **In v1 — the player UX** (T4 reshaped; uses T2 timings) |
+| TXT + Markdown import | **In v1 — C7** |
+| Read-along progress sync, Android Auto, Listen-from-here, speed preserves position, output-switch robustness, speed presets, sleep timer, per-book speed restore | Folded into T4/S3 acceptance criteria |
+| Theme-follows-system, voice picker + favorites | Folded into V1 (tiers parked) |
+| Offline chapter pre-generation | Post-v1 — T5 extension marker |
+| pt-BR translation decorator | Post-v1 — new `core-translate` marker |
+| TODAY stats dashboard | Post-v1 marker |
+| Kindle export/highlights sync | Post-v1 (already deferred by decision) |
+| RSVP, classics bundle, auto language detection | Stays in the pool (no v1 dependency) |
+| Accelerator/int8 delegates, multi-engine parallel tuning | Ideas-only; measure at V3 first |

@@ -100,10 +100,11 @@ Kokoro ships inside the app.
   see decisions #21). Gate before it can be a primary: measured RTF/TTFA on the S22
   Ultra **and** a narration-quality review (expressiveness for the audiobook use case
   is unproven in that family).
-- **Portuguese (pt-BR) is a nice-to-have, not a blocker** (user 2026-08). CosyVoice3's
-  official 9 languages exclude pt, but it is covered today through the fallback engines:
-  Kokoro v1.0 ships 3 pt-BR voices, and Piper has per-language pt voice packs. Revisit
-  when a primary-engine release adds pt.
+- **Portuguese (pt-BR) is a nice-to-have, not a blocker** (user 2026-08) — and the
+  v1 primary covers it directly: the pinned Kokoro pack ships 3 pt-BR voices
+  (pf_dora, pm_alex, pm_santa), so pt is first-class at v1 (decisions #29), with
+  Piper per-language packs as the fallback tier. CosyVoice3's official 9 languages
+  still exclude pt; revisit when a primary release adds it.
 - **Language/voice packs are downloadable, never bundled.** All engine assets — model
   weights, per-language assets, voice packs — are runtime downloads: explicit,
   user-consented, resumable, cached after first fetch (consistent with offline-first).

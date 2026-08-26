@@ -109,11 +109,15 @@ when decided.
   Android toolchain (SDK + Gradle); this environment provides it inside the
   `localtts-android` Docker image (F1 landed 2026-08-24) — host Gradle runs need a
   local SDK once `app` tasks are involved.
-- TTS engine order is gated on a CosyVoice3 measurement spike on the reference device
-  (Galaxy S22 Ultra / Snapdragon 8 Gen 1).
-- v1 language scope: TTS primary = CosyVoice3's 9 langs; pt-BR via fallback engines
-  (nice-to-have); OCR = eng+spa+fra+deu+por+ita.
-- core-locate (match core) ships; **24 tests green**.
+- TTS engine order is settled by measurement (decisions #21): v1 primary =
+  **Kokoro-82M** (host RTF baseline 0.15–0.23, T2); CosyVoice3-0.5B stays in the
+  fallback tier behind the T3 gate (CPU RTF 14.7–17.5 on the S22 Ultra) until a DiT
+  acceleration path changes the measurement.
+- v1 language scope: the pinned Kokoro pack serves en, fr, es, it, pt, ja, zh, hi —
+  pt-BR is first-class via the pack's pt voices, not a fallback gap; OCR =
+  eng+spa+fra+deu+por+ita.
+- **179 tests green** host-side (core-locate 32 + core-ebook 50 + core-persistence 9 +
+  feature-library 7 + core-tts 81); Android modules verify in the Docker toolchain.
 
 ## Gaps this plan closes
 
@@ -147,6 +151,7 @@ see conventions.md).
 | C4 | Passage segmentation: grain decision (paragraph-level for index precision), chapter titles, front/back matter rules; contract with TextIndex | 2–3 d | **Sandbox-doable.** Grain directly affects match precision. |
 | C5 | Import flow: SAF `ACTION_OPEN_DOCUMENT`, parse **and index into TextIndex** (cross-cutting requirement), progress/error states, re-import semantics | 3–4 d | |
 | C6 | Library list UI (minimal Compose) — end-to-end import visible | 2–3 d | |
+| C7 | TXT + Markdown import: small text `EBookParser` (MD headings → chapters) + SAF filter entry; flows straight through segmentation | 1–2 d | **Sandbox-doable.** Decided 2026-08-25 (decisions #29); PDF stays deferred |
 
 ## Phase 2 — Persistence (~4–6 d, overlaps C) — `core-persistence`
 
@@ -162,8 +167,8 @@ see conventions.md).
 | T1 | `TTSEngine` interface + pack registry + download manager (explicit, resumable, verified, cached; language packs never bundled) | 3–4 d | **Done 2026-08-25** (decisions #23). T2 now lands the Kokoro impl + first pinned pack descriptors |
 | T2 | Kokoro impl behind TTSEngine + pipeline tests + RTF baseline; engine layer = raw kokoro-onnx JVM port in progress (per #25, sherpa-onnx the pivot); packs fp32 flat (#26) | 2–3 d | **Done 2026-08-25** (decisions #25/#28); RTF 0.15–0.23 host baseline, oracle-verified |
 | T3 | **CosyVoice3 spike**: verify community ONNX export on S22 Ultra; measure RTF/RAM/thermal → engine-order decision | 2–4 d | Gate result: decisions #21 — CPU fails (~RTF 16–22), flow DiT is the wall; spike follow-up still open (audio fidelity) |
-| T4 | Player: foreground service, MediaSession, audio focus/ducking, transport controls, progress persistence | 4–6 d | |
-| T5 | Pre-generation queue (synthesize ahead of playback — non-realtime is acceptable), engine/language fallback UX (missing pack → download prompt) | 3–4 d | |
+| T4 | Player = the v1 reader+player UX (decisions #29): foreground service, MediaSession, audio focus/ducking, transport controls, progress persistence, **docked playback with sentence-sync read-along** (T2 timings). Acceptance: read/listen progress single-source; speed preserves play point; route/focus switch robustness; Auto verify; sleep timer incl. end-of-chapter; speed presets + per-book restore | 5–7 d | Reshaped by decisions #29 — the product thesis |
+| T5 | Pre-generation queue (synthesize ahead of playback — non-realtime is acceptable), engine/language fallback UX (missing pack → download prompt). Post-v1 marker: offline chapter pre-generation (WorkManager job core + PCM cache, decisions #29); multi-engine tuning stays a design reference | 3–4 d | |
 
 ## Phase 4 — Share-and-identify completion (~7–11 d) — `core-ocr` + `feature-share`
 
@@ -171,7 +176,7 @@ see conventions.md).
 |---|---|---|---|
 | S1 | `core-ocr`: tess-two wrapper; traineddata as downloadable packs (eng+spa+fra+deu+por+ita); screenshot downscale | 2–3 d | |
 | S2 | `feature-share`: `ACTION_SEND` receiver (text/plain + image/*), result UI ("Found: book · chapter · passage"), not-found UX, threshold from settings | 3–4 d | |
-| S3 | Resume wiring: match result → open book at passage → player starts there | 1–2 d | Connects S → T. |
+| S3 | Resume wiring: match result → open book at passage → player starts there; "Listen from here" passage gesture (decisions #29) | 1–2 d | Connects S → T. |
 
 core-locate itself is done; this phase completes the feature slice.
 
@@ -179,9 +184,29 @@ core-locate itself is done; this phase completes the feature slice.
 
 | ID | Item | Est. | Notes |
 |---|---|---|---|
-| V1 | Settings UI: match threshold, engine selection, language-pack management | 2–3 d | Home for the configurable 0.6. |
+| V1 | Settings UI: match threshold, engine selection, language-pack management; theme-follows-system; voice picker + favorites (tiers parked until a second engine) | 2–3 d | Home for the configurable 0.6 (decisions #29). |
 | V2 | Instrumented tests (playback, share flow) + CI (unit tests every push, assemble on tag) | 2–3 d | |
 | V3 | Performance/battery pass on S22 Ultra; fix thermal/RAM issues | 1–2 d | |
+
+## Post-v1 slices (decided 2026-08-25, decisions #29)
+
+Idea-pool graduates, deliberately outside v1's critical path (T4/T5/S/V):
+
+- **Offline chapter pre-generation** — T5 extension: WorkManager job core (manual +
+  charging-gated overnight), PCM cache keyed on engine+voice+speed+translation config
+  with LRU eviction; the lever that makes the CosyVoice3 fallback tier viable despite
+  the #21 gate (≈3 ch/night at its RTF; whole-book for Kokoro).
+- **pt-BR translation decorator** — new `core-translate` (a `TTSEngine` decorator,
+  output-side only — matching/index untouched; NMT int8 ~30–80 MB, CC-BY-4.0 with
+  attribution; transcription failure degrades to the original text).
+- **TODAY stats dashboard** — new local per-day read/listen-minutes table + home
+  restructure (offline-first holds).
+- **Kindle official-export / Highlights-API sync** — on-demand position import from
+  the user's own data (already deferred by decision; manual resume covers v1).
+- **Pool items without a v1 dependency: RSVP speed-reading, public-domain classics
+  bundle, auto language detection → voice routing.**
+- Ideas-only (no roadmap): accelerator/int8 delegates (measure at V3, do not assume),
+  multi-engine parallel synthesis tuning (design reference until the S22 pass).
 
 ## Totals & paths
 

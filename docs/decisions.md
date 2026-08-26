@@ -275,3 +275,33 @@ implementation facts worth keeping:
 - **Host RTF baseline (Ryzen 9 8945HS, fp32, ORT JVM): 0.15–0.23** vs the
   realtime bar; device pass stays V3. Android adapters (OkHttp transport,
   bundled espeak-ng) arrive with the player/settings slices.
+## 29. Idea review: what graduates to the roadmap (2026-08-25)
+Walked the ideas.md pool with the owner; each candidate got a disposition, and the
+pool now carries a decision-status table:
+
+- **Docked player with sentence-sync read-along = the v1 player UX.** T4 is
+  reshaped into reader+player in one slice (docked playback panel on the reading
+  page; narration highlights the current sentence). Feasible, not speculative: T2
+  already computes per-phoneme timings from the graph's duration output. This is
+  the product thesis ("import, open the page, tap Listen"), so it anchors the v1
+  UI instead of competing with a plain player.
+- **C7: TXT + Markdown import lands in v1** — a small sandbox-doable text parser
+  through `BookSegmentation`; PDF stays deferred (both sibling apps agree).
+- **Free-riders folded into existing slices as acceptance criteria** (no new work
+  items): read/listen progress single-source (one `progress` row per book), speed
+  changes preserve the play point, output/route-switch robustness, Android Auto
+  verification, sleep timer incl. end-of-chapter, speed presets + per-book restore
+  (T4); "Listen from here" passage gesture (S3); theme-follows-system + voice
+  picker with favorites (V1; quality tiers parked until a second engine exists).
+- **Post-v1 roadmap markers:** offline chapter pre-generation (T5 extension —
+  WorkManager job core + config-keyed PCM cache; the lever that makes the
+  CosyVoice3 tier viable despite #21), pt-BR translation decorator (new
+  `core-translate`, CC-BY-4.0 NMT with attribution, degrades to the original),
+  TODAY stats dashboard (new local per-day minutes table), Kindle official-export
+  sync (already deferred), RSVP, classics bundle, auto language detection.
+- **Ideas-only:** accelerator/int8 delegates (do not assume — measure at V3) and
+  multi-engine parallel tuning (design reference until the S22 pass).
+- Consequence: pt-BR moves from "fallback-engines nice-to-have" to first-class via
+  the v1 primary — the pinned Kokoro pack ships pf_dora/pm_alex/pm_santa (hard-facts
+  updated); the roadmap's stale assumptions (CosyVoice3 primary) are corrected to
+  the #21/#25 outcome.
