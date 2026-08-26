@@ -1,5 +1,5 @@
 plugins {
-    alias(libs.plugins.android.application)
+    alias(libs.plugins.android.library)
     alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
     alias(libs.plugins.kotlin.ksp)
@@ -7,16 +7,11 @@ plugins {
 }
 
 android {
-    namespace = "com.moronigranja.localttsreader"
+    namespace = "com.moronigranja.localttsreader.featureplayer"
     compileSdk = 36
 
     defaultConfig {
-        applicationId = "com.moronigranja.localttsreader"
         minSdk = 26
-        targetSdk = 36
-        versionCode = 1
-        versionName = "0.1.0"
-        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
     compileOptions {
@@ -33,6 +28,15 @@ android {
     buildFeatures {
         compose = true
     }
+
+    testOptions {
+        unitTests.all {
+            it.useJUnitPlatform()
+            it.testLogging {
+                events("passed", "failed", "skipped")
+            }
+        }
+    }
 }
 
 dependencies {
@@ -42,27 +46,28 @@ dependencies {
     implementation(libs.compose.ui.graphics)
     implementation(libs.compose.ui.tooling.preview)
     implementation(libs.compose.material3)
+    implementation(libs.lifecycle.viewmodel.compose)
     implementation(libs.androidx.activity.compose)
-    debugImplementation(libs.compose.ui.tooling)
+    implementation(libs.androidx.media) // MediaSessionCompat + NotificationCompat.MediaStyle
     implementation(libs.hilt.android)
+    implementation(libs.androidx.hilt.navigation.compose)
     ksp(libs.hilt.compiler)
+    debugImplementation(libs.compose.ui.tooling)
+    implementation(libs.room.runtime) // RoomLibraryStore's concrete type is on the API surface
+    implementation(libs.kotlinx.coroutines.core)
+
     implementation(project(":core-model"))
-    implementation(project(":core-ebook"))
-    implementation(project(":core-locate"))
-    implementation(project(":core-persistence"))
-    implementation(project(":core-player")) // PlayerPhase etc. for the player surface
-    implementation(project(":feature-library"))
-    implementation(project(":feature-player"))
-    // The engine's ORT + JNA runtimes ship app-side (decisions #25/#32): the
-    // Android ORT AAR (core-tts is compileOnly) and JNA AAR (the plain jar
-    // has no Android natives); core-tts's jar JNA is excluded below.
-    implementation(libs.onnxruntime.android)
+    // JNA seam (decisions #25/#32): core-tts's jar JNA has no Android natives;
+    // the AAR supplies jnidispatch per ABI and flows to the app from here.
     implementation("net.java.dev.jna:jna:${libs.versions.jna.get()}@aar")
+    implementation(project(":core-tts")) { exclude(group = "net.java.dev.jna") }
+    implementation(project(":core-persistence"))
+    implementation(project(":core-player"))
+
+    testImplementation(libs.junit.jupiter)
+    testRuntimeOnly(libs.junit.platform.launcher)
 
     androidTestImplementation(libs.junit4)
-    androidTestImplementation(libs.room.runtime)
-    androidTestImplementation(project(":core-tts")) { exclude(group = "net.java.dev.jna") } // SegmentAnchor on the test classpath
     androidTestImplementation(libs.androidx.test.runner)
     androidTestImplementation(libs.androidx.test.ext.junit)
-    // core-tts's jar JNA is excluded at the feature-player seam; the AAR above is the only JNA.
 }

@@ -81,13 +81,29 @@ class PlayerStateMachineTest {
         machine.playFrom(passage(0, 0))
         machine.onAudioStarted()
 
-        machine.onPassageFinished()
-        machine.onPassageFinished()
+        // Traverse the whole two-chapter book; each advance leaves the passage
+        // LOADING until the edge reports its audio started.
+        val advanced = mutableListOf<PlayerEvent>()
+        for (expected in listOf(0 to 1, 0 to 2, 1 to 0, 1 to 1)) {
+            advanced.addAll(machine.onPassageFinished())
+            assertEquals(PlayerPhase.LOADING, machine.state.value.phase, "advanced passage waits for its audio")
+            machine.onAudioStarted()
+            assertTrue(store.readRing("b1").isEmpty(), "natural advance must never push")
+        }
+        assertEquals(
+            listOf(
+                PlayerEvent.PassageAdvanced(0, 1),
+                PlayerEvent.PassageAdvanced(0, 2),
+                PlayerEvent.PassageAdvanced(1, 0),
+                PlayerEvent.PassageAdvanced(1, 1),
+            ),
+            advanced,
+        )
 
+        assertEquals(listOf(PlayerEvent.PlaybackCompleted), machine.onPassageFinished())
         val ring = store.readRing("b1")
-        assertTrue(ring.isEmpty(), "auto-advance must not push: $ring")
-        assertEquals(passage(0, 2), machine.state.value.position)
-        assertEquals(PlayerPhase.PLAYING, machine.state.value.phase)
+        assertEquals(listOf(passage(1, 1)), ring, "only the completion pushes (the ending)")
+        assertEquals(PlayerPhase.COMPLETED, machine.state.value.phase)
     }
 
     @Test
@@ -231,6 +247,32 @@ class PlayerStateMachineTest {
     @Test
     fun `bookmark without a loaded position is a no-op`() = runTest {
         assertNull(machine.addBookmark())
+    }
+
+    @Test
+    fun `notePlaybackOffset commits the live playhead without touching the ring`() = runTest {
+        machine.playFrom(passage(0, 0))
+        machine.notePlaybackOffset(4.25)
+        assertEquals(4.25, machine.state.value.position?.offsetSeconds)
+        assertEquals(4.25, store.readProgress("b1")?.offsetSeconds, "resume row follows the playhead")
+        assertTrue(store.readRing("b1").isEmpty(), "playhead writes never push")
+    }
+
+    @Test
+    fun `pause at the playhead writes the final offset once`() = runTest {
+        machine.playFrom(passage(0, 0))
+        machine.pause(offsetSeconds = 5.5)
+        assertEquals(5.5, store.readProgress("b1")?.offsetSeconds)
+        assertEquals(PlayerPhase.PAUSED, machine.state.value.phase)
+        assertTrue(store.readRing("b1").isEmpty())
+    }
+
+    @Test
+    fun `stop at the playhead writes before going idle`() = runTest {
+        machine.playFrom(passage(0, 0))
+        machine.stop(offsetSeconds = 2.0)
+        assertEquals(2.0, store.readProgress("b1")?.offsetSeconds)
+        assertEquals(PlayerPhase.IDLE, machine.state.value.phase)
     }
 
     @Test

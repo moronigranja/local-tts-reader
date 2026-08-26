@@ -119,3 +119,39 @@ tools/docker-build.sh assembleDebug      # full APK
   playback and UI flows that unit tests cannot reach.
 - CI must be green before a change is considered complete — **lands with the CI
   slice (roadmap V2)**; no CI exists yet.
+
+## App preview on a device (T4-2 player)
+
+The player's engine needs its packs + the espeak-ng bundle staged in the app's
+internal storage until V1 wires the consent/download UI (decision #7 stays: no
+model data is ever bundled).
+
+```bash
+tools/docker-build.sh :app:assembleDebug
+adb install app/build/outputs/apk/debug/app-debug.apk
+# stage model/voices + the espeak bundle (decisions #32) into the app:
+adb push <cache>/packs/kokoro-82m/kokoro-model /data/local/tmp/kokoro-model
+adb push <cache>/packs/kokoro-82m/kokoro-voices /data/local/tmp/kokoro-voices
+adb push build/espeak-ng-152/lib/arm64-v8a/libespeak-ng.so /data/local/tmp/espeak-lib.so
+adb push build/espeak-ng-152/espeak-ng-data /data/local/tmp/espeak-data
+adb shell "run-as com.moronigranja.localttsreader sh -c \\
+  'mkdir -p files/packs/kokoro-82m files/espeak && cp /data/local/tmp/kokoro-model files/packs/kokoro-82m/ && \\
+   cp /data/local/tmp/kokoro-voices files/packs/kokoro-82m/ && \\
+   cp /data/local/tmp/espeak-lib.so files/espeak/libespeak-ng.so && \\
+   cp -r /data/local/tmp/espeak-data/. files/espeak/espeak-ng-data/'"
+```
+
+End-to-end playback check (locked-screen safe; keep media volume low):
+```
+adb shell settings put system volume_music 0
+tools/docker-build.sh :app:assembleDebug :app:assembleDebugAndroidTest   # one invocation:
+adb uninstall com.moronigranja.localttsreader; adb uninstall com.moronigranja.localttsreader.test
+adb install app/build/outputs/apk/debug/app-debug.apk
+adb install -r -t app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
+# re-stage (uninstall wiped the files) then:
+adb shell am instrument -w com.moronigranja.localttsreader.test/androidx.test.runner.AndroidJUnitRunner
+# asserts the book plays through the real service+engine+AudioTrack to COMPLETED.
+```
+Note: app + test APK must come from the SAME `tools/docker-build.sh` invocation
+— the debug keystore regenerates per run, and mismatched signatures abort the
+instrumentation with a SecurityException.

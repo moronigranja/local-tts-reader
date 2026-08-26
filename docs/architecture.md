@@ -27,7 +27,7 @@ core-tts        (live) TTSEngine interface + pack registry; model/language-pack 
 core-player     (live) v1 player state machine: transport, transactional writes, ring, sleep timer, bookmarks; PlayerStore contract
 core-persistence (live) Room v2: books, cached passages, progress (offset+speed), settings, bookmarks, position_history; LibraryStore + PlayerStore impls
 feature-library (live) SAF import + library list (Compose, Hilt); search pending
-feature-reader/share/player (pending) Compose UI + Android services
+feature-player (live, T4-2) PlaybackService (MediaSession, focus, foreground) + docked read-along ReaderScreen
 app             (live) Hilt composition root, manifest, MainActivity → LibraryScreen
 ```
 
@@ -41,6 +41,7 @@ core-locate ←  core-ebook  (BookImporter indexes into TextIndex — the import
 core-persistence ←  feature-library  (Hilt provides the Room-backed LibraryStore)
 core-persistence ←  core-player  (RoomPlayerStore implements PlayerStore)
 core-player  ←  feature-library  (Hilt provides the PlayerStore binding)
+core-player/tts/persistence ← feature-player (PlaybackService + ReaderScreen drive the machine+engine)
 core-ebook  ←  feature-library  (SAF sources → BookImporter)
 feature-library ←  app          (Hilt wires the composition root to the library screen)
 ```
@@ -112,6 +113,12 @@ shared snippet → normalize → word n-grams → recall vs every indexed passag
    the player resumes there.
 
 ## 7. Status
+
+2026-08-26 (later): T4-2 lands — feature-player PlaybackService (MediaSession,
+audio focus/ducking, becoming-noisy, media notification, 1 s sleep tick),
+per-request engine speed, machine-advance LOADING fix, head-polling AudioTrack
+completion, and the docked ReaderScreen with #31 sentence highlighting; verified
+end-to-end on the S22 (instrumented full-book playback, decisions #34).
 
 2026-08-26: core-player lands (T4-1, decisions #33) — the v1 player state
 machine on top of schema v2 (progress offset/speed, bookmarks, position

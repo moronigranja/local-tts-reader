@@ -79,6 +79,14 @@ interface TTSEngine {
 data class SynthesisRequest(
     val text: String,
     val voice: String? = null,
+    /**
+     * Playback speed — the model's `speed` input (Kokoro exports: float 0.5–2.0,
+     * integer exports clamp to ≥ 1, decisions #28). Default 1.0. Positions and
+     * sentence anchors stay in book-time (1.0×): a speed-`s` render occupies
+     * ≈ half the samples at s = 2.0, so sample→time conversions scale by
+     * speed on the player side (decisions #33).
+     */
+    val speed: Double = 1.0,
 )
 
 sealed interface SynthesisOutcome {

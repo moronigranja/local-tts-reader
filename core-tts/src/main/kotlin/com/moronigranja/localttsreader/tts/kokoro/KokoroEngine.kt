@@ -93,7 +93,7 @@ class KokoroEngine internal constructor(
 
             val styleRow = voices.styleFor(voiceName, tokens.size)
                 ?: return SynthesisOutcome.Failed("unknown voice '$voiceName'")
-            val result = session.infer(tokens, styleRow, SPEED)
+            val result = session.infer(tokens, styleRow, request.speed)
 
             // Drop the leading pad boundary so index i is where phoneme i starts.
             var edges: IntArray? = null
@@ -156,7 +156,6 @@ class KokoroEngine internal constructor(
         // reference create() defaults
         private const val SENTENCE_PAUSE = 0.25
         private const val CLAUSE_PAUSE = 0.1
-        private const val SPEED = 1.0
         private const val DEFAULT_VOICE = "af_heart"
 
         /**

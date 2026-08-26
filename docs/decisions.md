@@ -522,3 +522,39 @@ Consequences: T4-2 is thin wiring; the read-along highlight consumes
 `segments` (#31) against `position.offsetSeconds`. Test surface: 20
 core-player (transitions, ring, sleep, speed, bookmarks, failures) + 17
 persistence (store round-trips, cap, migration) — 37 new, all green.
+
+## 34. T4-2 landed: the player surface (PlaybackService + docked reader) (2026-08-26)
+The Android half of T4 rides on the #33 machine and the #31 anchors:
+
+- **PlaybackService** (feature-player, foreground `mediaPlayback`): runs the
+  machine against the engine + an AudioTrack (`PassageOutput` seam),
+  MediaSessionCompat (transport + prev/next), audio focus/ducking
+  (GAIN/TRANSIENT/LOSS/CAN_DUCK) with auto-resume after transient loss,
+  becoming-noisy pause (route switch), 1 s sleep-timer tick + 500 ms state
+  publish, media notification.
+- **Speed is per-request now**: `SynthesisRequest.speed` reaches the graph;
+  positions/anchors stay book-time and sample math scales by speed
+  (`sliceForSpeed`); a speed change pauses at the live offset and re-synthesizes
+  from it — the play point is preserved (decisions #29 acceptance).
+- **Read-along docked panel** (ReaderScreen): the passage text with the active
+  sentence highlighted from engine segments (#31), transport dock (play/pause,
+  prev/next, speed cycle, sleep cycle, undo-skip, bookmark at playhead).
+  App navigation: LibraryScreen → ReaderScreen on book tap.
+- **Engine/JNA wiring on device**: `KokoroRuntime` opens the engine lazily
+  over `PackCache(filesDir)` + the staged espeak-ng bundle (#32); feature-player
+  excludes core-tts's jar JNA and ships the `@aar` (the seam in practice).
+- **Two device bugs found & fixed while wiring:** (1) the machine's natural
+  advance kept `phase = PLAYING`, so the service loop exited after the first
+  passage — `onPassageFinished` now marks the advanced passage `LOADING` (it
+  needs its audio); (2) static AudioTrack completion via `onMarkerReached`
+  never fires on this S22 build — completion is now head-position polling
+  against the buffer frame count.
+- **Verified on the S22** (locked, instrumented `PlaybackE2eTest`): a
+  two-passage book plays through the real service/engine/AudioTrack to
+  `COMPLETED`, segments surface for the read-along, and the resume row lands
+  on the ending. Packs + espeak bundle staged per build.md (the V1 download
+  UI owns the consent flow later).
+Consequences: T4's player UX is functional and measured on-device; the
+remaining free-riders (speed presets UI polish, Android Auto confirmation,
+sleep-timer UI text) are V1 surfaces, not architecture. T5 (pre-gen queue)
+keys off the passage blob + speed (+ voice) as designed.

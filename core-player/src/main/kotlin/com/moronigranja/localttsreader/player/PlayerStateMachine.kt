@@ -116,11 +116,26 @@ class PlayerStateMachine(
         storeOp { store.commitProgress(position.toProgress(_state.value.speed), ringPush) }
     }
 
-    /** Pauses and writes the position — phase PAUSED. */
-    suspend fun pause() {
+    /**
+     * Reports where the playhead physically is (book-time seconds) and
+     * commits it — the edge calls this throttled during playback and before
+     * [pause]/[stop], so the resume row tracks the live position (single
+     * writer, decisions #33). Ring untouched (natural progress).
+     */
+    suspend fun notePlaybackOffset(offsetSeconds: Double) {
         val position = _state.value.position ?: return
-        storeOp { store.commitProgress(position.toProgress(_state.value.speed), null) }
-        _state.update { it.copy(phase = PlayerPhase.PAUSED) }
+        val updated = position.copy(offsetSeconds = offsetSeconds)
+        _state.update { it.copy(position = updated) }
+        storeOp { store.commitProgress(updated.toProgress(_state.value.speed), null) }
+    }
+
+    /** Pauses at the playhead and writes — phase PAUSED. [offsetSeconds]
+     * defaults to the machine's committed offset when the edge reports none. */
+    suspend fun pause(offsetSeconds: Double? = null) {
+        val position = _state.value.position ?: return
+        val final = offsetSeconds?.let { position.copy(offsetSeconds = it) } ?: position
+        storeOp { store.commitProgress(final.toProgress(_state.value.speed), null) }
+        _state.update { it.copy(position = final, phase = PlayerPhase.PAUSED) }
     }
 
     /** The edge started producing audio for the current position. */
@@ -128,10 +143,12 @@ class PlayerStateMachine(
         _state.update { it.copy(phase = PlayerPhase.PLAYING) }
     }
 
-    /** Detaches the player: final write, phase IDLE (docked panel closed). */
-    suspend fun stop() {
+    /** Detaches the player: final write at the playhead, phase IDLE. */
+    suspend fun stop(offsetSeconds: Double? = null) {
         _state.value.position?.let { position ->
-            storeOp { store.commitProgress(position.toProgress(_state.value.speed), null) }
+            val final = offsetSeconds?.let { position.copy(offsetSeconds = it) } ?: position
+            _state.update { it.copy(position = final) }
+            storeOp { store.commitProgress(final.toProgress(_state.value.speed), null) }
         }
         _state.update { it.copy(phase = PlayerPhase.IDLE) }
     }
@@ -173,7 +190,8 @@ class PlayerStateMachine(
         val (chapterIndex, passageIndex) = next
         val advanced = PlayerPosition(bookId, chapterIndex, passageIndex)
         storeOp { store.commitProgress(advanced.toProgress(_state.value.speed), null) }
-        _state.update { it.copy(position = advanced) }
+        // The next passage is not being heard yet: the edge must load it.
+        _state.update { it.copy(position = advanced, phase = PlayerPhase.LOADING) }
         return listOf(PlayerEvent.PassageAdvanced(chapterIndex, passageIndex))
     }
 

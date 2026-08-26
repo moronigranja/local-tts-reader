@@ -217,12 +217,14 @@ class KokoroEngineTest {
         var failWith: RuntimeException? = null,
     ) : KokoroSession {
         val calls = mutableListOf<PaddedCall>()
+        val speeds = mutableListOf<Double>()
         val tokenCounts get() = calls.map { it.tokens.size }
 
         override val embeddedVocab: Map<Char, Int> = emptyMap()
 
         override fun infer(tokens: IntArray, styleRow: FloatArray, speed: Double): InferResult {
             failWith?.let { throw it }
+            speeds += speed
             calls += PaddedCall(tokens.copyOf(), styleRow.copyOf())
             val n = tokens.size * FAKE_SAMPLES_PER_TOKEN
             return InferResult(
@@ -234,6 +236,13 @@ class KokoroEngineTest {
         override fun close() {
             throw UnsupportedOperationException("fake session must not be closed by the engine")
         }
+    }
+
+    @Test
+    fun `request speed reaches the session`() = runBlocking {
+        phonemizer.phonemes["en-us"] = "həlˈoʊ "
+        engine().synthesize(SynthesisRequest("hello", speed = 2.0))
+        assertEquals(listOf(2.0), session.speeds, "speed must flow to the graph input")
     }
 
     private data class PaddedCall(val tokens: IntArray, val styleRow: FloatArray)

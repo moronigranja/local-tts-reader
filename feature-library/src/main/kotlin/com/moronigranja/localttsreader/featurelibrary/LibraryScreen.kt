@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
@@ -54,7 +55,10 @@ private val IMPORT_MIME_TYPES = arrayOf(
 )
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun LibraryScreen(viewModel: LibraryViewModel = viewModel()) {
+fun LibraryScreen(
+    onOpenBook: (String) -> Unit = {},
+    viewModel: LibraryViewModel = viewModel(),
+) {
     val library by viewModel.library.collectAsState()
     val importState by viewModel.importState.collectAsState()
 
@@ -134,7 +138,11 @@ fun LibraryScreen(viewModel: LibraryViewModel = viewModel()) {
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
                     items(library, key = { it.book.id }) { entry ->
-                        Card(modifier = Modifier.fillMaxWidth()) {
+                        Card(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { onOpenBook(entry.book.id) },
+                        ) {
                             Column(modifier = Modifier.padding(16.dp)) {
                                 Text(
                                     text = entry.book.title,

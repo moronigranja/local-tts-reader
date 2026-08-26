@@ -113,9 +113,11 @@ The harness (`spike-tts` Kokoro instrumented benchmark + `:core-tts:kokoroGrainS
 stays in the repo. **T4-1 landed (2026-08-26, decisions #33):** `core-player`
 state machine (transport, transactional writes, undo-skip ring, sleep timer,
 speed, bookmarks) + Room schema v2 (progress offset/speed, bookmarks,
-position_history) — 37 new tests. **T4-2** (feature-player: MediaSession,
-audio output, docked read-along Compose) is the next slice, then T5/S/V1.
-V3's device pass downgrades from gate to routine re-check.
+position_history) — 37 new tests. **T4-2 landed (2026-08-26, decisions #34):** feature-player PlaybackService
+(MediaSession, focus/ducking, notification, sleep tick), per-request speed,
+docked ReaderScreen with #31 sentence highlighting; full-book playback verified
+on the S22 by `PlaybackE2eTest`. T5/S/V1 remain; V3's device pass downgrades
+from gate to routine re-check.
 
 ## Assumptions
 
