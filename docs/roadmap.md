@@ -116,7 +116,10 @@ speed, bookmarks) + Room schema v2 (progress offset/speed, bookmarks,
 position_history) — 37 new tests. **T4-2 landed (2026-08-26, decisions #34):** feature-player PlaybackService
 (MediaSession, focus/ducking, notification, sleep tick), per-request speed,
 docked ReaderScreen with #31 sentence highlighting; full-book playback verified
-on the S22 by `PlaybackE2eTest`. T5/S/V1 remain; V3's device pass downgrades
+on the S22 by `PlaybackE2eTest`. **T5-core landed (2026-08-26, decisions #35):** PregenQueue + PregenKey +
+PcmPassageCache in core-player, wired into PlaybackService (take fast path +
+look-ahead, speed-keyed rebuild). Post-v1 WorkManager slice is now pure
+scheduling over the tested cache. T5/S/V1 remain; V3's device pass downgrades
 from gate to routine re-check.
 
 ## Assumptions

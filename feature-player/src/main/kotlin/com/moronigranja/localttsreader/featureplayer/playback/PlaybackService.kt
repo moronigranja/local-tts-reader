@@ -30,6 +30,8 @@ import com.moronigranja.localttsreader.player.PlayerPhase
 import com.moronigranja.localttsreader.player.PlayerPosition
 import com.moronigranja.localttsreader.player.PlayerStateMachine
 import com.moronigranja.localttsreader.player.PlayerStore
+import com.moronigranja.localttsreader.player.passageText
+import com.moronigranja.localttsreader.player.pregen.PregenQueue
 import com.moronigranja.localttsreader.player.SleepTimer
 import com.moronigranja.localttsreader.persistence.RoomLibraryStore
 import com.moronigranja.localttsreader.tts.SegmentAnchor
@@ -70,6 +72,8 @@ class PlaybackService : Service() {
     private var output: PassageOutput = AudioTrackPassageOutput()
     private var playerJob: Job? = null
     private var tickerJob: Job? = null
+    private var pregenJob: Job? = null
+    private var queue: PregenQueue? = null
     private var stopSignal = CompletableDeferred<Unit>()
     private var segments: List<SegmentAnchor> = emptyList()
     private var baselineOffset = 0.0
@@ -134,6 +138,7 @@ class PlaybackService : Service() {
                 ?.firstOrNull { it.id == id }?.toBook() ?: return@launch
             book = activeBook
             machine = PlayerStateMachine(store, BookLayout(activeBook))
+            queue = buildQueue()
             val position = if (explicit) {
                 PlayerPosition(id, intent?.getIntExtra(EXTRA_CHAPTER, 0) ?: 0, intent?.getIntExtra(EXTRA_PASSAGE, 0) ?: 0)
             } else {
@@ -167,6 +172,7 @@ class PlaybackService : Service() {
             } else {
                 active.resume()
             }
+            queue = buildQueue()
             startForeground(NOTIFICATION_ID, buildNotification())
             publish()
             startLoop()
@@ -217,6 +223,7 @@ class PlaybackService : Service() {
         scope.launch {
             active.pause(live)
             active.setSpeed(next)
+            queue = buildQueue()
             active.resume()
             publish()
             startLoop()
@@ -267,7 +274,15 @@ class PlaybackService : Service() {
             val position = current.position ?: return
             val text = book?.passageText(position.chapterIndex, position.passageIndex) ?: return
 
-            val outcome = runtime.engine()?.synthesize(SynthesisRequest(text, DEFAULT_VOICE, speed = current.speed))
+            // Fast path: the pre-generation queue (T5) already synthesized it
+            // while the previous passage played; fall back to a synchronous
+            // synthesize otherwise (cold start, jump into the future).
+            val pregen = queue?.take(position.chapterIndex, position.passageIndex)
+            val outcome = pregen
+                ?.let { SynthesisOutcome.Audio(it.pcm, it.sampleRateHz, channelCount = 1, segments = it.segments) }
+                ?: (runtime.engine()?.synthesize(SynthesisRequest(text, DEFAULT_VOICE, speed = current.speed))
+                    ?: SynthesisOutcome.Failed("engine unavailable"))
+            android.util.Log.d("PlaybackService", "loop: source=" + if (pregen != null) "pregen" else "synthesized")
             val audio = outcome as? SynthesisOutcome.Audio ?: run {
                 val reason = (outcome as? SynthesisOutcome.Failed)?.reason ?: "engine/packs unavailable"
                 PlaybackStateHolder.update { it.copy(failure = "synthesis failed: $reason") }
@@ -280,6 +295,9 @@ class PlaybackService : Service() {
 
             val sliced = sliceForSpeed(audio.pcm, baselineOffset, audio.sampleRateHz, current.speed)
             output.play(sliced, audio.sampleRateHz)
+            // Pre-generate the passages ahead while this one plays.
+            pregenJob?.cancel()
+            pregenJob = scope.launch { queue?.ensure(position) }
             val finished = awaitPlaybackOrStop(sliced.size / 2)
             android.util.Log.d("PlaybackService", "loop: await returned finished=$finished (pos=${output.positionSamples}/${sliced.size / 2})")
             if (!finished) return
@@ -475,11 +493,28 @@ class PlaybackService : Service() {
         )
     }
 
+    private fun buildQueue(): PregenQueue? {
+        val active = machine ?: return null
+        val activeBook = book ?: return null
+        val speed = active.state.value.speed
+        return PregenQueue(
+            book = activeBook,
+            voice = DEFAULT_VOICE,
+            speed = speed,
+            synthesize = { text ->
+                runtime.engine()?.synthesize(SynthesisRequest(text, DEFAULT_VOICE, speed = speed))
+                    ?: SynthesisOutcome.Failed("engine unavailable")
+            },
+        )
+    }
+
     private fun stopEverything() {
         playerJob?.cancel()
         playerJob = null
         tickerJob?.cancel()
         tickerJob = null
+        pregenJob?.cancel()
+        pregenJob = null
         stopSignal.complete(Unit)
         stopSignal = CompletableDeferred()
         output.stop()
@@ -535,7 +570,3 @@ class PlaybackService : Service() {
         }
     }
 }
-
-/** Passage text lookup from a [Book] by spine indexes. */
-fun Book.passageText(chapterIndex: Int, passageIndex: Int): String? =
-    chapters.firstOrNull { it.index == chapterIndex }?.passages?.getOrNull(passageIndex)?.text

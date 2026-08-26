@@ -49,6 +49,10 @@ class BookLayout(book: Book) {
     }
 }
 
+/** Passage text lookup from a [Book] by spine indexes (the player's audio unit). */
+fun Book.passageText(chapterIndex: Int, passageIndex: Int): String? =
+    chapters.firstOrNull { it.index == chapterIndex }?.passages?.getOrNull(passageIndex)?.text
+
 /**
  * The v1 player state machine (decisions #29/#33) — the single writer of
  * [PlayerStore]: transport transitions, sleep timer, per-book speed, and the

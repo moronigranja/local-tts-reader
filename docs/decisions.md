@@ -558,3 +558,34 @@ Consequences: T4's player UX is functional and measured on-device; the
 remaining free-riders (speed presets UI polish, Android Auto confirmation,
 sleep-timer UI text) are V1 surfaces, not architecture. T5 (pre-gen queue)
 keys off the passage blob + speed (+ voice) as designed.
+
+## 35. T5-core: pre-generation queue + cache keying (2026-08-26)
+The in-v1 pre-generation core (roadmap T5) lands in `core-player` — pure JVM,
+engine-agnostic, fully unit-tested:
+
+- **PregenQueue**: bounded (default lookahead 2) in-memory look-ahead —
+  synthesizes the passages after the playhead while the current one plays, so
+  a passage change is a `take` fast path, not a synthesize-then-play gap.
+  Prunes entries at/before the playhead on re-anchor (a jump forward drops the
+  stale look-ahead and refills), dedups, is single-flight, and stops at the
+  first failed synthesis (the player's synchronous path is the typed-failure
+  fallback). `take` runs lock-free against the map — the play loop never waits
+  on synthesis.
+- **PregenKey** = bookId + spine + voice + speed; its stable path form is the
+  post-v1 disk cache layout (engine + voice + speed + passage keying per #31/
+  #34; content-hash book ids make book removal a subtree delete, #11).
+- **PcmPassageCache** (the post-v1 disk tier's logic, now): raw PCM + `.meta`
+  sidecar (sample rate + sentence anchors) under `<root>/<bookId>/<voice>/
+  <speed>/c<ch>p<passage>.pcm`, atomic tmp+rename writes, LRU eviction by a
+  byte cap tracked in-process (filesystem mtime was unreliable on tmpfs),
+  book-level delete.
+- Wired into PlaybackService: the play loop takes from the queue when warm
+  and launches look-ahead after playback starts (`ensure(position)` per
+  passage, cancelled on jumps); a speed change rebuilds the queue at the new
+  speed (the key carries speed). App builds; the two-call sequence that
+  previously gated on a ~synthesize-then-play gap is now a take.
+Consequences: the audible inter-passage gap closes (device re-verification
+pending the S22 reconnecting); the post-v1 WorkManager slice is now pure
+scheduling over a tested cache. Host suite: 36 core-player tests + 216 total
+green; feature-player excluded core-tts's jar JNA at the new core-player edge
+(the app AAR seam, #25/#32).

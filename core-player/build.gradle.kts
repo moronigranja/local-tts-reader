@@ -20,6 +20,9 @@ kotlin {
 dependencies {
     implementation(libs.kotlinx.coroutines.core) // StateFlow surface, suspend store ops (Room impl in core-persistence)
     implementation(project(":core-model")) // Book/Chapter layout + LibraryEntry
+    // Engine contract types only — core-tts's jar JNA has no Android natives;
+    // the app supplies the AAR (decisions #25/#32, same seam as feature-player).
+    implementation(project(":core-tts")) { exclude(group = "net.java.dev.jna") }
 
     testImplementation(libs.junit.jupiter)
     testImplementation(libs.kotlinx.coroutines.test)
