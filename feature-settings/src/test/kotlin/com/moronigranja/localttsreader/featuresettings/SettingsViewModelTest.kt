@@ -94,7 +94,6 @@ class SettingsViewModelTest {
             cache = PackCache(tempDir),
             settings = AppSettings(SettingsStore(dao)),
             voiceCatalog = VoiceCatalog(PackCache(tempDir)),
-            espeak = EspeakBundleStatus(false, ""),
             filesDir = tempDir,
         )
 

@@ -36,16 +36,24 @@ class BookLayout(book: Book) {
     fun next(chapterIndex: Int, passageIndex: Int): Pair<Int, Int>? {
         if (!isValid(chapterIndex, passageIndex)) return null
         if (passageIndex + 1 < passageCounts[chapterIndex]) return chapterIndex to (passageIndex + 1)
-        if (chapterIndex + 1 < passageCounts.size) return (chapterIndex + 1) to 0
-        return null
+        var chapter = chapterIndex + 1
+        while (chapter < passageCounts.size && passageCounts[chapter] == 0) chapter++
+        return if (chapter < passageCounts.size) chapter to 0 else null
     }
 
     /** The passage before [chapterIndex]/[passageIndex], or null at the book's start. */
     fun previous(chapterIndex: Int, passageIndex: Int): Pair<Int, Int>? {
         if (!isValid(chapterIndex, passageIndex)) return null
         if (passageIndex > 0) return chapterIndex to (passageIndex - 1)
-        if (chapterIndex > 0) return (chapterIndex - 1) to (passageCounts[chapterIndex - 1] - 1)
-        return null
+        var chapter = chapterIndex - 1
+        while (chapter >= 0 && passageCounts[chapter] == 0) chapter--
+        return if (chapter >= 0) chapter to (passageCounts[chapter] - 1) else null
+    }
+
+    /** The book's first playable passage, or null when it has no passages at all. */
+    fun first(): Pair<Int, Int>? {
+        val chapter = passageCounts.indexOfFirst { it > 0 }
+        return if (chapter >= 0) chapter to 0 else null
     }
 }
 
@@ -109,6 +117,13 @@ class PlayerStateMachine(
         }
         return position
     }
+
+    /** The book's first playable passage — the fresh-start target when no
+     * resume row exists (or the stored one is stale). */
+    fun firstPosition(): PlayerPosition? =
+        layout.first()?.let { (chapterIndex, passageIndex) ->
+            PlayerPosition(bookId, chapterIndex, passageIndex)
+        }
 
     /** Starts playback at [position] — an explicit (possibly accidental) play
      * target: the stored resume point is pushed for one undo. */

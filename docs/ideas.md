@@ -106,3 +106,22 @@ Logged 2026-08-25. Sources:
 
 Moved to [docs/brand.md](brand.md) — name (Ayvu), tagline, icon timeline and
 drafts, the Ayvu Rapyta poem plan.
+
+## Ereader feature comparison (2026-08-27, user review item 7)
+
+Feature survey of Kindle (Android), KOReader, and Librera to mine missing
+Ayvu features. Full 42-row sourced table lives in the 2026-08-27 review
+session (agent `EreaderComparison-2`); the ranked takeaway:
+
+| # | Idea | Where it exists today | Why it fits Ayvu |
+|---|------|----------------------|------------------|
+| 1 | Word-level TTS highlight synced to audio position | Kindle (line), KOReader TTS plugin (word) | Sentence highlight is the base; pan word spans to each spoken word |
+| 2 | Configurable tap zones + gestures incl. volume-key prev/next | Librera zone map, KOReader gesture manager | One-handed listening/reading; volume keys are the screen-off affordance |
+| 3 | Progress & time-left indicators (chapter/book at current speed) | Kindle, KOReader footer | Single most-requested orientation aid Ayvu still lacks |
+| 4 | TTS pronunciation replacements (regex + ttsPAUSE/SKIP/NEXT) | Librera TTS Replacements | Fixes names/abbreviations + skips page furniture |
+| 5 | Auto page/flip scroll synchronized with playback | KOReader flipping, Librera auto-scroll | Keeps read-along text ahead of the cursor |
+| 6 | Skim widget / book-map timeline (chapter marks, % jump) | KOReader | Non-linear navigation over long books |
+| 7 | Reading statistics (time/page, calendar) | KOReader Statistics plugin | Rewards listening time; differentiates the library |
+| 8 | RSVP speed-reading mode | Librera | Cheap distinctive complement to TTS skimming |
+| 9 | Profiles / per-book defaults (day/night, listening vs reading) | Librera/KOReader, Kindle themes | One-tap mode switching, reset-safe |
+| 10 | Library: progress badges, series/collections, recent-reads sort, play widget | Kindle/Librera | Makes the library a resume surface |

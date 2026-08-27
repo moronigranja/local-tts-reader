@@ -3,6 +3,7 @@ package com.moronigranja.localttsreader.featuresettings
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.moronigranja.localttsreader.featureocr.TessDataStager
+import com.moronigranja.localttsreader.featureplayer.playback.EspeakStager
 import com.moronigranja.localttsreader.featureplayer.playback.PregenStorage
 import com.moronigranja.localttsreader.featureplayer.playback.formatBytes
 import com.moronigranja.localttsreader.model.LibraryStore
@@ -62,7 +63,6 @@ class SettingsViewModel @Inject constructor(
     private val cache: PackCache,
     private val settings: AppSettings,
     private val voiceCatalog: VoiceCatalog,
-    private val espeak: EspeakBundleStatus,
     private val filesDir: File,
     // Default null: pure-JVM tests skip the offline-audio section (Hilt supplies it).
     private val repository: LibraryStore? = null,
@@ -84,10 +84,10 @@ class SettingsViewModel @Inject constructor(
             matchThreshold = prefs.threshold,
             themeMode = prefs.theme,
             ocrLanguages = prefs.ocrLanguages,
-            espeakReady = espeak.ready,
-            espeakDetail = espeak.detail,
+            espeakReady = espeakReady(filesDir),
+            espeakDetail = espeakDetail(filesDir),
         )
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), SettingsUiState(espeakReady = espeak.ready, espeakDetail = espeak.detail))
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), SettingsUiState(espeakReady = espeakReady(filesDir), espeakDetail = espeakDetail(filesDir)))
 
     val state: StateFlow<SettingsUiState> = core
 
@@ -156,6 +156,7 @@ class SettingsViewModel @Inject constructor(
                 when (outcome) {
                     is DownloadOutcome.Ready, is DownloadOutcome.AlreadyCached -> {
                         if (isTess) stageTess(packId)
+                        if (packId == ESPEAK_PACK_ID) stageEspeak(packId)
                         if (packId == com.moronigranja.localttsreader.tts.kokoro.KokoroPacks.voices.id) {
                             voiceCatalog.invalidate()
                             discoverVoices()
@@ -189,6 +190,18 @@ class SettingsViewModel @Inject constructor(
             .onFailure { errors.update(packId, "staging failed: ${it.message}") }
     }
 
+    private suspend fun stageEspeak(packId: String) {
+        val pack = registry.packs.value.firstOrNull { it.pack.id == packId }?.pack ?: return
+        runCatching { EspeakStager.stage(filesDir, cache, pack) }
+            .onFailure { errors.update(packId, "staging failed: ${it.message}") }
+    }
+
+    /** Live espeak-ng readiness from the staged bundle (downloads change it). */
+    private fun espeakReady(filesDir: File): Boolean = EspeakStager.isStaged(filesDir)
+
+    private fun espeakDetail(filesDir: File): String =
+        if (espeakReady(filesDir)) "staged (lib + data)" else "not staged — download the pack above"
+
     private suspend fun discoverVoices() {
         voices.value = voiceCatalog.names().sorted()
     }
@@ -202,6 +215,7 @@ class SettingsViewModel @Inject constructor(
 
     private companion object {
         const val TessEngineId = "tess-two"
+        const val ESPEAK_PACK_ID = "espeak-ng"
     }
 }
 

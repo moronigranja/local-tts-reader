@@ -39,13 +39,18 @@ class DefaultEnginesTest {
     fun `kokoro ships the pinned T2 pack descriptors`() {
         val kokoro = DefaultEngines.descriptors.first { it.spec.id == "kokoro-82m" }
         assertEquals(KokoroPacks.all, kokoro.packs)
-        assertEquals(listOf("kokoro-model", "kokoro-voices"), kokoro.packs.map { it.id })
+        assertEquals(listOf("kokoro-model", "kokoro-voices", "espeak-ng"), kokoro.packs.map { it.id })
 
         val model = KokoroPacks.model
         assertTrue(model.url.startsWith("https://"))
         assertTrue(model.sha256Hex.length == 64 && model.sha256Hex.all { it in "0123456789abcdefABCDEF" })
         assertEquals(325_505_369L, model.sizeBytes, "kokoro-v1.0.onnx @ model-files-v1.1")
         assertEquals(28_214_398L, KokoroPacks.voices.sizeBytes, "voices-v1.0.bin @ model-files-v1.1")
+
+        val espeak = KokoroPacks.espeak
+        assertTrue(espeak.url.startsWith("https://"), "espeak-ng is served over HTTPS")
+        assertEquals(9_857_162L, espeak.sizeBytes, "espeak-ng bundle @ moronigranja/local-tts-reader release")
+        assertEquals(64, espeak.sha256Hex.length)
     }
 
     @Test

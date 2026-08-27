@@ -5,6 +5,7 @@ import androidx.lifecycle.MutableLiveData
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.work.WorkInfo
+import android.content.Context
 import com.moronigranja.localttsreader.ebook.BookImporter
 import com.moronigranja.localttsreader.ebook.EBookSource
 import com.moronigranja.localttsreader.ebook.ImportFailureReason
@@ -12,19 +13,25 @@ import com.moronigranja.localttsreader.ebook.ImportOutcome
 import com.moronigranja.localttsreader.featureplayer.playback.PregenManager
 import com.moronigranja.localttsreader.featureplayer.playback.PregenStorage
 import com.moronigranja.localttsreader.featurelibrary.CoverStore
-import android.content.Context
-import dagger.hilt.android.qualifiers.ApplicationContext
 import com.moronigranja.localttsreader.model.LibraryEntry
 import com.moronigranja.localttsreader.model.LibraryStore
+import com.moronigranja.localttsreader.persistence.ChapterCount
+import com.moronigranja.localttsreader.persistence.PassageDao
+import com.moronigranja.localttsreader.persistence.ProgressDao
+import com.moronigranja.localttsreader.persistence.ProgressEntity
 import dagger.hilt.android.lifecycle.HiltViewModel
-import javax.inject.Inject
+import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
+import javax.inject.Inject
 
 /**
  * Drives the import flow: batches [EBookSource]s through the domain [BookImporter]
@@ -45,6 +52,9 @@ class LibraryViewModel @Inject constructor(
     private val pregenManager: PregenManager? = null,
     private val storage: PregenStorage? = null,
     @ApplicationContext private val context: Context? = null,
+    // Default null: pure-JVM unit tests skip the Room progress surface (Hilt provides it).
+    private val passageDao: PassageDao? = null,
+    private val progressDao: ProgressDao? = null,
 ) : ViewModel() {
     /** Books the user has covers for (extracted at import; sidecar files). */
     fun cover(bookId: String): ByteArray? = context?.let { CoverStore(File(it.filesDir, "covers")).load(bookId) }
@@ -53,14 +63,35 @@ class LibraryViewModel @Inject constructor(
     fun consumeImportResult() {
         _importState.value = ImportUiState.Idle
     }
-    /** Starts a manual offline pre-generation run for one book (#42). */
-    fun pregenerate(bookId: String) = pregenManager?.pregenerate(bookId)
+    /** Starts a manual pre-generation run for one book (#42); null budget = whole book. */
+    fun pregenerate(bookId: String, budgetMinutes: Long? = null) =
+        pregenManager?.pregenerate(bookId, budgetMinutes)
 
     /** The book's manual pre-generation job, for row progress (KEEP-deduplicated). */
     fun pregenWork(bookId: String): LiveData<List<WorkInfo>> =
         pregenManager?.workInfo(bookId) ?: MutableLiveData(emptyList())
 
     val library: StateFlow<List<LibraryEntry>> = repository.books
+
+    /** bookId → read/listened fraction (0..1): completed passages over the
+     * cached book's total, from the resume rows (passage-granular — the
+     * player's resume unit). Null DAOs (unit tests) → empty. */
+    val readProgress: StateFlow<Map<String, Float>> =
+        if (passageDao == null || progressDao == null) {
+            MutableStateFlow(emptyMap())
+        } else {
+            combine(passageDao!!.chapterCounts(), progressDao!!.observeAll()) { counts, rows ->
+                rows.associate { row -> row.bookId to progressFraction(row, counts) }
+            }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
+        }
+
+    private fun progressFraction(row: ProgressEntity, counts: List<ChapterCount>): Float {
+        val byBook = counts.filter { it.bookId == row.bookId }
+        val total = byBook.sumOf { it.passageCount }
+        if (total == 0) return 0f
+        val before = byBook.filter { it.chapterIndex < row.chapterIndex }.sumOf { it.passageCount } + row.passageIndex
+        return ((before + 1).coerceAtMost(total).toFloat() / total).coerceIn(0f, 1f)
+    }
 
     /** bookId → offline-audio facts for the row (#44): usage + full-book estimate. */
     data class OfflineBook(val usageBytes: Long, val estimateBytes: Long)

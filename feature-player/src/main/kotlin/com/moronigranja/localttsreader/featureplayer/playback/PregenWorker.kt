@@ -55,9 +55,12 @@ class PregenWorker @AssistedInject constructor(
             ?: return Result.failure(workDataOf(KEY_ERROR to (runtime.failureReason ?: "engine unavailable")))
 
         val mode = inputData.getString(KEY_MODE) ?: MODE_MANUAL
+        // Manual runs take the library row's chosen listening-time budget
+        // (KEY_BUDGET_TIME_MS); absent → whole book (the pre-budget default).
         val budget = when (mode) {
             MODE_OVERNIGHT -> OVERNIGHT_BUDGET
-            else -> MANUAL_BUDGET
+            else -> inputData.getLong(KEY_BUDGET_TIME_MS, -1L).takeIf { it > 0 }
+                ?.let { PregenBudget(maxTimeMs = it) } ?: MANUAL_BUDGET
         }
         val voice = inputData.getString(KEY_VOICE) ?: settings.state.value.voice
         val speed = inputData.getDouble(KEY_SPEED, 1.0)
@@ -169,6 +172,7 @@ class PregenWorker @AssistedInject constructor(
         const val KEY_BOOK_IDS = "bookIds"
         const val KEY_VOICE = "voice"
         const val KEY_SPEED = "speed"
+        const val KEY_BUDGET_TIME_MS = "budgetTimeMs"
         const val KEY_ERROR = "error"
         const val KEY_PROGRESS_PERCENT = "progressPercent"
         const val KEY_PROGRESS_CHAPTER = "progressChapter"
@@ -178,9 +182,9 @@ class PregenWorker @AssistedInject constructor(
         const val NOTIFICATION_ID = 43
         private const val CHANNEL_ID = "pregen"
         /**
-         * Manual: unbounded — a tap runs until the whole book is cached, the
-         * tier saturates at its byte cap, or the user cancels (decisions #42
-         * follow-up: whole-book storage).
+         * Manual: whole book by default, or bounded by a KEY_BUDGET_TIME_MS
+         * input (the library's pre-generate overlay); a run always ends when
+         * the tier saturates at its byte cap or the user cancels.
          */
         val MANUAL_BUDGET = PregenBudget()
         /** Overnight: the charger window is finite; the cache resumes next night. */

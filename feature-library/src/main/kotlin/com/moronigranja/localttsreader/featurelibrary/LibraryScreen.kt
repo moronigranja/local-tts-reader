@@ -86,6 +86,7 @@ fun LibraryScreen(
     val library by viewModel.library.collectAsState()
     val importState by viewModel.importState.collectAsState()
     val offline by viewModel.offline.collectAsState()
+    val readProgress by viewModel.readProgress.collectAsState()
 
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
@@ -172,6 +173,7 @@ fun LibraryScreen(
                             title = entry.book.title,
                             authors = entry.book.authors,
                             offline = offline[entry.book.id],
+                            readFraction = readProgress[entry.book.id] ?: 0f,
                             onOpenBook = onOpenBook,
                             viewModel = viewModel,
                         )
@@ -216,13 +218,13 @@ private fun BookRow(
     title: String,
     authors: List<String>,
     offline: LibraryViewModel.OfflineBook?,
+    readFraction: Float,
     onOpenBook: (String) -> Unit,
     viewModel: LibraryViewModel,
 ) {
     val workInfos by viewModel.pregenWork(bookId).observeAsState(emptyList())
     val running = workInfos.any { it.state == WorkInfo.State.ENQUEUED || it.state == WorkInfo.State.RUNNING }
     val percent = workInfos.maxOfOrNull { it.progress.getInt(PregenWorker.KEY_PROGRESS_PERCENT, 0) } ?: 0
-    val ready = workInfos.any { it.state == WorkInfo.State.SUCCEEDED }
     val usage = offline?.usageBytes ?: 0L
     val estimate = offline?.estimateBytes ?: 0L
 
@@ -237,6 +239,18 @@ private fun BookRow(
 
     val cover = rememberCoverBitmap(viewModel, bookId)
     var menuOpen by remember { mutableStateOf(false) }
+    var budgetDialog by remember { mutableStateOf(false) }
+
+    if (budgetDialog) {
+        PregenBudgetDialog(
+            estimate = estimate,
+            onPick = { minutes ->
+                budgetDialog = false
+                viewModel.pregenerate(bookId, minutes)
+            },
+            onDismiss = { budgetDialog = false },
+        )
+    }
 
     Card(
         modifier = Modifier
@@ -286,6 +300,15 @@ private fun BookRow(
                         style = MaterialTheme.typography.bodyMedium,
                     )
                 }
+                if (readFraction > 0f) {
+                    LinearProgressIndicator(
+                        progress = { readFraction },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(top = 8.dp),
+                    )
+                    Text("${(readFraction * 100).toInt()}%", style = MaterialTheme.typography.labelSmall)
+                }
                 when {
                     running -> {
                         LinearProgressIndicator(
@@ -316,24 +339,25 @@ private fun BookRow(
                         text = {
                             Text(
                                 buildString {
-                                    append(if (ready) "Pre-gen again" else "Pre-generate")
+                                    append("Pre-generate")
                                     if (estimate > 0L) append(" (≈${formatBytes(estimate)})")
                                 },
                             )
                         },
                         onClick = {
                             menuOpen = false
-                            viewModel.pregenerate(bookId)
+                            budgetDialog = true
                         },
                     )
-                    DropdownMenuItem(
-                        text = { Text("Delete offline audio") },
-                        enabled = usage > 0L,
-                        onClick = {
-                            menuOpen = false
-                            viewModel.deleteOffline(bookId)
-                        },
-                    )
+                    if (usage > 0L) {
+                        DropdownMenuItem(
+                            text = { Text("Delete offline audio") },
+                            onClick = {
+                                menuOpen = false
+                                viewModel.deleteOffline(bookId)
+                            },
+                        )
+                    }
                 }
             }
         }
@@ -353,3 +377,41 @@ private fun rememberCoverBitmap(viewModel: LibraryViewModel, bookId: String): Im
     }
     return bitmap
 }
+
+/** The pre-generation budget picker: listening-time options, each with the
+ * exact linear byte cost of the estimate model (1 min at the 24 kHz 16-bit
+ * mono rate ≈ 2.88 MB; the whole-book estimate matches #44). */
+@Composable
+private fun PregenBudgetDialog(
+    estimate: Long,
+    onPick: (Long?) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Pre-generate: how much listening time?") },
+        text = {
+            Column {
+                Text(
+                    "Synthesis runs in the background; you can keep reading or cancel anytime.",
+                    style = MaterialTheme.typography.bodySmall,
+                )
+                PregenBudgetOption("30 min (≈${formatBytes(BYTES_PER_MINUTE * 30)})") { onPick(30) }
+                PregenBudgetOption("1 h (≈${formatBytes(BYTES_PER_MINUTE * 60)})") { onPick(60) }
+                PregenBudgetOption("2 h (≈${formatBytes(BYTES_PER_MINUTE * 120)})") { onPick(120) }
+                PregenBudgetOption("3 h (≈${formatBytes(BYTES_PER_MINUTE * 180)})") { onPick(180) }
+                PregenBudgetOption("Whole book (≈${formatBytes(estimate)})") { onPick(null) }
+            }
+        },
+        confirmButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+    )
+}
+
+@Composable
+private fun PregenBudgetOption(label: String, onClick: () -> Unit) {
+    TextButton(onClick = onClick, modifier = Modifier.fillMaxWidth()) {
+        Text(label)
+    }
+}
+
+private const val BYTES_PER_MINUTE = 24_000L * 2 * 60

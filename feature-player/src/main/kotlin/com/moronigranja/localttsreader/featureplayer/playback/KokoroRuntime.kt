@@ -43,7 +43,7 @@ class KokoroRuntime @Inject constructor(
                 }
                 check(voices.isFile) { "Kokoro voices pack not ready" }
                 check(espeakLib.isFile && espeakData.isDirectory) {
-                    "espeak-ng bundle not staged (files/espeak/) — see build.md"
+                    "espeak-ng bundle not ready — download it in Settings (Engine section)"
                 }
                 KokoroEngine.open(
                     spec = DefaultEngines.kokoro,

@@ -15,16 +15,20 @@ import com.moronigranja.localttsreader.model.TextPassage
  *   extraction contract). Passages longer than [DEFAULT_MAX_PASSAGE_WORDS] are split
  *   at sentence boundaries into smaller chunks, so a long paragraph still yields a
  *   precise resume target. Text without usable sentence boundaries stays whole.
- * - **Front/back matter**: chapters whose title matches furniture (Title Page,
- *   Copyright, Table of Contents, …) are dropped — position-guarded (only within the
- *   first 3 / last 3 chapters), so a novel whose middle chapter is literally called
- *   "Index" is untouched. If stripping would remove the whole book, the book is
- *   returned unchanged.
+ * - **Front/back matter**: a contiguous leading run of front-matter chapters (Title
+ *   Page, Copyright, Table of Contents, Dedication, …) and a contiguous trailing run
+ *   of back matter (Index, About the Author, …) are dropped — contiguous, so a run
+ *   of any length is removed (books list the TOC at any spine depth), while a novel
+ *   whose *middle* chapter is literally called "Index" is untouched. If stripping
+ *   would remove the whole book, the book is returned unchanged.
+ * - **Dense renumbering**: kept chapters are renumbered contiguously from 0, so the
+ *   reader/layout never holds empty chapter slots and `chapterIndex` is always a
+ *   valid list position (the reader's chapter menu and resume rows use it).
  *
  * **Contract with TextIndex** (see docs/features/share-and-identify.md): the import
  * pipeline MUST run [segment] on a parsed book before `TextIndex.add(...)`. Passages
- * must be stable across re-parses of the same file; kept chapters keep their original
- * spine indexes.
+ * must be stable across re-parses of the same file; renumbering is stable for a given
+ * file (same content → same kept set → same indexes).
  */
 object BookSegmentation {
 
@@ -38,17 +42,30 @@ object BookSegmentation {
         "about the author", "also by", "also available", "books by",
         "advertisement", "advertisements", "index",
     )
-    private const val FRONT_MATTER_WINDOW = 3
-    private const val BACK_MATTER_WINDOW = 3
-
     fun segment(book: Book, maxPassageWords: Int = DEFAULT_MAX_PASSAGE_WORDS): Book {
         if (book.chapters.isEmpty()) return book
-        val kept = book.chapters.filterIndexed { index, chapter ->
+        // By containment, not equality: real spines name furniture liberally
+        // ("Copyright Notice", "Table of Contents", "Books by the Author").
+        val isFrontMatter = { chapter: Chapter ->
             val key = chapter.title?.trim()?.lowercase().orEmpty()
-            val isFront = index < FRONT_MATTER_WINDOW && key in FRONT_MATTER
-            val isBack = index >= book.chapters.size - BACK_MATTER_WINDOW && key in BACK_MATTER
-            !(isFront || isBack)
-        }.map { it.copy(passages = splitLongPassages(it.passages, maxPassageWords)) }
+            key.isNotEmpty() && FRONT_MATTER.any { key.contains(it) }
+        }
+        val isBackMatter = { chapter: Chapter ->
+            val key = chapter.title?.trim()?.lowercase().orEmpty()
+            key.isNotEmpty() && BACK_MATTER.any { key.contains(it) }
+        }
+        // Strip a contiguous leading front-matter run and trailing back-matter run.
+        var start = 0
+        while (start < book.chapters.size && isFrontMatter(book.chapters[start])) start++
+        var end = book.chapters.size
+        while (end > start && isBackMatter(book.chapters[end - 1])) end--
+        val kept = book.chapters.subList(start, end)
+            .mapIndexed { index, chapter ->
+                chapter.copy(
+                    index = index,
+                    passages = splitLongPassages(chapter.passages, maxPassageWords),
+                )
+            }
         // Safety net: never strip an entire book.
         return if (kept.isEmpty()) book else book.copy(chapters = kept)
     }

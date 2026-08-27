@@ -42,7 +42,7 @@ class ImportPipelineTest {
         val ready = BookSegmentation.segment(parsed)
 
         assertEquals(listOf("Chapter 1", "Chapter 2"), ready.chapters.map { it.title })
-        assertEquals(1, ready.chapters[0].index)
+        assertEquals(0, ready.chapters[0].index)
         assertTrue(
             ready.chapters[0].passages.size > 1,
             "long paragraph must be split (was ${ready.chapters[0].passages.size})",

@@ -152,7 +152,13 @@ class PlaybackService : Service() {
             if (position != null) {
                 machine!!.playFrom(position)
             } else if (machine!!.resume() == null) {
-                machine!!.playFrom(PlayerPosition(id, 0, 0)) // first play: start at the beginning
+                // First play: start at the book's first *playable* passage —
+                // segmentation renumbers from 0, but a stale/empty parse must
+                // not crash the (0,0) require.
+                machine!!.playFrom(machine!!.firstPosition() ?: run {
+                    PlaybackStateHolder.update { it.copy(failure = "nothing to play") }
+                    return@launch
+                })
             }
             if (machine!!.state.value.phase != PlayerPhase.LOADING) {
                 PlaybackStateHolder.update { it.copy(failure = "nothing to play") }

@@ -49,5 +49,17 @@ object KokoroPacks {
         version = "1",
     )
 
-    val all: List<TtsPack> = listOf(model, voices)
+    val espeak = TtsPack(
+        id = "espeak-ng",
+        engineId = "kokoro-82m",
+        kind = PackKind.MODEL,
+        displayName = "espeak-ng bundle (G2P)",
+        description = "arm64 libespeak-ng.so + espeak-ng-data (1.52.0) — the Kokoro phonemizer.",
+        url = "https://github.com/moronigranja/local-tts-reader/releases/download/espeak-ng-1.52.0/espeak-ng-android-1.52.0.zip",
+        sha256Hex = "6b2edca73af83dac42bfeb421a84f36810cbe7602b76237807356a4bd84898fa",
+        sizeBytes = 9_857_162,
+        version = "1",
+    )
+
+    val all: List<TtsPack> = listOf(model, voices, espeak)
 }

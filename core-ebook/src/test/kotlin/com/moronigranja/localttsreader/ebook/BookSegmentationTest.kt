@@ -78,7 +78,44 @@ class BookSegmentationTest {
     }
 
     @Test
-    fun `kept chapters keep their original spine indexes`() {
+    fun `a front-matter run longer than the old window is stripped entirely`() {
+        // Impulse: Title Page, Copyright Notice, Dedication, Contents — the TOC
+        // sits at spine index 3, past any fixed window, and must still go.
+        val source = book(
+            "T",
+            chapter("Title Page", "Impulse"),
+            chapter("Copyright Notice", "All rights reserved."),
+            chapter("Dedication", "For my sisters"),
+            chapter("Contents", "1. Millie\n2. Cent\n3. Davy"),
+            chapter("1. Millie: The Underlying Problem", "Real first chapter prose."),
+            chapter("2. Cent", "More prose."),
+        )
+        val result = BookSegmentation.segment(source)
+        assertEquals(
+            listOf("1. Millie: The Underlying Problem", "2. Cent"),
+            result.chapters.map { it.title },
+        )
+        assertEquals(0, result.chapters[0].index)
+        assertEquals(1, result.chapters[1].index)
+    }
+
+    @Test
+    fun `a back-matter run longer than the old window is stripped entirely`() {
+        val source = book(
+            "T",
+            chapter("Chapter 1", "one"),
+            chapter("Chapter 2", "two"),
+            chapter("The End", "fin"),
+            chapter("About the Author", "bio"),
+            chapter("Books by the Author", "list"),
+            chapter("Index", "entries"),
+        )
+        val result = BookSegmentation.segment(source)
+        assertEquals(listOf("Chapter 1", "Chapter 2", "The End"), result.chapters.map { it.title })
+    }
+
+    @Test
+    fun `kept chapters are renumbered contiguously from zero`() {
         val source = book(
             "T",
             chapter("Title Page", "x"),
@@ -87,7 +124,7 @@ class BookSegmentationTest {
         )
         val result = BookSegmentation.segment(source)
         assertEquals(1, result.chapters.size)
-        assertEquals(2, result.chapters[0].index)
+        assertEquals(0, result.chapters[0].index)
     }
 
     // ------------------------------------------------------------------

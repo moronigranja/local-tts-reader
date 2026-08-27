@@ -995,3 +995,58 @@ derived `sarah16/24.wav`):
 - All runs finite, audio written (`out_run1–3.wav`); artifacts pulled to
   `/tmp/t3/`. Bundle provenance: HF snapshot + ffmpeg-derived 16/24 k prompt
   wavs; worth revisiting whether the repo should pin the exact URLs.
+## 50. User-review batch — espeak-ng download, navigation, paging, progress, pre-gen budget (2026-08-27)
+Seven small items from a live review pass on the S22 + the host:
+- **espeak-ng is now a downloadable pack** (was: manual adb staging; the
+  settings/reader kept telling the user to build it). Pinned descriptor
+  `espeak-ng` under KokoroPacks — url = `moronigranja/local-tts-reader`
+  release `espeak-ng-1.52.0`, zip of arm64 `libespeak-ng.so` +
+  `espeak-ng-data`, 9,857,162 B, sha `6b2edca7…` (the staged lib's sha
+  matches the #38 pin `734cc95a…`). Flows through the existing verified-pack
+  machinery (decision #7) and `EspeakStager` (feature-player) extracts into
+  `files/espeak/` — the layout KokoroRuntime already reads. Settings gains
+  the pack row; the espeak status is now live (filesystem check) instead of
+  an injected snapshot, so it flips to ready right after staging.
+  `EspeakBundleStatus` + `EspeakModule` binding removed.
+- **Front-matter stripping is run-based, not window-based** (book
+  navigation): a contiguous leading run of front matter (Title Page,
+  Copyright*, Dedication, Contents — at any spine depth) and a trailing back
+  matter run are dropped; kept chapters are renumbered densely from 0. The
+  test book (Impulse) had its TOC at spine index 4 — past the old 3-window —
+  so the reader landed in the Contents chapter and "Next" marched through
+  TOC lines, never reaching "1. Millie: The Underlying Problem".
+  `BookLayout.next/previous` now skip zero-passage chapters and gain
+  `first()`; a fresh start uses `firstPosition()` instead of a hard (0,0)
+  `require` (which would have crashed on sparse layouts). Titles match
+  furniture by containment ("Copyright Notice"), not equality.
+- **Reader paging**: swipe (≥ 64 dp horizontal) or tap the left/right third
+  of the passage pages forward/backward at passage grain; the middle tap
+  still (re)starts at the current passage ("listen from here"). The system
+  back gesture on the reader and settings returns to the library instead of
+  exiting the app (`BackHandler` mirrors the top-bar arrows).
+- **Library read/listened progress bar**: fraction from the resume rows over
+  the cached passage counts (`PassageDao.chapterCounts()` +
+  `ProgressDao.observeAll()`), shown as a bar + % when started
+  (passage-granular, the player's resume unit).
+- **Pre-generate budget overlay**: the library row's Pre-generate offers
+  30 min / 1 h / 2 h / 3 h / whole book (each with the linear byte cost,
+  ≈ 2.88 MB/min at the #44 estimate rate); `PregenWorker` takes a
+  `budgetTimeMs` input, whole book stays the default. Delete-offline-audio
+  only shows when usage > 0, and the label is always "Pre-generate" (the
+  "Pre-gen again" distinction is gone).
+- **Opus encoder forensics (#46 follow-up)**: regenerated device evidence on
+  the S22 (`OpusDriftInstrumentedTest#opusRoundTripDriftOnDevice`,
+  `files/opusdrift/{input.pcm,device.opus}`, payload 35,613 B, sha
+  `5febd75a…`). Reference libopus (host 1.4) parses only 2 packets of the
+  stream and refuses to decode the rest (150-byte leading `d8fffe` pattern +
+  mis-sized packet headers; the decoder even SIGSEGVs on part of it). **The
+  c2 opus encoder output is also non-conformant** — the #46 "encoder is
+  size-plausible, maybe savable with a hand-written OpusHead" read is now
+  falsified. MediaCodec is not a dependency for Opus in either direction on
+  this device; any Opus cache would need bundled libopus for encode AND
+  decode.
+- Verified: the JVM unit suites across modules (ebook/player/tts/
+  persistence/library/settings/app/share/ocr/locate/model) are green; the
+  instrumented encoder test runs green on the S22 and the new APK installs.
+  Visual spot-check is pending an unlocked device pass (the S22 sits behind
+  a PIN).

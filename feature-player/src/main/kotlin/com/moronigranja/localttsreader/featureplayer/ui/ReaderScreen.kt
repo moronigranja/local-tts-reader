@@ -1,4 +1,5 @@
 package com.moronigranja.localttsreader.featureplayer.ui
+import androidx.activity.compose.BackHandler
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -51,7 +52,12 @@ import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.ui.input.pointer.changedToUp
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.positionChange
+import androidx.compose.ui.input.pointer.positionChanged
 import com.moronigranja.localttsreader.featureplayer.playback.PlaybackUiState
 import com.moronigranja.localttsreader.player.PlayerPhase
 import com.moronigranja.localttsreader.player.PlayerPosition
@@ -73,6 +79,9 @@ fun ReaderScreen(
     val state by viewModel.state.collectAsState()
     val scrollState = rememberScrollState()
     var chapterMenu by remember { mutableStateOf(false) }
+    // System back returns to the library, same as the top-bar arrow (the
+    // reader is a top-level destination, not an exit from the app).
+    BackHandler { onClose() }
 
     // A passage change (auto-advance or skip) resets the view to the new page.
     LaunchedEffect(state.chapterIndex, state.passageIndex) {
@@ -148,14 +157,43 @@ fun ReaderScreen(
             if (state.passageText.isBlank() && state.phase == PlayerPhase.IDLE) {
                 Text("Tap play to start listening from this book.", textAlign = TextAlign.Center)
             }
-            // S3 "listen from here": tap the passage to (re)start playback at it.
+            // Passage paging (decisions #49): swipe, or tap the side zones, to
+            // page through passages; the middle tap still (re)starts playback
+            // at the current one ("listen from here", S3).
             Text(
                 annotatedPassage(state, MaterialTheme.colorScheme.tertiaryContainer),
                 style = MaterialTheme.typography.bodyLarge.copy(lineHeight = 30.sp),
                 modifier = Modifier
                     .fillMaxWidth()
-                    .clickable(enabled = state.positioned) {
-                        viewModel.playPosition(bookId, state.chapterIndex, state.passageIndex)
+                    .pointerInput(state.positioned) {
+                        val pageWidth = size.width / 3f
+                        val swipePx = SWIPE_PAGE_THRESHOLD.toPx()
+                        awaitEachGesture {
+                            val down = awaitFirstDown()
+                            var dragX = 0f
+                            var paged = false
+                            do {
+                                val event = awaitPointerEvent()
+                                val change = event.changes.firstOrNull() ?: break
+                                if (change.positionChanged()) {
+                                    dragX += change.positionChange().x
+                                    if (dragX > swipePx || dragX < -swipePx) {
+                                        paged = true
+                                        change.consume()
+                                    }
+                                }
+                            } while (!event.changes.all { it.changedToUp() })
+                            if (paged) {
+                                if (dragX < 0f) viewModel.skipForward() else viewModel.skipBackward()
+                            } else if (state.positioned) {
+                                val x = down.position.x
+                                when {
+                                    x < pageWidth -> viewModel.skipBackward()
+                                    x > pageWidth * 2f -> viewModel.skipForward()
+                                    else -> viewModel.playPosition(bookId, state.chapterIndex, state.passageIndex)
+                                }
+                            }
+                        }
                     },
             )
             Text(
@@ -287,3 +325,5 @@ private fun sentenceSpans(text: String): List<SentenceSpan> {
     if (start < text.length) spans += SentenceSpan(start, text.length - start)
     return spans
 }
+/** Horizontal drag distance that pages to the next/previous passage. */
+private val SWIPE_PAGE_THRESHOLD = 64.dp

@@ -1,4 +1,5 @@
 package com.moronigranja.localttsreader.featuresettings
+import androidx.activity.compose.BackHandler
 
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -57,6 +58,11 @@ fun SettingsScreen(
     val state by viewModel.state.collectAsState()
     val offlineRows by viewModel.offlineRows.collectAsState()
     var pane by remember { mutableStateOf(SettingsPane.Root) }
+    // System back mirrors the top-bar arrow: OCR subpane collapses first,
+    // then the settings screen closes back to the library (not app exit).
+    BackHandler {
+        if (pane == SettingsPane.OcrLanguages) pane = SettingsPane.Root else onBack()
+    }
     Scaffold(
         topBar = {
             TopAppBar(
@@ -78,7 +84,7 @@ fun SettingsScreen(
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             item { SectionHeader("Engine") }
-            items(state.packs.filter { it.packId == "kokoro-model" || it.packId == "kokoro-voices" }) { row ->
+            items(state.packs.filter { it.packId == "kokoro-model" || it.packId == "kokoro-voices" || it.packId == "espeak-ng" }) { row ->
                 PackRow(row, onDownload = { viewModel.download(row.packId) })
             }
             item {
