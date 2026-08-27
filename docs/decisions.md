@@ -1104,3 +1104,15 @@ follow-ups, chosen by review:
   handling, speed scaling, empty book). Full unit suite + assemble green;
   remove-book and continue-list verified by code-path + pending a live pass
   once the S22 is free (verified live: the reader footer).
+- **Follow-up (same day): the reader stitches the chapter.** Instead of one
+  passage per page with a scroll reset on every advance, the current
+  chapter's passages render as one continuous scrollable surface
+  (`PlaybackUiState.chapterPassages` — the service publishes the whole
+  current chapter; the page-view gestures survive). The read-along follow
+  animates only when the active passage actually leaves the viewport
+  (24 dp slack) so browsing ahead of the narration never yanks; a middle
+  tap starts playback at the passage under the finger; chapter changes
+  return to the top. Verify note: Compose 1.12 removed
+  `positionInParent()` — passage offsets now come from
+  `localPositionOf(column, Offset.Zero)`. Verified live on the S22: six
+  prose passages visible in one scroll, footer intact, 0 FATAL.

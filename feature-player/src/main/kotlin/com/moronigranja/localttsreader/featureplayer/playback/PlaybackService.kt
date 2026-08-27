@@ -394,6 +394,9 @@ class PlaybackService : Service() {
                 passageText = position?.let { p -> book?.passageText(p.chapterIndex, p.passageIndex) } ?: "",
                 passageDurationSeconds = segments.lastOrNull()?.endSeconds ?: 0.0,
                 chapters = book?.chapters?.map { it.title.orEmpty() } ?: emptyList(),
+                chapterPassages = position?.let { p ->
+                    book?.chapters?.firstOrNull { it.index == p.chapterIndex }?.passages?.map { it.text }
+                } ?: emptyList(),
                 readFraction = position?.let { p -> book?.let { BookProgress.fraction(it, p.chapterIndex, p.passageIndex) } } ?: 0f,
                 timeLeftSeconds = position?.let { p ->
                     book?.let { BookProgress.remainingSeconds(it, p.chapterIndex, p.passageIndex, liveOffsetSeconds(), state.speed) }

@@ -34,6 +34,9 @@ data class PlaybackUiState(
     val passageDurationSeconds: Double = 0.0,
     /** Chapter titles in spine order — the chapter selector. */
     val chapters: List<String> = emptyList(),
+    /** The current chapter's passage texts, in order — the stitched reader
+     * surface (decisions #51 follow-up). */
+    val chapterPassages: List<String> = emptyList(),
     /** Sentence spans of the current passage's audio (decisions #31). */
     val segments: List<SegmentAnchor> = emptyList(),
     /** Live playhead, book-time seconds within the passage. */
