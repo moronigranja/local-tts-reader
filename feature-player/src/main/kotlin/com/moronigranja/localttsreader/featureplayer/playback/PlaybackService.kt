@@ -78,7 +78,8 @@ class PlaybackService : Service() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     /** CR-2 host-test seam: the current machine (set by tests directly). */
     internal var machine: PlayerStateMachine? = null
-    private var book: Book? = null
+    /** Active book (internal for host tests that drive commands directly). */
+    internal var book: Book? = null
     /** CR-2 host-test seam: the passage output (tests inject a fake). */
     internal var output: PassageOutput = AudioTrackPassageOutput()
     private var playerJob: Job? = null
@@ -106,6 +107,20 @@ class PlaybackService : Service() {
     private var finalStopJob: Job? = null
     /** Last live-playhead checkpoint (CR-2): monotonic interval gate. */
     private var lastCheckpointAt = 0L
+    /** The in-flight command coroutine (CR-5): every control-plane command
+     * (open/play/pause/seek/navigate/...) runs here; a NEWER command's
+     * [stopEverything] cancels it so a superseded load can never advance or
+     * publish shared state. The long-running synthesis/play loop runs inside
+     * its command, so commands stay cancellable. */
+    private var commandJob: Job? = null
+    /**
+     * Monotonic command generation (CR-5/CR-7): bumped by every
+     * [stopEverything]. A command captures the generation it was launched
+     * with and checks [active] before ANY publish/startForeground/
+     * stopForeground side effect — cancellation alone cannot stop a
+     * non-cancellable section from reaching its tail.
+     */
+    @Volatile private var commandGeneration = 0L
     private var segments: List<SegmentAnchor> = emptyList()
     /** CR-2 host-test seam: the current PCM slice's start offset (book-time). */
     internal var baselineOffset = 0.0
@@ -175,13 +190,16 @@ class PlaybackService : Service() {
      * foreground — the transport buttons or the library play button resume
      * audio later. The service stays started to answer commands.
      */
-    private fun openBook(bookId: String?) {
+    internal fun openBook(bookId: String?) {
         val id = bookId ?: return
         stopEverything()
-        scope.launch {
+        launchCommand { generation ->
             settings.reload()
             val activeBook = runCatching { libraryStore.cachedBooks() }.getOrNull()
-                ?.firstOrNull { it.id == id }?.toBook() ?: return@launch
+                ?.firstOrNull { it.id == id }?.toBook()
+            // CR-5: a superseding command cancelled us — never touch shared state.
+            if (!active(generation)) return@launchCommand
+            if (activeBook == null) return@launchCommand
             book = activeBook
             machine = PlayerStateMachine(store, BookLayout(activeBook))
             lastAudio = null
@@ -189,6 +207,8 @@ class PlaybackService : Service() {
             val position = machine!!.openPosition() ?: machine!!.firstPosition()
             if (position != null) machine!!.present(position)
             refreshBookmarks()
+            // CR-5: a stale load must never publish or drop the foreground.
+            if (!active(generation)) return@launchCommand
             PlaybackStateHolder.update { it.copy(failure = null) }
             publish()
             ServiceCompat.stopForeground(this@PlaybackService, ServiceCompat.STOP_FOREGROUND_REMOVE)
@@ -218,16 +238,21 @@ class PlaybackService : Service() {
         val target = if (direction > 0) layout.nextChapter(current) else layout.previousChapter(current)
         if (target == null) return
         stopEverything()
-        scope.launch {
+        launchCommand { generation ->
             settings.reload()
             val reloaded = runCatching { libraryStore.cachedBooks() }.getOrNull()
-                ?.firstOrNull { it.id == id }?.toBook() ?: return@launch
+                ?.firstOrNull { it.id == id }?.toBook()
+            // CR-5: a superseding command cancelled us — never touch shared state.
+            if (!active(generation)) return@launchCommand
+            if (reloaded == null) return@launchCommand
             book = reloaded
             machine = PlayerStateMachine(store, BookLayout(reloaded))
             lastAudio = null
             queue = buildQueue()
             machine!!.present(PlayerPosition(id, target, 0))
             refreshBookmarks()
+            // CR-5: a stale load must never publish or drop the foreground.
+            if (!active(generation)) return@launchCommand
             PlaybackStateHolder.update { it.copy(failure = null) }
             publish()
             ServiceCompat.stopForeground(this@PlaybackService, ServiceCompat.STOP_FOREGROUND_REMOVE)
@@ -251,10 +276,13 @@ class PlaybackService : Service() {
         }
         stopEverything()
         requestFocus()
-        scope.launch {
+        launchCommand { generation ->
             settings.reload() // V1: settings written by the UI apply at the next play action
             val activeBook = runCatching { libraryStore.cachedBooks() }.getOrNull()
-                ?.firstOrNull { it.id == id }?.toBook() ?: return@launch
+                ?.firstOrNull { it.id == id }?.toBook()
+            // CR-5: a superseding command cancelled us — never touch shared state.
+            if (!active(generation)) return@launchCommand
+            if (activeBook == null) return@launchCommand
             book = activeBook
             machine = PlayerStateMachine(store, BookLayout(activeBook))
             lastAudio = null
@@ -273,13 +301,16 @@ class PlaybackService : Service() {
                 // not crash the (0,0) require.
                 machine!!.playFrom(machine!!.firstPosition() ?: run {
                     PlaybackStateHolder.update { it.copy(failure = "nothing to play") }
-                    return@launch
+                    return@launchCommand
                 })
             }
             if (machine!!.state.value.phase != PlayerPhase.LOADING) {
                 PlaybackStateHolder.update { it.copy(failure = "nothing to play") }
-                return@launch
+                return@launchCommand
             }
+            // CR-5/CR-7: a superseded play must not enter the foreground or
+            // start its loop after a newer command won.
+            if (!active(generation)) return@launchCommand
             PlaybackActive.markStarted() // overnight pre-gen yields while a session is live (#42)
             startForeground(NOTIFICATION_ID, buildNotification())
             publish()
@@ -294,15 +325,16 @@ class PlaybackService : Service() {
         if (runtime.engine() == null) return
         stopEverything()
         requestFocus()
-        scope.launch {
+        launchCommand { generation ->
             settings.reload() // V1: voice/speed changes from settings apply on resume
             if (phase == PlayerPhase.COMPLETED) {
                 active.playFrom(PlayerPosition(active.bookId, 0, 0))
             } else if (active.resume() == null) {
                 // A fresh book (or one opened without playing yet): start
                 // from the first passage instead of doing nothing.
-                active.playFrom(active.firstPosition() ?: return@launch)
+                active.playFrom(active.firstPosition() ?: return@launchCommand)
             }
+            if (!active(generation)) return@launchCommand
             queue = buildQueue()
             PlaybackActive.markStarted()
             startForeground(NOTIFICATION_ID, buildNotification())
@@ -311,32 +343,43 @@ class PlaybackService : Service() {
         }
     }
 
-    private fun pausePlayer(reason: PauseReason, resumeOnGain: Boolean = false) {
+    /**
+     * Pause: cancels everything in flight (the load/generation loop included)
+     * and publishes PAUSED on every surface — but only if no newer command
+     * superseded this pause before its publish (CR-5/CR-7).
+     */
+    internal fun pausePlayer(reason: PauseReason, resumeOnGain: Boolean = false) {
         this.resumeOnGain = resumeOnGain
         val active = machine ?: return
         val live = liveOffsetSeconds()
         stopEverything()
-        scope.launch {
+        launchCommand { generation ->
             active.pause(live)
-            publish()
+            if (active(generation)) publish()
         }
     }
 
-    private fun navigate(move: suspend (PlayerStateMachine) -> List<PlayerEvent>) {
+    internal fun navigate(move: suspend (PlayerStateMachine) -> List<PlayerEvent>) {
         val active = machine ?: return
+        val wasPaused = active.state.value.phase == PlayerPhase.PAUSED
         val live = liveOffsetSeconds()
         stopEverything()
-        scope.launch {
+        launchCommand { generation ->
             commandLock.lock()
             try {
+                if (!active(generation)) return@launchCommand
                 active.notePlaybackOffset(live)
                 move(active)
                 ringHasEntries = store.readRing(active.bookId).isNotEmpty()
-                publish()
+                if (wasPaused) active.pause() // A7: navigation never resumes a paused playhead
+                if (active(generation)) publish()
             } finally {
                 commandLock.unlock()
             }
-            startLoop()
+            // CR-5: a stale command never restarts the loop against the
+            // machine another command won.
+            if (!active(generation)) return@launchCommand
+            if (!wasPaused) startLoop()
         }
     }
 
@@ -347,43 +390,56 @@ class PlaybackService : Service() {
      * machine's [PlayerStateMachine.seekTo] pushes the position being left for
      * one undo.
      */
-    private fun seekBy(deltaSeconds: Double) {
+    internal fun seekBy(deltaSeconds: Double) {
         val active = machine ?: return
+        val wasPaused = active.state.value.phase == PlayerPhase.PAUSED
         val live = liveOffsetSeconds()
         stopEverything()
-        scope.launch {
+        launchCommand { generation ->
             commandLock.lock()
             try {
+                if (!active(generation)) return@launchCommand
                 active.notePlaybackOffset(live)
-                val activeBook = book ?: return@launch
-                val position = active.state.value.position ?: return@launch
+                val activeBook = book ?: return@launchCommand
+                val position = active.state.value.position ?: return@launchCommand
                 val target = BookProgress.positionAt(
                     activeBook,
                     BookProgress.elapsedSeconds(activeBook, position) + deltaSeconds,
                 )
                 active.seekTo(target)
                 ringHasEntries = store.readRing(active.bookId).isNotEmpty()
-                publish()
+                // A7 (CR-7): seek repositions a paused playhead without resuming.
+                if (wasPaused) active.pause()
+                if (active(generation)) publish()
             } finally {
                 commandLock.unlock()
             }
-            startLoop()
+            // CR-5: a stale command never restarts the loop against the
+            // machine another command won.
+            if (!active(generation)) return@launchCommand
+            if (!wasPaused) startLoop()
         }
     }
 
     private fun navigateUndo() {
         val active = machine ?: return
+        val wasPaused = active.state.value.phase == PlayerPhase.PAUSED
         stopEverything()
-        scope.launch {
+        launchCommand { generation ->
             commandLock.lock()
             try {
+                if (!active(generation)) return@launchCommand
                 active.undoSkip()
                 ringHasEntries = store.readRing(active.bookId).isNotEmpty()
-                publish()
+                if (wasPaused) active.pause() // A7: undo never resumes a paused playhead
+                if (active(generation)) publish()
             } finally {
                 commandLock.unlock()
             }
-            startLoop()
+            // CR-5: a stale command never restarts the loop against the
+            // machine another command won.
+            if (!active(generation)) return@launchCommand
+            if (!wasPaused) startLoop()
         }
     }
 
@@ -393,18 +449,22 @@ class PlaybackService : Service() {
         val next = SPEED_PRESETS[(SPEED_PRESETS.indexOfFirst { kotlin.math.abs(it - current) < 1e-9 }.coerceAtLeast(0) + 1) % SPEED_PRESETS.size]
         val live = liveOffsetSeconds()
         stopEverything()
-        scope.launch {
+        launchCommand { generation ->
             commandLock.lock()
             try {
+                if (!active(generation)) return@launchCommand
                 settings.reload() // speed change rebuilds the queue anyway; keep voice fresh
                 active.pause(live)
                 active.setSpeed(next)
                 queue = buildQueue()
                 active.resume()
-                publish()
+                if (active(generation)) publish()
             } finally {
                 commandLock.unlock()
             }
+            // CR-5: a stale command never restarts the loop against the
+            // machine another command won.
+            if (!active(generation)) return@launchCommand
             startLoop()
         }
     }
@@ -784,7 +844,13 @@ class PlaybackService : Service() {
     /** The selected Kokoro voice (V1 settings); defaults to af_heart until chosen. */
     private fun activeVoice(): String = settings.state.value.voice
 
-    private fun stopEverything() {
+    internal fun stopEverything() {
+        // CR-5/CR-7: supersede every in-flight command BEFORE cancelling —
+        // the generation check is what stops a stale load from publishing at
+        // its (otherwise uncancellable) tail.
+        commandGeneration++
+        commandJob?.cancel()
+        commandJob = null
         loopJob?.cancel()
         loopJob = null
         playerJob?.cancel()
@@ -799,6 +865,22 @@ class PlaybackService : Service() {
         focusRequest?.let { audioManager.abandonAudioFocusRequest(it) }
         focusRequest = null
     }
+
+    /**
+     * CR-5/CR-7: launches a command coroutine under the generation guard.
+     * Every control-plane command routes through here (NOT
+     * [addBookmarkAtPlayhead]/[refreshBookmarks] — those must not take over
+     * command ownership). [active] checks before side effects are what make a
+     * superseded command a no-op even when cancellation alone would not reach
+     * it in time.
+     */
+    internal fun launchCommand(block: suspend (generation: Long) -> Unit) {
+        val generation = commandGeneration
+        commandJob = scope.launch { block(generation) }
+    }
+
+    /** CR-5/CR-7: true only for the current command generation. */
+    private fun active(generation: Long): Boolean = generation == commandGeneration
 
     override fun onDestroy() {
         PlaybackActive.markStopped()
@@ -835,7 +917,7 @@ class PlaybackService : Service() {
 
     private fun Intent.bookId(): String? = getStringExtra(EXTRA_BOOK_ID)
 
-    private enum class PauseReason { USER, FOCUS, NOISY, SLEEP }
+    internal enum class PauseReason { USER, FOCUS, NOISY, SLEEP }
 
     companion object {
         private const val CHANNEL_ID = "playback"

@@ -1,4 +1,42 @@
 # Decision log
+## 62. A5+A7 — Single-writer player commands + state agreement (CR-5/CR-7) (2026-08-27)
+
+Closed the CR-5/CR-7 control-plane races: book loads ran in untracked
+coroutines (`stopEverything()` had no handle on them; the declared
+`playerJob` was never assigned by any path), so an older load could publish
+or drop the foreground after a newer command. On the device, pause during
+first-audio generation left `dumpsys media_session` at `PLAYING(3)` with a
+“Pause” notification, and ±30 s seeks re-synthesized instead of repositioning
+a stopped playhead.
+
+- **Tracked, generation-guarded commands.** Every control-plane command
+  (open, openChapter, play, resume, pause, navigate, seek, undo, speed) now
+  runs via `launchCommand` as a tracked `commandJob` under a monotonic
+  `commandGeneration`. `stopEverything()` bumps the generation FIRST, then
+  cancels: a command captures its generation at launch and re-checks it
+  before ANY `publish`/`startForeground`/`stopForeground`/`startLoop` side
+  effect. Cancellation alone is insufficient — the machine's `storeOp`
+  swallows `CancellationException`, exactly how a stale load kept running to
+  its publish tail (the CR-7 mechanism).
+- **Pause during LOADING/“Generating…”** now cancels the in-flight job via
+  the command model and publishes `PAUSED` on UI, MediaSession and the
+  notification; a superseded generation loop cannot republish `PLAYING`.
+- **Navigation never resumes a paused playhead.** `seekBy`/`navigate`/
+  `navigateUndo` capture `wasPaused` before teardown and re-`pause()` after
+  repositioning; a paused ±30 s seek moves the playhead, writes the row and
+  stays silent (the device evidence showed re-synthesis).
+- **Boring over actor:** the accepted “smaller repair” instead of a command
+  actor — one launcher + generation checks, no command queue; commands stay
+  responsive and the long-running synthesis/play loop remains cancellable.
+
+Evidence: `PlaybackServiceA57Test` (6 — pause during generation publishes
+PAUSED and nothing synthesizes; a superseded publish-loop is cancelled and
+stays dead; paused seek and paused skip reposition without resuming; a
+superseded OPEN never publishes; launched commands are cancelled by
+`stopEverything`). All prior feature-player host tests and the instrumented
+compile stay green. Device re-verification (MediaSession/notification during
+generation-pause; two-library-row play stress) pending on the B6 / S22.
+
 ## 61. A2 — Live playhead persistence (CR-2) (2026-08-27)
 
 Closed the CR-2 progress-loss: STOP and service teardown rewound the
