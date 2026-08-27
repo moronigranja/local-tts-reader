@@ -35,6 +35,7 @@ Three capabilities, one pipeline:
   (decisions #24–#27).
 - [docs/build.md](docs/build.md) — how to build, run, and test.
 - [docs/features/](docs/features/) — feature plans (share-and-identify; player/TTS/settings pending).
+- [docs/brand.md](docs/brand.md) — brand identity: name (Ayvu), tagline, icon timeline, poem plan.
 - [docs/decisions.md](docs/decisions.md) — decision log (why things are the way they are).
 - [docs/features/share-and-identify.md](docs/features/share-and-identify.md) — the
   share-and-identify (resume-from-share) feature plan and status.

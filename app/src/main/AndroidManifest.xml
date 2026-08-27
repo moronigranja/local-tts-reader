@@ -3,6 +3,8 @@
 
     <application
         android:name=".LocalTtsReaderApp"
+        android:icon="@mipmap/ic_launcher"
+        android:roundIcon="@mipmap/ic_launcher_round"
         android:label="Local TTS Reader"
         android:theme="@android:style/Theme.Material.Light.NoActionBar">
         <activity

@@ -125,3 +125,11 @@ Kokoro ships inside the app.
 - No network in the happy path. Any download (model weights, language/voice packs) is a
   single, explicit, user-consented, resumable operation. If you add any socket use,
   justify it in a PR.
+## Platform / OS
+
+- **Background neural/TTS access can be taken away by OS policy.** iOS 27 beta
+  removed background neural-engine access for third-party apps (landscape,
+  2026-08-25). Android analog: OEM background restrictions / Doze can kill
+  long-running playback. The player MUST run as a proper foreground service
+  (mediaPlayback) and handle being re-killed gracefully — implemented in T4-2
+  (decisions #34); re-verify on each new OEM/OS pass.

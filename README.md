@@ -1,4 +1,10 @@
-# local-tts-reader
+<p align="center">
+  <img src="docs/assets/ayvu-icon-master.svg" alt="Ayvu launcher icon" width="96" height="96">
+</p>
+
+# Ayvu
+
+*Ayvu — your books, in voice.*
 
 Offline-first Android app that reads your ebook library aloud using **on-device,
 open-weight text-to-speech**. No cloud, no account, no telemetry. Share a quote or a
@@ -99,7 +105,7 @@ feature-ocr/       tess-two adapter + stager
 app/          Hilt composition root (Library / Reader / Settings routes)
 spike-tts/    measurement harnesses (benchmark, grain spike, device spikes)
 tools/        docker-build.sh (containerized Android toolchain), gen_mobi_fixtures.py
-docs/         decisions (#1–#41), roadmap, conventions, build, module layout, ideas
+docs/         decisions (#1–#41), roadmap, conventions, build, module layout, ideas, brand
 .github/      CI: JVM tests + Docker Android build + unit tests every push; tag-gated assemble
 agents.md     Entry point for AI agents working in this repo — read first
 ```

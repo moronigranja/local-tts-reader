@@ -95,3 +95,35 @@ MOBI/KF8 parsing, share-and-identify (Kindle workaround), no accounts, GPL-3.0.
   it; prefer quantization-safe ops only.
 - **candela's 43 open issues** are a free bug list for player/perf work — review
   before writing T4/T5 code.
+## Second-engine candidates (owner, 2026-08-26)
+
+Moved from ideas.md — engine research, not app features. The parked quality-tier
+slot (decisions #29) still has no occupying engine: CosyVoice3 keeps the fallback
+slot but stays gated off-device (#21). Neither candidate is a quality upgrade over
+Kokoro — each is a different axis:
+
+- **Supertonic 3** (supertone-inc): ~99M params ≈ Kokoro; flow-matching; 31
+  languages vs Kokoro's 8; CPU-only ONNX; vendor RTF 0.200 (16-thread desktop
+  CPU), ~0.3 on an e-reader at the 8-step baseline; inline expression tags;
+  style-vector voices (same integration shape as Kokoro). Published quality is
+  reading accuracy (EN WER 2.8% on Minimax-MLS) — no MOS/Elo, and the
+  independent head-to-head listening test ranks Kokoro's naturalness above it at
+  5 steps ("lacks warmth and prosody variation") — a coverage/robustness/speed
+  axis, not quality. Gates before a tier: duration-output/anchor introspection
+  (read-along contract, decisions #30b/#31 — unverified), OpenRAIL-M license
+  review (use restrictions + attribution vs this GPL-3.0 public repo), S22
+  device RTF. Known blockers: cloning is cloud-only (hosted Voice Builder —
+  offline-first conflict); only 3/10 expression tags documented, user reports of
+  ignored tags.
+- **Piper** (VITS, per-voice): ~20+ languages — the only ready catalog for the
+  languages the Kokoro pack lacks (de/ko, decisions #28); ~14–100 MB/voice. Not
+  a quality play (plain prosody, no emotion/cloning); via sherpa it loses the
+  read-along anchors (#30b — upstream has no word timestamps); per-voice
+  licenses vary (some non-commercial — check per voice before pinning into a
+  GPL distribution). Matcha is the same VITS/flow-matching class with a handful
+  of corpus voices (ljspeech/vctk/zh) — no breadth or quality advantage, not a
+  candidate.
+
+Home if adopted: a second `TTSEngine` impl behind the existing seam (EngineTier,
+PackRegistry, feature-settings engine list already built) — Supertonic as the
+coverage/robustness tier, Piper as the language-gap fallback.

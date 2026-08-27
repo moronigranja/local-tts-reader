@@ -118,9 +118,13 @@ position_history) — 37 new tests. **T4-2 landed (2026-08-26, decisions #34):**
 docked ReaderScreen with #31 sentence highlighting; full-book playback verified
 on the S22 by `PlaybackE2eTest`. **T5-core landed (2026-08-26, decisions #35):** PregenQueue + PregenKey +
 PcmPassageCache in core-player, wired into PlaybackService (take fast path +
-look-ahead, speed-keyed rebuild). Post-v1 WorkManager slice is now pure
-scheduling over the tested cache. T5/S/V1 remain; V3's device pass downgrades
-from gate to routine re-check.
+look-ahead, speed-keyed rebuild). **T5 offline pre-gen shipped (2026-08-26,
+decisions #42)**: [OfflinePregen] planner in core-player (spine walk, skip-
+cached resume, budget + saturation stop); the disk tier now serves playback
+(queue → disk → synthesize; first listens persist); PregenWorker (manual +
+24h charging-gated overnight, foreground with progress) + library-row
+"Pre-generate" action; app-start overnight scheduling. V3's device pass
+downgrades from gate to routine re-check.
 
 ## Assumptions
 
@@ -221,10 +225,12 @@ core-locate itself is done; this phase completes the feature slice.
 
 Idea-pool graduates, deliberately outside v1's critical path (T4/T5/S/V):
 
-- **Offline chapter pre-generation** — T5 extension: WorkManager job core (manual +
-  charging-gated overnight), PCM cache keyed on engine+voice+speed+translation config
-  with LRU eviction; the lever that makes the CosyVoice3 fallback tier viable despite
-  the #21 gate (≈3 ch/night at its RTF; whole-book for Kokoro).
+- **Offline chapter pre-generation — SHIPPED (2026-08-26, decisions #42)**: [OfflinePregen]
+  planner (skip-cached resume, budget + saturation stops), disk tier in the play path,
+  `PregenWorker` (manual 60-min run + 24h charging-gated overnight, 3h wall budget,
+  foreground with progress, yields to playback), library-row action + app-start
+  overnight scheduling. The CosyVoice3 fallback viability lever stays intact (the
+  overnight budget sizing matches its RTF); device pass pending on the S22.
 - **pt-BR translation decorator** — new `core-translate` (a `TTSEngine` decorator,
   output-side only — matching/index untouched; NMT int8 ~30–80 MB, CC-BY-4.0 with
   attribution; transcription failure degrades to the original text).

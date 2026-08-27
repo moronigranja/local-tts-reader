@@ -773,3 +773,59 @@ the #39/#40/#41 markers. Both lanes verified locally command-for-command:
 host JVM 255 tests 0 failed; docker lane + release assemble BUILD SUCCESSFUL.
 Remaining for V2: nothing in CI scope — what stays manual is device-side
 instrumentation (no runner hardware), deliberately.
+
+## 42. Offline chapter pre-generation: WorkManager job core over the tested cache (2026-08-26)
+The roadmap's post-v1 T5 slice (decisions #29) lands as pure scheduling over
+the #35 disk tier, plus its playback wiring:
+
+- **core-player `OfflinePregen`**: spine-order walk over a book, skipping
+  cache hits (the cache is the source of truth — a run resumes anywhere),
+  with run budgets (passages/chapters/time) and two stops that prevent
+  thrash: the cache's byte cap (free space below the last synthesized
+  passage size — a put would only evict) and a consecutive-failure cap
+  (isolated failures are counted and skipped; `Unavailable` stops at once —
+  missing packs won't heal mid-run). Cooperative cancellation per passage;
+  `onProgress` fires per passage.
+- **Disk tier in the play path**: PlaybackService fast path is now queue →
+  disk cache → synchronous synthesis; a first listen of any passage persists
+  it (async IO put), so normal use fills the offline cache for free. Saved
+  audio is the full pre-slice passage (speed-keyed like the queue: #35).
+- **`PregenWorker`** (`@HiltWorker`, foreground dataSync with a progress
+  notification): manual mode = one book, 60-min wall budget, unique-name KEEP
+  (a second tap is a no-op); overnight mode = 24h periodic, charging +
+  battery-not-low, 3h wall budget, yields to an active playback session
+  ([`PlaybackActive`]) and to WorkManager cancellation. Voice from settings,
+  speed 1.0; cache keyed engine+voice+speed means other speeds synthesize on
+  demand as always. WorkManager + androidx.hilt added to the catalog
+  (work-runtime-ktx 2.10.1, androidx-hilt 1.2.0).
+- **UI**: library-row "Pre-generate" action with live WorkManager progress
+  (KEEP-deduplicated; flips to "Pre-gen again" after a success); the app
+  schedules the overnight job once at start.
+- Budget sizing: a Kokoro book fits a night (~60–90 min audio ≈ RTF 0.7
+  → ~1–2 h CPU at 1.0×); CosyVoice3's fallback tier gets its ≈3 ch/night.
+- Verification: 13 new core-player tests (49 total; order, resume, budgets,
+  saturation, failure caps, cancellation, progress). Host JVM suite green;
+  Docker lane green (both APKs + all Android unit tests incl.
+  feature-player/library). S22 device pass pending (reconnect schedule —
+  reads/writes are the same cache the e2e already exercises).
+
+## 43. Brand icon: owner's leaf+arcs trace, ink palette, vector-only packaging (2026-08-27)
+The launcher icon pick: the owner's own SVG trace of the leaf + sound-arcs
+concept (supersedes every procedural draft; the trace's organic S-midrib,
+curled stem, and natural arc ends won). Locked with the brand: ink `#1B2430`
+background, amber `#E8A33D` leaf/dot/inner arcs, teal `#1FA8C5` outer arc —
+the source image's gold harmonized to amber, no wordmark (dies below 64px;
+the name lives in the launcher label / store listing).
+Packaging is adaptive-only (`minSdk = 26`): vector foreground scaled ×0.5 into
+the 66dp safe zone (measured 60.1% of the 108dp layer), vector background,
+Android-13 monochrome with alpha steps (leaf+dot 1.0, inner arcs 0.67, outer
+arc 0.43). The trace's off-center dot (37px left of the fitted ring center)
+was re-centered during review, then reverted at the owner's eye — the
+as-traced dot ships. The arc's extra sliver gap at 285–290° kept — reads
+organically. Canonical source `docs/assets/ayvu-icon-master.svg` (==
+production geometry); res vectors are generated from it, not hand-edited.
+Alternatives: pixel-copying the JPEG (AI-loose geometry — off-center arcs,
+thick bands), legacy PNG density packs (unneeded at minSdk 26), wordmark
+variant (illegible at launcher sizes).
+Verified: docker-lane `:app:assembleDebug` green; `aapt dump badging` shows
+`application: label='Ayvu' icon='res/mipmap-anydpi-v26/ic_launcher.xml'`.

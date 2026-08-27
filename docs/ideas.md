@@ -3,6 +3,9 @@
 A candidate pool, not a commitment: each row records what the feature is, where it
 came from, why it fits this app, and which roadmap slice would host it. A feature
 graduates to the roadmap (and the decision log) only when it is decided on.
+Brand identity (name/tagline/icon) lives in [docs/brand.md](brand.md); engine
+candidate research (Supertonic 3, Piper) moved to
+[docs/landscape.md](landscape.md) §Second-engine candidates (2026-08-26).
 
 Logged 2026-08-25. Sources:
 - **Audiobookify** — iOS EPUB reader with local TTS on the neural engine
@@ -50,8 +53,6 @@ Logged 2026-08-25. Sources:
 | User bookmarks (explicit anchors, distinct from auto-progress) | owner (2026-08-25, review follow-up) | Auto `progress` is one resume row per book; bookmarks are user-set anchors — standard in audiobook readers and cheap | T4 reader+player slice (decisions #29) | Room migration v2 `bookmarks` (bookId, chapter, passage, offset, createdAt); long-press passage → add; list/delete in a reader menu; rides along in the export archive |
 | Read log: per-book position history + undo-skip; full session log post-v1 | owner (2026-08-25, review follow-up) | Accidental play/skips need an undo path, not confirm dialogs; the session log doubles as the stats dashboard's data source | T4 (ring + undo) + post-v1 full log (decisions #29) | `position_history` table (capped rows/book) written by the player; undo-skip = one tap back to the previous position; full session timeline post-v1 feeds TODAY stats |
 | Folder import via SAF tree (scan a whole folder, not just picked files) | owner (2026-08-25, import review) | The picker is multi-select only (`OpenMultipleDocuments`); a tree grant (`ACTION_OPEN_DOCUMENT_TREE`) + `DocumentFile` walk with the supported-extension filter feeds the same `BookImporter.importAll` batch — parsers/segmentation untouched, per-file failure isolation already exists | C-lane quick win (feature-library), post-C7 | Persistable tree grant covers re-reads after restart; decide recursion depth (root + one level?) and a per-batch file cap; C7's text-parser SAF entry is the same picker surface |
-| Supertonic 3 as the second-engine tier (explore) | owner (2026-08-26, engine research) | "Quality tiers parked until a second engine exists" (decisions #29) still have no usable second engine — CosyVoice3 occupies the fallback slot but is gated off-device (#21). Supertonic 3 is the only candidate that clears the bar: 99M params ≈ Kokoro-82M, CPU-only ONNX, RTF 0.200 on a 16-thread desktop CPU (supertonic3.github.io benchmark), 31 languages vs Kokoro's 8, inline expression tags, style-vector architecture (the same integration shape as Kokoro) — a real second axis to rank a tier against | Post-v1 core-tts follow-up: a second `TTSEngine` impl behind the existing seam (EngineTier, PackRegistry + feature-settings engine list already built) | Explore before deciding: host RTF + duration-output/anchor introspection on the standalone ONNX graph, OpenRAIL-M license review (use-based restrictions + attribution), then the S22 device pass. Known blockers: cloning is cloud-only (hosted Voice Builder — offline-first conflict), only 3 of 10 expression tags documented with user reports of ignored tags, read-along anchors unverified |
-| Piper as the languages-beyond-Kokoro fallback tier | candela voice families (landscape 2026-08-25) | The pinned Kokoro pack serves 8 languages — no German/Korean voices (#28); Piper ships ~20+ languages as compact VITS-class per-voice models (~14–100 MB), the only ready catalog for those gaps; the parked tier sizing itself referenced "Piper low/med/high ~14–28 MB" | Post-v1 core-tts follow-up (language-gap fallback — not the expressivity/quality tier slot) | Not a quality play: VITS prosody is plain, no emotion control, no cloning; via sherpa it loses the read-along anchors (#30b — upstream has no word timestamps); per-voice licenses vary (some non-commercial — must check per voice before pinning into a GPL distribution). Matcha (same VITS/flow-matching class) is thinner still — a handful of corpus voices (ljspeech/vctk/zh), no breadth or quality advantage → not worth its own candidate slot |
 ## Validated, no action
 
 - **DRM-free stance + AZW3**: Audiobookify refuses DRM and defers AZW3; we already
@@ -91,4 +92,7 @@ Logged 2026-08-25. Sources:
 | App export/backup + restore (positions, library, settings, optional books) | Post-v1 — new `core-backup` slice marker |
 | Kindle export/highlights sync | Post-v1 (already deferred by decision) |
 | RSVP, classics bundle, auto language detection | Stays in the pool (no v1 dependency) |
-| Accelerator/int8 delegates, multi-engine parallel tuning | Ideas-only; measure at V3 first |
+## Brand & identity
+
+Moved to [docs/brand.md](brand.md) — name (Ayvu), tagline, icon timeline and
+drafts, the Ayvu Rapyta poem plan.
