@@ -23,6 +23,9 @@ Logged 2026-08-25. Sources:
   mode. Candidates below also cite these prints.
   Raw screenshots archived at `docs/prints/` (01–05). Screenshots of a third-party app;
   keep attribution ([Audiobookify](https://www.reddit.com/r/apple/comments/1uo1b2d/), @therysin) if reused.
+- **Owner storage-transparency + reading-habit batch (2026-08-26)** — pre-gen space
+  estimate, per-book audio usage + delete, auto-delete of listened passages,
+  habit-driven pre-generation, translate-then-read language coverage beyond pt-BR.
 
 ## Candidates
 
@@ -48,11 +51,16 @@ Logged 2026-08-25. Sources:
 | Auto language detection → voice routing | candela: mid-chapter language switch routes text to a matching voice | Multilingual books (en + fr/es dialogue) are common; detection opt-in | T5 / post-v1 | Needs detection + per-language voice mapping; post-v1 size |
 | Multi-engine parallel synthesis tuning | candela: 1–8 engine instances, per-engine thread pools, producer on an audio-priority thread | T5 pre-generation must fit the device's RTF; these are the levers | T5 (design reference — decisions #25) | Validate on S22 Ultra first; candela's Performance-modes wiki is the reference |
 | Real-time translation to pt-BR (read EN books aloud in PT) | owner (2026-08-25; feasibility + complexity reviewed) | Kokoro v1.0 already ships pt-BR voices (voices-v1.0.bin); ONNX Runtime already in the stack; a `TTSEngine` decorator adds the stage without touching player/pipeline contracts | T5 + new `core-translate` (post-v1 slice) | NMT en→pt int8 (~30–80 MB; OPUS-MT CC-BY-4.0 — attribution; NLLB-600M CC-BY-NC — avoid). "Real-time" = hidden behind the pre-gen queue, not simultaneous interpretation. Translation failure degrades to the original text; index/matching unaffected (output-side only) |
-| Offline chapter pre-generation (manual "generate X chapters" + scheduled overnight while charging) | owner (2026-08-25) | Shifts synthesis cost off the go — listening becomes pure AudioTrack playback; makes the CosyVoice3 fallback tier viable despite the #21 RTF gate (overnight ≈3 ch/night at RTF 16; whole-book for Kokoro); composes with the translation decorator (translate + generate while charging) | T5 extension + `core-tts` job core; WorkManager adapter + per-book toggle in V1 | PCM ~10 MB/h (24 kHz 16-bit mono); cache key = engine+voice+speed+translation config (settings change ⇒ re-generate); LRU eviction under a disk budget; charging-gated via WorkManager constraints; skip generation while actively playing; candela's PCM chapter cache validates the cache side |
+| Offline chapter pre-generation (manual "generate X chapters" + scheduled overnight while charging) | owner (2026-08-25) | Shifts synthesis cost off the go — listening becomes pure AudioTrack playback; makes the CosyVoice3 fallback tier viable despite the #21 RTF gate (overnight ≈3 ch/night at RTF 16; whole-book for Kokoro); composes with the translation decorator (translate + generate while charging) | T5 extension + `core-tts` job core; WorkManager adapter + per-book toggle in V1 | PCM ≈170 MB/h (24 kHz 16-bit mono — `SAMPLE_RATE` 24_000 × 2 B/s); cache key = engine+voice+speed+translation config (settings change ⇒ re-generate); LRU eviction under a disk budget; charging-gated via WorkManager constraints; skip generation while actively playing; candela's PCM chapter cache validates the cache side |
 | App export/backup + restore (read positions, library index, settings, optionally the book files) | owner (2026-08-25, review follow-up) | Data-portability fits the offline-first/no-account ethos; content-hash book ids make restore idempotent (re-import → same bookId → progress reattaches); the launch-time rebuild means the index comes back from the cached parses | Post-v1 V-lane / new small `core-backup` slice (decisions #29) | Versioned zip via SAF: settings/library/progress JSON + `books/` optional; cached parses ride along to honor "never re-parse"; TTS pack cache re-downloads, stays out; DRM-free only (encrypted files already rejected); restore = import flow + row merge, idempotent by hash |
 | User bookmarks (explicit anchors, distinct from auto-progress) | owner (2026-08-25, review follow-up) | Auto `progress` is one resume row per book; bookmarks are user-set anchors — standard in audiobook readers and cheap | T4 reader+player slice (decisions #29) | Room migration v2 `bookmarks` (bookId, chapter, passage, offset, createdAt); long-press passage → add; list/delete in a reader menu; rides along in the export archive |
 | Read log: per-book position history + undo-skip; full session log post-v1 | owner (2026-08-25, review follow-up) | Accidental play/skips need an undo path, not confirm dialogs; the session log doubles as the stats dashboard's data source | T4 (ring + undo) + post-v1 full log (decisions #29) | `position_history` table (capped rows/book) written by the player; undo-skip = one tap back to the previous position; full session timeline post-v1 feeds TODAY stats |
 | Folder import via SAF tree (scan a whole folder, not just picked files) | owner (2026-08-25, import review) | The picker is multi-select only (`OpenMultipleDocuments`); a tree grant (`ACTION_OPEN_DOCUMENT_TREE`) + `DocumentFile` walk with the supported-extension filter feeds the same `BookImporter.importAll` batch — parsers/segmentation untouched, per-file failure isolation already exists | C-lane quick win (feature-library), post-C7 | Persistable tree grant covers re-reads after restart; decide recursion depth (root + one level?) and a per-batch file cap; C7's text-parser SAF entry is the same picker surface |
+| Pre-generate space estimate (size preview before enqueuing) | owner (2026-08-26) | Pre-generation is shipped (decisions #42); the library-row "Pre-generate" action already foregrounds a progress job, and the expected footprint is computable before synthesis — bytes = 24_000 × 2 × estimated duration — so the confirm step can state it | T5 extension (`PregenWorker` surface) | Estimate from segmented text length (chars → speaking time at the active voice/speed), not by synthesizing; exact for chapters already cached (bytes on disk, cache-keyed per `PregenKey`) |
+| Per-book audio usage in settings + delete generated audio | owner (2026-08-26) | The PCM disk tier is real storage now; settings (V1, decisions #36) is the natural home for the per-book breakdown + total, and every cached chapter is re-generable on demand — delete is a safe operation | T5 extension + V-lane settings surface | Mirror the delete on the library row next to "Pre-generate" (per-book context menu); never evict passages queued or currently playing (fast-path invariant); cache-keyed (engine+voice+speed), so a settings change invalidates naturally |
+| Auto-delete read passages | owner (2026-08-26) | Listened passages behind the resume point are dead weight for the disk budget the LRU already enforces | T5 extension | "Read" must be defined against the `position_history` ring (T4): evict only what is behind the resume point and outside the undo ring's reach, so undo-skip keeps working |
+| "Smart" pre-generation from reading habits | owner (2026-08-26) | Manual + overnight pre-gen ships (decisions #42); the `position_history` ring and the post-v1 session log already record habits — predict the next chapters (and next book) and queue them inside the same overnight window | T5 extension, post-v1 marker (needs the session-log slice) | Prediction only sizes the same budget/saturation stops — never overrides them; signals: active book's next chapters, per-book listening velocity, day-of-week patterns; opt-in |
+| Translate-then-read language coverage beyond pt-BR | owner (2026-08-26) | The `core-translate` decorator is output-side only (matching/index untouched); the language pair is just another key dimension (pair → NMT model + voice pack) | Post-v1 `core-translate` extension (same slice marker) | v1 pair stays en→pt-BR (OPUS-MT int8 ~30–80 MB, CC-BY-4.0 attribution); extra pairs = opt-in per-pair downloads gated by pack/voice availability; "real-time" remains behind the pre-gen queue, not simultaneous interpretation; translation failure degrades to the original text (unchanged contract) |
 ## Validated, no action
 
 - **DRM-free stance + AZW3**: Audiobookify refuses DRM and defers AZW3; we already
@@ -77,7 +85,7 @@ Logged 2026-08-25. Sources:
   restrictions / Doze could kill long-running foreground playback — the player must
   use a proper foreground service and handle being re-killed gracefully (T4).
 
-## Decision status (2026-08-25, decisions #29)
+## Decision status (decisions #29 snapshot 2026-08-25; updated 2026-08-27)
 
 | Idea | Disposition |
 |---|---|
@@ -87,11 +95,13 @@ Logged 2026-08-25. Sources:
 | User bookmarks (explicit anchors) | Folded into T4 (v1) — migration v2 table + reader gesture |
 | Read log: per-book position ring + undo-skip | Folded into T4 (v1); full session log = post-v1 marker (feeds TODAY stats) |
 | Theme-follows-system, voice picker + favorites | Folded into V1 (tiers parked) |
-| Offline chapter pre-generation | Post-v1 — T5 extension marker |
+| Offline chapter pre-generation | **Shipped** (2026-08-26, decisions #42) |
 | pt-BR translation decorator | Post-v1 — new `core-translate` marker |
 | App export/backup + restore (positions, library, settings, optional books) | Post-v1 — new `core-backup` slice marker |
 | Kindle export/highlights sync | Post-v1 (already deferred by decision) |
 | RSVP, classics bundle, auto language detection | Stays in the pool (no v1 dependency) |
+| Pre-gen space estimate + per-book audio usage/delete | **Decided** (2026-08-27, decisions #44) — post-v1 roadmap, follow-ups to shipped pre-gen |
+| Auto-delete read passages, habit-driven pre-gen, translate language coverage | Stays in the pool |
 ## Brand & identity
 
 Moved to [docs/brand.md](brand.md) — name (Ayvu), tagline, icon timeline and

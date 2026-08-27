@@ -829,3 +829,25 @@ thick bands), legacy PNG density packs (unneeded at minSdk 26), wordmark
 variant (illegible at launcher sizes).
 Verified: docker-lane `:app:assembleDebug` green; `aapt dump badging` shows
 `application: label='Ayvu' icon='res/mipmap-anydpi-v26/ic_launcher.xml'`.
+## 44. Storage transparency on pre-generated audio (2026-08-27)
+Owner idea-batch follow-ups to shipped pre-gen (#42) and settings (#36). The
+pregen disk tier is real storage the user currently can't see or reclaim.
+
+- **Pre-generate space estimate**: the library-row Pre-generate flow states the
+  expected footprint before enqueuing, computed without synthesizing — bytes =
+  24_000 Hz × 2 B × estimated duration (segmented text length → speaking time at
+  the active voice/speed); exact for chapters already cached (the cache is the
+  source of truth, #42).
+- **Per-book audio usage + delete**: settings lists a per-book breakdown and the
+  total; delete is one tap per book (settings row, mirrored on the library row
+  next to "Pre-generate"). Exclusion: never evict passages queued or currently
+  playing (the fast-path invariant) — cancel the book's queued work first.
+  Eviction only, no migration: cache keys are engine+voice+speed, so a settings
+  change invalidates naturally (#35).
+- Same review, left in the ideas pool: auto-delete of listened passages (needs
+  undo-ring semantics against `position_history`), habit-driven pre-generation
+  (needs the post-v1 session log), translate-then-read language coverage beyond
+  pt-BR (settle when `core-translate` starts).
+- Consequences: estimates keep the user aware that one listened hour ≈ 170 MB
+  (24 kHz 16-bit mono) on disk; per-book delete makes re-listen cache retention
+  a user choice instead of an LRU-only policy.
