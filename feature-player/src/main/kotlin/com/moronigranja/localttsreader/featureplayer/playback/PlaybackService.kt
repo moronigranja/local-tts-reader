@@ -25,6 +25,7 @@ import android.support.v4.media.session.PlaybackStateCompat
 import androidx.media.app.NotificationCompat.MediaStyle
 import com.moronigranja.localttsreader.model.Book
 import com.moronigranja.localttsreader.player.BookLayout
+import com.moronigranja.localttsreader.player.BookProgress
 import com.moronigranja.localttsreader.player.PlayerEvent
 import com.moronigranja.localttsreader.player.PlayerPhase
 import com.moronigranja.localttsreader.player.PlayerPosition
@@ -393,9 +394,10 @@ class PlaybackService : Service() {
                 passageText = position?.let { p -> book?.passageText(p.chapterIndex, p.passageIndex) } ?: "",
                 passageDurationSeconds = segments.lastOrNull()?.endSeconds ?: 0.0,
                 chapters = book?.chapters?.map { it.title.orEmpty() } ?: emptyList(),
-                segments = segments,
-                offsetSeconds = liveOffsetSeconds(),
-                speed = state.speed,
+                readFraction = position?.let { p -> book?.let { BookProgress.fraction(it, p.chapterIndex, p.passageIndex) } } ?: 0f,
+                timeLeftSeconds = position?.let { p ->
+                    book?.let { BookProgress.remainingSeconds(it, p.chapterIndex, p.passageIndex, liveOffsetSeconds(), state.speed) }
+                } ?: 0.0,
                 phase = state.phase,
                 sleepTimer = state.sleepTimer,
                 canUndo = ringHasEntries,

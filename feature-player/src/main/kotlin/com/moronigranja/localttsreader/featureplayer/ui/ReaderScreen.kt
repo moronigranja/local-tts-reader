@@ -197,7 +197,12 @@ fun ReaderScreen(
                     },
             )
             Text(
-                "Ch ${state.chapterIndex + 1} · P ${state.passageIndex + 1} · ${"%.1f".format(state.offsetSeconds)}s",
+                listOf(
+                    "Ch ${state.chapterIndex + 1}",
+                    "P ${state.passageIndex + 1}",
+                    progressLabel(state),
+                    timeLeftLabel(state),
+                ).joinToString(" · "),
                 style = MaterialTheme.typography.labelSmall,
                 color = Color.Gray,
                 modifier = Modifier.padding(top = 8.dp),
@@ -327,3 +332,23 @@ private fun sentenceSpans(text: String): List<SentenceSpan> {
 }
 /** Horizontal drag distance that pages to the next/previous passage. */
 private val SWIPE_PAGE_THRESHOLD = 64.dp
+/** [0..1] position → "%" (sub-1% keeps a decimal so early listening shows motion). */
+private fun progressLabel(state: PlaybackUiState): String {
+    val percent = state.readFraction * 100
+    return if (percent < 1f) "%.1f%%".format(percent) else "${percent.toInt()}%"
+}
+
+/** Estimated remaining listening time at the current speed. */
+private fun timeLeftLabel(state: PlaybackUiState): String {
+    if (state.phase == PlayerPhase.COMPLETED) return "done"
+    val seconds = state.timeLeftSeconds
+    return if (seconds <= 0) "end" else "≈${formatClock(seconds)} left"
+}
+
+private fun formatClock(seconds: Double): String {
+    val total = seconds.toInt()
+    if (total < 60) return "${total}s"
+    val minutes = total / 60
+    if (minutes < 60) return "${minutes}m"
+    return "${minutes / 60}h ${"%02d".format(minutes % 60)}m"
+}

@@ -19,4 +19,8 @@ class CoverStore(private val root: File) {
         val file = File(root, bookId)
         return if (file.isFile) file.readBytes() else null
     }
+    /** Book removal: drop the sidecar cover (decisions #50 pass). */
+    fun delete(bookId: String) {
+        File(root, bookId).delete()
+    }
 }

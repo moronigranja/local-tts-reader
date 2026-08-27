@@ -1078,3 +1078,29 @@ Seven small items from a live review pass on the S22 + the host:
   "0%", and there is still no remove-book-from-library action (re-importing
   an existing book hits "Unchanged" and keeps its old parse — the
   front-matter fix reaches books on the next fresh import).
+## 51. Library gap pass — remove book, reader %, time-left, continue-list (2026-08-27)
+Three items from the R7 ereader comparison (kindle et al.) + the #50
+follow-ups, chosen by review:
+- **Remove book from library**: menu → confirm → deletes the book's cached
+  passages, progress row, bookmarks, undo ring, covers, offline-audio
+  subtree (pre-gen cancelled first) and the search-index entry, and stops
+  live playback (the service holds its own book reference). Re-importing the
+  same file re-creates the content-hash row — which is how a manually
+  re-parsed book picks up the #50 segmentation fix. `LibraryStore.delete`
+  + the per-table deletes (progress/bookmarks/history/passages/book) run in
+  one Room transaction; `InMemoryLibraryStore` mirrors it; `TextIndex.remove`
+  already existed.
+- **Reader footer: % + time-left**: the Ch·P·offset line now reads
+  `Ch 4 · P 4 · 0.1% · ≈10h 41m left` — position fraction (passage-granular,
+  same as the library progress bar) plus estimated remaining listening time at
+  the current speed, computed by the new pure `BookProgress` helper
+  (core-player; same chars-per-second model as PregenSpaceEstimator, so the
+  estimate is consistent with the pre-gen sizing). Verified live on the S22.
+- **Continue-list / recent-reads**: the library shows a "Continue listening"
+  section (books with a resume row, most recent first, capped at 5) above the
+  main import-ordered "Library" list — no duplicates (recent ids are filtered
+  from the main list).
+- Unit tests: `BookProgressTest` (fraction incl. current passage, offset
+  handling, speed scaling, empty book). Full unit suite + assemble green;
+  remove-book and continue-list verified by code-path + pending a live pass
+  once the S22 is free (verified live: the reader footer).

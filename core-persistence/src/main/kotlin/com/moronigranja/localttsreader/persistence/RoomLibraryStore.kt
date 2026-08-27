@@ -41,6 +41,18 @@ class RoomLibraryStore(
             database.passageDao().upsertAll(entry.book.cachedPassages())
         }
     }
+    override suspend fun delete(bookId: String) {
+        // One transaction: passages cascade from the book row, but progress,
+        // bookmarks and the undo ring have no FK — delete them explicitly so
+        // the resume surface never points at a removed book (decisions #50).
+        database.withTransaction {
+            database.progressDao().delete(bookId)
+            database.bookmarkDao().deleteByBook(bookId)
+            database.historyDao().deleteByBook(bookId)
+            database.passageDao().deleteByBook(bookId)
+            database.bookDao().delete(bookId)
+        }
+    }
 
     /** Every book's cached parse, in import order — the rebuild's input (P2). */
     suspend fun cachedBooks(): List<CachedBook> {

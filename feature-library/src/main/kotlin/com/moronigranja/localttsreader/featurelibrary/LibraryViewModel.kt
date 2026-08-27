@@ -5,14 +5,17 @@ import androidx.lifecycle.MutableLiveData
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.work.WorkInfo
+import android.content.Intent
 import android.content.Context
 import com.moronigranja.localttsreader.ebook.BookImporter
 import com.moronigranja.localttsreader.ebook.EBookSource
 import com.moronigranja.localttsreader.ebook.ImportFailureReason
 import com.moronigranja.localttsreader.ebook.ImportOutcome
+import com.moronigranja.localttsreader.featureplayer.playback.PlaybackService
 import com.moronigranja.localttsreader.featureplayer.playback.PregenManager
 import com.moronigranja.localttsreader.featureplayer.playback.PregenStorage
 import com.moronigranja.localttsreader.featurelibrary.CoverStore
+import com.moronigranja.localttsreader.locate.TextIndex
 import com.moronigranja.localttsreader.model.LibraryEntry
 import com.moronigranja.localttsreader.model.LibraryStore
 import com.moronigranja.localttsreader.persistence.ChapterCount
@@ -55,6 +58,8 @@ class LibraryViewModel @Inject constructor(
     // Default null: pure-JVM unit tests skip the Room progress surface (Hilt provides it).
     private val passageDao: PassageDao? = null,
     private val progressDao: ProgressDao? = null,
+    // Default null: unit tests drop the index; Hilt provides the shared one.
+    private val index: TextIndex? = null,
 ) : ViewModel() {
     /** Books the user has covers for (extracted at import; sidecar files). */
     fun cover(bookId: String): ByteArray? = context?.let { CoverStore(File(it.filesDir, "covers")).load(bookId) }
@@ -72,6 +77,19 @@ class LibraryViewModel @Inject constructor(
         pregenManager?.workInfo(bookId) ?: MutableLiveData(emptyList())
 
     val library: StateFlow<List<LibraryEntry>> = repository.books
+    /** Recently-active books (resume rows, most recent first) — the library's
+     * "Continue listening" section (decisions #50 pass). */
+    val recent: StateFlow<List<LibraryEntry>> =
+        if (progressDao == null) {
+            MutableStateFlow(emptyList())
+        } else {
+            combine(progressDao!!.observeAll(), repository.books) { rows, books ->
+                val byId = books.associateBy { it.book.id }
+                rows.sortedByDescending { it.updatedAtEpochMillis }
+                    .mapNotNull { byId[it.bookId] }
+                    .take(MAX_RECENT)
+            }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+        }
 
     /** bookId → read/listened fraction (0..1): completed passages over the
      * cached book's total, from the resume rows (passage-granular — the
@@ -124,6 +142,29 @@ class LibraryViewModel @Inject constructor(
         }
     }
 
+    /** Removes a book from the library entirely: index, offline audio,
+     * covers and all rows (decisions #50 pass). */
+    fun removeBook(bookId: String) {
+        viewModelScope.launch {
+            withContext(ioDispatcher) {
+                // Stop live playback first: the service holds its own book
+                // reference and would otherwise keep reading the removed book.
+                context?.let { ctx ->
+                    runCatching {
+                        ctx.startService(
+                            Intent(ctx, PlaybackService::class.java).setAction(PlaybackService.ACTION_STOP),
+                        )
+                    }
+                }
+                index?.remove(bookId)
+                storage?.deleteBook(bookId) // cancels queued pre-gen first
+                repository.delete(bookId)
+                context?.let { CoverStore(File(it.filesDir, "covers")).delete(bookId) }
+            }
+            refreshOffline()
+        }
+    }
+
     private val _importState = MutableStateFlow<ImportUiState>(ImportUiState.Idle)
     val importState: StateFlow<ImportUiState> = _importState.asStateFlow()
 
@@ -169,5 +210,8 @@ class LibraryViewModel @Inject constructor(
         ImportFailureReason.UnsupportedFormat -> "format not supported"
         ImportFailureReason.Unreadable -> "could not read file"
         is ImportFailureReason.ParseError -> reason.message
+    }
+    private companion object {
+        const val MAX_RECENT = 5
     }
 }

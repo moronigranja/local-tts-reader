@@ -87,6 +87,7 @@ fun LibraryScreen(
     val importState by viewModel.importState.collectAsState()
     val offline by viewModel.offline.collectAsState()
     val readProgress by viewModel.readProgress.collectAsState()
+    val recent by viewModel.recent.collectAsState()
 
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
@@ -162,12 +163,31 @@ fun LibraryScreen(
                     )
                 }
             } else {
+                val recentIds = recent.map { it.book.id }.toSet()
                 LazyColumn(
                     modifier = Modifier.fillMaxSize(),
                     contentPadding = PaddingValues(16.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
-                    items(library, key = { it.book.id }) { entry ->
+                    if (recentIds.isNotEmpty()) {
+                        item { SectionHeader("Continue listening") }
+                        items(recent, key = { it.book.id }) { entry ->
+                            BookRow(
+                                bookId = entry.book.id,
+                                title = entry.book.title,
+                                authors = entry.book.authors,
+                                offline = offline[entry.book.id],
+                                readFraction = readProgress[entry.book.id] ?: 0f,
+                                onOpenBook = onOpenBook,
+                                viewModel = viewModel,
+                            )
+                        }
+                        item { SectionHeader("Library") }
+                    }
+                    items(
+                        library.filterNot { it.book.id in recentIds },
+                        key = { it.book.id },
+                    ) { entry ->
                         BookRow(
                             bookId = entry.book.id,
                             title = entry.book.title,
@@ -206,6 +226,17 @@ fun LibraryScreen(
     }
 }
 
+/** Section label for the continue-list/library split (decisions #50 pass). */
+@Composable
+private fun SectionHeader(title: String) {
+    Text(
+        text = title,
+        style = MaterialTheme.typography.titleMedium,
+        color = MaterialTheme.colorScheme.primary,
+        modifier = Modifier.padding(top = 8.dp, bottom = 4.dp),
+    )
+}
+
 /**
  * One library card with the offline pre-generation action (decisions #42) and
  * storage transparency (decisions #44): the row shows what a full pre-gen
@@ -240,6 +271,7 @@ private fun BookRow(
     val cover = rememberCoverBitmap(viewModel, bookId)
     var menuOpen by remember { mutableStateOf(false) }
     var budgetDialog by remember { mutableStateOf(false) }
+    var confirmRemove by remember { mutableStateOf(false) }
 
     if (budgetDialog) {
         PregenBudgetDialog(
@@ -362,9 +394,40 @@ private fun BookRow(
                             },
                         )
                     }
+                    DropdownMenuItem(
+                        text = { Text("Remove from library") },
+                        onClick = {
+                            menuOpen = false
+                            confirmRemove = true
+                        },
+                    )
                 }
             }
         }
+    }
+
+    if (confirmRemove) {
+        AlertDialog(
+            onDismissRequest = { confirmRemove = false },
+            title = { Text("Remove from library?") },
+            text = {
+                Text(
+                    "Removes \"$title\" with its progress, bookmarks and offline " +
+                        "audio. You can re-import the file anytime.",
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        confirmRemove = false
+                        viewModel.removeBook(bookId)
+                    },
+                ) { Text("Remove") }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirmRemove = false }) { Text("Cancel") }
+            },
+        )
     }
 }
 

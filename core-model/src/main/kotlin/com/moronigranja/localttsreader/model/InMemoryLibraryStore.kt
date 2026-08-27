@@ -9,9 +9,9 @@ import kotlinx.coroutines.flow.asStateFlow
  * (the ViewModel contract is store-agnostic) and as a reference implementation;
  * production uses the Room-backed store in `core-persistence`.
  *
- * Synchronous by design — [add] completes before returning, so tests observe
- * the effect immediately. [books] is a plain `MutableStateFlow` update: no
- * room for conflation under the virtual test dispatcher.
+ * Synchronous by design — [add]/[delete] complete before returning, so tests
+ * observe the effect immediately. [books] is a plain `MutableStateFlow`
+ * update: no room for conflation under the virtual test dispatcher.
  */
 class InMemoryLibraryStore : LibraryStore {
 
@@ -22,5 +22,9 @@ class InMemoryLibraryStore : LibraryStore {
     override suspend fun add(entry: LibraryEntry) {
         if (_books.value.any { it.book.id == entry.book.id }) return
         _books.value = _books.value + entry
+    }
+
+    override suspend fun delete(bookId: String) {
+        _books.value = _books.value.filterNot { it.book.id == bookId }
     }
 }

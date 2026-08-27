@@ -15,6 +15,10 @@ interface ProgressDao {
     @Query("SELECT * FROM progress ORDER BY bookId")
     fun observeAll(): Flow<List<ProgressEntity>>
 
+    /** Book removal: the resume row goes with the book (decisions #50 pass). */
+    @Query("DELETE FROM progress WHERE bookId = :bookId")
+    suspend fun delete(bookId: String)
+
     /** Inserts or replaces the book's resume point. */
     @Upsert
     suspend fun upsert(progress: ProgressEntity)

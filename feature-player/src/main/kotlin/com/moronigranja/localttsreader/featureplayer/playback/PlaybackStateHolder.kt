@@ -38,6 +38,10 @@ data class PlaybackUiState(
     val segments: List<SegmentAnchor> = emptyList(),
     /** Live playhead, book-time seconds within the passage. */
     val offsetSeconds: Double = 0.0,
+    /** [0..1] book position — completed passages over the book's total. */
+    val readFraction: Float = 0f,
+    /** Estimated listening time left in the book at the current speed. */
+    val timeLeftSeconds: Double = 0.0,
     val speed: Double = 1.0,
     val phase: PlayerPhase = PlayerPhase.IDLE,
     val sleepTimer: SleepTimer = SleepTimer.Off,
