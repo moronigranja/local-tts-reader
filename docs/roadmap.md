@@ -323,10 +323,56 @@ Idea-pool graduates, deliberately outside v1's critical path (T4/T5/S/V):
       (listening + spectrogram spot-check); unit-test the resampler
       (duration = N/speed, no drift across passage boundaries, frame
       rounding at edges).
-  - Alternatives rejected at design time: TTS-side speed (no engine hook for
-    Kokoro today — verify against sherpa if it gains one), third-party libs
-    (Sonic/SoundTouch add a native dependency; WSOLA ≈ 150 LOC, keeps the
-    in-process clean-room posture).
+- **CosyVoice as a pre-gen engine — DESIGNED 2026-08-27 (decisions #54),
+  not started.** A second TTS engine whose output is only ever written to
+  the disk tier — never played live (CPU RTF 14.7–17.5 on the S22 gates it
+  out of real-time, decisions #21; the overnight pre-gen window was sized
+  for exactly this class, decisions #42). Differentiator: **zero-shot voice
+  cloning** — CosyVoice2 reads a 3–10 s audio prompt + its transcript and
+  speaks with that voice, so books can be "read" in a user-chosen voice
+  (sample of any recording/audiobook).
+  - **Engine choice is a research gate**: CosyVoice2-0.5B has a known ONNX
+    path (Lourdle conversion + CosyVoiceForOnnx export scripts; ModelScope
+    official release; Apache-2.0 — GPL-3-compatible) and mobile-focused
+    references; CosyVoice3-0.5B stays the pinned-metadata candidate
+    (DefaultEngines) only if its ONNX exports + measured RTF beat 2 on the
+    S22. Decide at the gate, code against the seam either way.
+  - **Architecture mirrors Kokoro exactly** (no new native deps — both are
+    raw `ai.onnxruntime` Java ports, decisions #25):
+    - core-tts: `CosyVoicePacks` (descriptors pinned from actual artifacts —
+      repo rule, never fabricated), `OrtCosyVoiceSession` (encoder/LLM/
+      decoder, non-streaming, cancellable, off-main), `CosyVoiceEngine :
+      TTSEngine` (segments = null → pre-gen passages play without read-along
+      highlight, the documented `SynthesisOutcome.Audio` no-anchor path),
+      `CosyVoicePromptBank` (prompt audio + transcript store under
+      `files/cosyvoice-prompts/<id>.{wav,txt}`).
+    - core-player: `PregenKey` gains an `engine` dimension (legacy paths
+      parse as `kokoro`); voice slugs namespace per engine
+      (`cosy:<promptId>` vs `af_bella`) so the disk cache can never collide.
+    - feature-player: `CosyVoiceRuntime` (lazy singleton, KokoroRuntime
+      pattern); `PregenWorker` picks the engine from a new `KEY_ENGINE`
+      input — playback is untouched (`source=disk` reads PCM regardless of
+      engine).
+    - feature-settings: Engine section gains the CosyVoice pack download +
+      status (Kokoro/espeak UX), a "Pre-gen engine" picker (Kokoro |
+      CosyVoice, per-book override), and voice-cloning management.
+  - **User voice cloning (in scope)**: "Add voice" → SAF audio picker
+    (validate 3–10 s, decode via MediaExtractor/MediaCodec to 24 kHz mono
+    PCM) + the user pastes the sentence the sample says; prompt stored
+    locally, voice slug = hash id; bundled default prompt voice ships with
+    the pack so the slice works before any user sample exists.
+  - **Phases**: (1) research gate — pin ONNX artifacts + sizes/shas,
+    re-run the `spike-tts` harness on the S22; (2) engine + packs +
+    bundled prompt; (3) worker + `PregenKey.engine` + overnight wiring;
+    (4) settings UI incl. cloning; (5) verify.
+  - **Acceptance (S22)**: CosyVoice passages pre-generate overnight/manual
+    into the tier and play `source=disk`; a cloned voice (10 s sample +
+    transcript) speaks a chapter; memory/thermal within the #42 overnight
+    budget; read-along degrades gracefully on those passages; Kokoro
+    passages still cache/play unchanged (key compatibility).
+  - **Costs to accept**: ~300–500 MB int8 pack (exact pin at the gate);
+    RTF 8–17 → pre-gen-only by construction; no sentence anchors; ring/undo
+    unaffected.
 - **TODAY stats dashboard** — new local per-day read/listen-minutes table + home
   restructure (offline-first holds).
 - **Kindle official-export / Highlights-API sync** — on-demand position import from

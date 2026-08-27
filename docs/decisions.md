@@ -1,6 +1,29 @@
 # Decision log
 
-## 53. App-wide player card: scope + semantics decided, not yet built (2026-08-27)
+## 54. CosyVoice as a pre-gen engine (2026-08-27) — designed, not started
+
+Plan on the roadmap (full detail there); grounded in the shipped seams.
+
+- **Scope**: CosyVoice (2-0.5B first, 3-0.5B only if the research gate
+  prefers it) as a pre-generation-only engine — output goes to the disk
+  tier, never live playback (RTF gate #21 stands; the #42 overnight window
+  was sized for this class).
+- **Zero-shot voice cloning is in scope for the first slice** (user choice,
+  over bundled-prompts-only): SAF audio picker (3–10 s, decoded to 24 kHz
+  mono PCM) + pasted transcript → local prompt store → cloned-voice
+  pre-gen; one bundled prompt voice ships so the slice works standalone.
+- **Architecture reuses the Kokoro port pattern** (raw onnxruntime Java,
+  decisions #25 — no new native dependency); `TTSEngine` seam already
+  anticipates the segment-less tier (`SynthesisOutcome.Audio.segments =
+  null` → no read-along highlight on those passages, accepted).
+- **`PregenKey` gains an `engine` dimension** (legacy paths parse as
+  `kokoro`), and voice slugs namespace per engine — the current
+  voice-only slug would otherwise collide across engines on the disk cache.
+- **Research-gate decision deferred**: CosyVoice2 vs 3 pinned by ONNX
+  availability + S22 RTF at the start of the slice (cosyvoice3-0.5b stays
+  the metadata stub in `DefaultEngines`).
+- Cost reality: ~300–500 MB int8 pack; RTF 8–17; those numbers get pinned
+  at the gate, not planned from.
 
 User-scoped during design discussion (mockup-driven); roadmap entry carries
 the full build detail; tree clean at HEAD `85bc5af`.
