@@ -243,6 +243,67 @@ Idea-pool graduates, deliberately outside v1's critical path (T4/T5/S/V):
   output-side only — matching/index untouched; NMT int8 ~30–80 MB, CC-BY-4.0 with
   attribution; transcription failure degrades to the original text).
 - **V1 settings shipped (2026-08-26, #36)**: SettingsScreen, AppSettings StateFlow mirror, AndroidHttpTransport. **pt-BR voices verified (#40)**: pf_dora/pm_alex end-to-end (host + S22). **V2 CI shipped (2026-08-26, #41)**: GitHub Actions — JVM suite every push/PR, docker Android build + unit tests, tag-gated assemble. **S-debug regressions fixed (#39)**: epub import (Android DOM factory UOE + container regex), voices-download crash (recursive map ops), theme radio (push-based settings state). **S1 core-ocr shipped (#36)**: OcrEngine seam, downscaler, legacy 3.04.00 traineddata, TessTwoOcrEngine + stager. **S2 share receiver shipped (#37)**: ACTION_SEND gateway, typed resolver, image OCR branch, cold-start gate. **S3 resume wiring shipped (2026-08-26, #38)**: found-card "Listen here" → MainActivity → reader starts at the matched passage; reader passage-tap "listen from here"; ACTION_PLAY_POSITION verified on device (lands mid-book, completes). The S-column is functionally complete.
+- **App-wide player card — DESIGNED 2026-08-27 (decisions #53), not started.**
+  Docked mini-player replacing the reader's transport row, shared by the
+  library screen; user-scoped decisions locked in discussion.
+  - **Placement**: one shared `PlayerCard` composable (feature-player) docked
+    at the bottom of BOTH `ReaderScreen` and `LibraryScreen` (Scaffold
+    `bottomBar`) whenever a session is active (`bookId != null && (phase !=
+    IDLE || canUndo || passageText.isNotBlank())` — same predicate as the
+    reader's `positioned`). Reader's `DockedControls`/`TransportButton` rows
+    + the old footer line go away; the card carries their info.
+  - **Open-book animation**: tapping Play on a library row captures the row's
+    bounds (`onGloballyPositioned`) and the card's first appearance animates
+    from that row's position down into the docked slot (translate+scale,
+    `Animatable`/`animateDpAsState`); without row bounds it slides up from
+    the screen edge. The docked slot is identical on both screens, so the
+    card persists visually through the library→reader navigation.
+  - **Card layout** (mockup matched): square cover thumb (downsampled
+    `CoverStore` bytes, ImageBitmap) · title (bold, ellipsized) · subtitle —
+    authors · `Ch N · P M`, or **"Generating…"** while `LOADING` · book-wide
+    progress bar (`readFraction`, blue fill, white scrubber) · times row —
+    **elapsed** (book-time at 1×) left, **%** center, **remaining at current
+    speed** right (`formatMediaTime`: `M:SS` <1h, `H:MM:SS` ≥1h) · controls
+    row — `−30s` · `◀ Ch` · **play/pause (spinner while LOADING)** · `Ch ▶` ·
+    `+30s` · speed pill (cycles 0.75/1/1.25/1.5/2×).
+  - **Loading feedback**: synthesis latency ("takes a few seconds on play")
+    surfaced as `CircularProgressIndicator` inside the play button +
+    subtitle "Generating…" — both screens.
+  - **±30s rolling seeks**: `SEEK_FORWARD`/`SEEK_BACKWARD` actions → edge
+    converts current position to global book-time (chars/15′ speech model,
+    `elapsedSeconds` + running passage sums), applies the delta, clamps to
+    [0, total], walks back to `(chapter, passage, offset)` via a pure
+    `BookProgress.positionAt(book, seconds, cps)`; jumps push the ring
+    (undoable, `machine.seekTo` — already ring-backed). Invalid target →
+    clamp: start-of-book seek back stops at 0, end seek stops at last passage
+    end.
+  - **Chapter skip**: `skipChapter(dir)` on the machine using new
+    `BookLayout.nextChapter/previousChapter` (skip empty chapters; null at
+    bounds). Chapter push = current `(chapter, passage, offset)` to the ring,
+    tail collapsed to the chapter; goes to the new chapter's first passage
+    offset 0; re-render + fresh audio; publisher disabled mid-flight so the
+    UI never double-orders.
+  - **PlaybackUiState**: + `authors: List<String>` + `elapsedSeconds: Double`
+    (publisher adds both; `BookProgress.elapsedSeconds(book, ch, p, off, cps)`
+    pure + tests).
+  - **Command plumbing**: `PlaybackService` gains the 4 actions (rolling seek
+    ×2 performed in the service where book+layout live; chapter ×2 via
+    machine); `ReaderViewModel` + `LibraryViewModel` each expose
+    play/pause/resume/seek/chapter/speed commands → `PlayerCard(state,
+    commands, cover)`; both VMs already hold covers (`ReaderViewModel.cover`,
+    `LibraryViewModel.cover(bookId)` — CoverStore).
+  - **Tests (core-player)**: `BookLayoutTest` — next/previousChapter across
+    empty-chapter gaps + bounds; `BookProgressTest` — elapsedSeconds,
+    positionAt round-trips (value mid-book, exact edges, clamp both ends);
+    (feature-player, optional) service rolling-seek crossing a passage
+    boundary on-device.
+  - **Acceptance (S22)**: tap library play → card spins + "Generating…" then
+    animates into the docked slot; card persists into the reader; ±30s rolls
+    across passage boundaries; Ch▶/◀ land on next/prev chapter start, even
+    across empty chapters; elapsed/remaining track (÷speed for remaining);
+    speed pill cycles and the label updates live; pause → play resumes at the
+    same offset with its own spin-up "Generating…"; no double-orders, no
+    ring corruption (undo restores the pre-seek passage).
 - **TODAY stats dashboard** — new local per-day read/listen-minutes table + home
   restructure (offline-first holds).
 - **Kindle official-export / Highlights-API sync** — on-demand position import from

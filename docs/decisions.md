@@ -1,5 +1,33 @@
 # Decision log
 
+## 53. App-wide player card: scope + semantics decided, not yet built (2026-08-27)
+
+User-scoped during design discussion (mockup-driven); roadmap entry carries
+the full build detail; tree clean at HEAD `85bc5af`.
+
+- **Scope chosen over the reader-only option**: one shared `PlayerCard`
+  docked at the bottom of BOTH the library and the reader (replaces the
+  reader's transport row); opening a book from the library animates the card
+  from the tapped row into the docked slot (library-first appearance; the
+  slot is identical on both screens, so it persists through navigation).
+- **Loading feedback**: synthesis latency is surfaced as a spinner inside the
+  play button + a "Generating…" subtitle on the card (chosen over an
+  indeterminate bar).
+- **±30s seeks roll across passages**: from the edge, convert the current
+  position to global book-time (chars/15′ speech model), apply the delta,
+  clamp, walk back to `(chapter, passage, offset)` via pure
+  `BookProgress.positionAt`; jumps push the undo ring. Rejected: clamping
+  inside the current passage.
+- **Chapter skip** enters via `BookLayout.nextChapter/previousChapter` (skip
+  empty chapters), tail-collapsed ring push, publisher disabled mid-flight.
+- **Known tooling hazard re-confirmed**: this environment's `edit` `＋`
+  insertions intermittently replace adjacent lines AND, in one blocked
+  attempt, wrote the full-width `＋` marker literally with `+` prefixes —
+  re-verify every insertion and prefer full-line python rewrites for
+  multi-line inserts (this session: restored `android.app.*` imports,
+  `resumeOnGain`/`ducking`, then reverted the aborted core insert via
+  `git restore`).
+
 The rationale behind load-bearing decisions. New decisions get an entry here with date,
 context, alternatives considered, and consequences. Keep entries short — this is a log,
 not a spec (specs live in architecture.md / feature docs).
