@@ -76,9 +76,11 @@ class PlaybackService : Service() {
     @Inject lateinit var pregenCache: PregenCache
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
-    private var machine: PlayerStateMachine? = null
+    /** CR-2 host-test seam: the current machine (set by tests directly). */
+    internal var machine: PlayerStateMachine? = null
     private var book: Book? = null
-    private var output: PassageOutput = AudioTrackPassageOutput()
+    /** CR-2 host-test seam: the passage output (tests inject a fake). */
+    internal var output: PassageOutput = AudioTrackPassageOutput()
     private var playerJob: Job? = null
     private var tickerJob: Job? = null
     private var pregenJob: Job? = null
@@ -98,8 +100,15 @@ class PlaybackService : Service() {
      * queue instead of racing the machine's single-writer state. */
     private val commandLock = kotlinx.coroutines.sync.Mutex()
     private var stopSignal = CompletableDeferred<Unit>()
+    /** The graceful STOP's final machine write (CR-2): onDestroy joins it so
+     * exactly one authoritative stop persists — never a stale teardown write
+     * overwriting the captured playhead. */
+    private var finalStopJob: Job? = null
+    /** Last live-playhead checkpoint (CR-2): monotonic interval gate. */
+    private var lastCheckpointAt = 0L
     private var segments: List<SegmentAnchor> = emptyList()
-    private var baselineOffset = 0.0
+    /** CR-2 host-test seam: the current PCM slice's start offset (book-time). */
+    internal var baselineOffset = 0.0
     private var ringHasEntries = false
     // Media-notification cover art, cached per book (files/covers/<bookId>).
     private var coverArtBookId: String? = null
@@ -425,13 +434,26 @@ class PlaybackService : Service() {
 
     private fun stopPlayer() {
         PlaybackActive.markStopped()
-        stopEverything()
-        scope.launch {
-            machine?.stop(liveOffsetSeconds())
-            PlaybackStateHolder.reset()
-        }
+        captureAndStop()
         ServiceCompat.stopForeground(this, ServiceCompat.STOP_FOREGROUND_REMOVE)
         stopSelf()
+    }
+
+    /**
+     * CR-2: captures the live playhead BEFORE any output teardown and hands
+     * the single authoritative final write to [finalStopJob]. [stopEverything]
+     * releases [output] (zeroing its head), so capturing first is what keeps
+     * STOP from rewinding persistence to the buffer's start offset.
+     * Returns the captured book-time offset.
+     */
+    internal fun captureAndStop(): Double {
+        val finalOffset = liveOffsetSeconds()
+        stopEverything()
+        finalStopJob = scope.launch {
+            machine?.stop(finalOffset)
+            PlaybackStateHolder.reset()
+        }
+        return finalOffset
     }
 
     // ------------------------------------------------------------------
@@ -504,7 +526,7 @@ class PlaybackService : Service() {
             // Pre-generate the passages ahead while this one plays.
             pregenJob?.cancel()
             pregenJob = scope.launch { queue?.ensure(position) }
-            val finished = awaitPlaybackOrStop(sliced.size / 2)
+            val finished = awaitPlaybackOrStop(sliced.size / 2, active)
             android.util.Log.d("PlaybackService", "loop: await returned finished=$finished (pos=${output.positionSamples}/${sliced.size / 2})")
             if (!finished) return
 
@@ -519,15 +541,28 @@ class PlaybackService : Service() {
         }
     }
 
-    private suspend fun awaitPlaybackOrStop(totalFrames: Int): Boolean {
+    private suspend fun awaitPlaybackOrStop(totalFrames: Int, active: PlayerStateMachine): Boolean {
         // Static tracks park the head at the end without a marker callback on
         // some devices; poll the head position (10 ms of margin).
         val target = totalFrames - FRAME_MARGIN
         while (true) {
             if (stopSignal.isCompleted) return false
             if (output.positionSamples >= target) return true
+            // CR-2: throttled live-playhead checkpoint while playing — abrupt
+            // process death loses at most one interval, not a whole passage.
+            // Runs in the player coroutine, so it cannot race the machine's
+            // own passage transitions (single-player-writer edge).
+            if (dueCheckpoint(clock())) active.notePlaybackOffset(liveOffsetSeconds())
             delay(50)
         }
+    }
+
+    /** CR-2 checkpoint gate: true at most every [CHECKPOINT_MS] of wall time
+     * (persistence cadence — never every UI tick). */
+    internal fun dueCheckpoint(nowMs: Long): Boolean {
+        if (nowMs - lastCheckpointAt < CHECKPOINT_MS) return false
+        lastCheckpointAt = nowMs
+        return true
     }
 
     private suspend fun ticker() {
@@ -767,12 +802,35 @@ class PlaybackService : Service() {
 
     override fun onDestroy() {
         PlaybackActive.markStopped()
-        runBlocking { stopEverything(); machine?.stop(liveOffsetSeconds()); PlaybackStateHolder.reset() }
+        runBlocking {
+            // CR-2: exactly one authoritative final write — join a graceful
+            // STOP's write; otherwise write the captured playhead ourselves
+            // (captured before teardown).
+            teardownWrite()
+            stopEverything()
+            PlaybackStateHolder.reset()
+        }
         session.isActive = false
         session.release()
         runCatching { unregisterReceiver(noisyReceiver) }
         scope.cancel()
         super.onDestroy()
+    }
+
+    /**
+     * CR-2: the single final machine write. When a graceful STOP's write is in
+     * flight ([finalStopJob]), joins it — never double-writing with a stale
+     * offset computed from an already-released output. Otherwise captures the
+     * live playhead first and writes it.
+     */
+    internal suspend fun teardownWrite() {
+        val pending = finalStopJob
+        if (pending != null) {
+            pending.join()
+        } else {
+            val finalOffset = liveOffsetSeconds()
+            machine?.stop(finalOffset)
+        }
     }
 
     private fun Intent.bookId(): String? = getStringExtra(EXTRA_BOOK_ID)
@@ -783,6 +841,8 @@ class PlaybackService : Service() {
         private const val CHANNEL_ID = "playback"
         private const val NOTIFICATION_ID = 42
         private const val TICK_MS = 1_000L
+        /** CR-2 live-playhead persistence cadence (roadmap A2). */
+        internal const val CHECKPOINT_MS = 5_000L
         private const val SEEK_STEP_SECONDS = 30.0
         private const val FRAME_MARGIN = 240 // 10 ms at 24 kHz
         private const val DUCK_VOLUME = 0.2f

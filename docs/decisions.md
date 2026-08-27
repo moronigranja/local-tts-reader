@@ -1,4 +1,42 @@
 # Decision log
+## 61. A2 — Live playhead persistence (CR-2) (2026-08-27)
+
+Closed the CR-2 progress-loss: STOP and service teardown rewound the
+persisted resume row to the current PCM slice's start because
+`stopEverything()` releases `PassageOutput` (its head reads 0 after stop)
+before `machine.stop(liveOffsetSeconds())` sampled it; `stopPlayer()` also
+raced `onDestroy()` for the final write, and no checkpoint persisted the
+live intra-passage playhead between transitions (abrupt death lost the whole
+current passage).
+
+- **Capture-before-teardown.** `stopPlayer()` now calls `captureAndStop()`,
+  which computes `liveOffsetSeconds()` FIRST, then tears down output/loops,
+  then performs the single final write (`machine.stop(finalOffset)`) in a
+  tracked `finalStopJob`. `onDestroy()` runs `teardownWrite()`: it joins a
+  graceful stop's in-flight write (never double-writing with a stale
+  post-release offset), or else captures the live playhead itself before
+  tearing down and writes exactly once. The book-time offset is captured
+  verbatim — `positionSamples` is book-time at every speed, no speed math
+  (decisions #52 preserved).
+- **Throttled checkpoint.** While a passage plays, the player coroutine
+  (the machine's single-writer edge — cannot race the machine's own passage
+  transitions) commits the live playhead when `dueCheckpoint(clock())`
+  passes: at most one write per `CHECKPOINT_MS = 5 s`. Abrupt process death
+  therefore loses at most one interval, not a whole passage; the 1 s UI
+  ticker still publishes live offsets but never persists by accident.
+- **Test seams.** `output`, `machine` and `baselineOffset` became `internal`
+  so host tests drive the real service with a fake `PassageOutput` (zeroing
+  its head on stop, mirroring `AudioTrackPassageOutput`) + the real machine
+  over `InMemoryPlayerStore`/a commit-counting wrapper.
+
+Evidence: `PlaybackServiceCr2Test` (4 — STOP persists baseline 10 s + 5 s
+live = 15 s; teardown writes exactly once at the captured playhead;
+teardown joins a graceful stop without a second write; the checkpoint gate
+allows one commit per 5 s). All prior feature-player host tests and the
+instrumented compile stay green. Device stop-mid-passage/kill/reopen and
+abrupt-death acceptance pending on the Bigme B6 / S22 (one session after
+A5+A7).
+
 ## 60. A1 — Pre-generation terminal truth (CR-1) (2026-08-27)
 
 Closed the CR-1 false-success: choosing “Whole book” in the pre-generation
