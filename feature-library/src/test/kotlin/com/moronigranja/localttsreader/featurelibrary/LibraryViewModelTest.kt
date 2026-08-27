@@ -13,6 +13,8 @@ import java.io.ByteArrayInputStream
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
+import kotlinx.coroutines.test.advanceTimeBy
+import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
@@ -63,6 +65,7 @@ class LibraryViewModelTest {
         val vm = viewModel()
 
         vm.import(listOf(source("Novel.epub", epubBook("Novel", "Chapter 1", "Prose here."))))
+        testScheduler.advanceUntilIdle() // F1: the batch parks on its 1 ms file boundary
 
         assertEquals(1, vm.library.value.size)
         assertEquals("Novel", vm.library.value.first().book.title)
@@ -79,7 +82,9 @@ class LibraryViewModelTest {
         val sameBook = source("Novel.epub", epubBook("Novel", "Chapter 1", "Prose here."))
 
         vm.import(listOf(sameBook))
+        testScheduler.advanceUntilIdle() // F1: batch 1 parks on its 1 ms boundary — let it land
         vm.import(listOf(sameBook))
+        testScheduler.advanceUntilIdle() // then batch 2 sees the indexed copy → Unchanged
 
         assertEquals(1, vm.library.value.size)
         assertEquals(
@@ -93,6 +98,7 @@ class LibraryViewModelTest {
         val vm = viewModel()
 
         vm.import(listOf(source("notes.rtf", "{\rtf1 hello}".toByteArray())))
+        testScheduler.advanceUntilIdle() // F1: the batch parks on its 1 ms file boundary
 
         val done = vm.importState.value as ImportUiState.Done
         assertEquals(0, done.summary.added)
@@ -106,6 +112,7 @@ class LibraryViewModelTest {
         val vm = viewModel()
 
         vm.import(listOf(source("broken.epub", "not a zip".toByteArray())))
+        testScheduler.advanceUntilIdle() // F1: the batch parks on its 1 ms file boundary
 
         val done = vm.importState.value as ImportUiState.Done
         assertEquals(0, done.summary.added)
@@ -117,22 +124,31 @@ class LibraryViewModelTest {
 
     @Test
     fun `importAll reports per-file progress and lands on Done`() = runTest(mainDispatcherRule.testDispatcher) {
-        // The exact onProgress callback sequence (1,2) then (2,2) is deterministic
-        // to assert synchronously at the importer level — the same call the ViewModel
-        // makes with its progress wiring:
-        val progress = mutableListOf<Pair<Int, Int>>()
+        // The exact onProgress callback sequence is deterministic to assert
+        // synchronously at the importer level — the same call the ViewModel
+        // makes with its progress wiring. F1 adds a pre-parse event per file.
+        val progress = mutableListOf<Triple<String, Int, Int>>()
         BookImporter(TextIndex()).importAll(
             listOf(
                 source("Novel.epub", epubBook("Novel", "Chapter 1", "Prose here.")),
                 source("book.txt", "nope".toByteArray()),
             ),
-        ) { done, total -> progress += done to total }
-        assertEquals(listOf(1 to 2, 2 to 2), progress)
+        ) { current, done, total -> progress += Triple(current.fileName, done, total) }
+        assertEquals(
+            listOf(
+                Triple("Novel.epub", 0, 2),
+                Triple("Novel.epub", 1, 2),
+                Triple("book.txt", 1, 2),
+                Triple("book.txt", 2, 2),
+            ),
+            progress,
+        )
 
-        // ViewModel wiring: Idle → Importing (last file processed) → Done.
-        // Importing(1,2) specifically is not asserted: StateFlow conflates
-        // intermediate values when the emitter never suspends, so only the last
-        // per-file progress is guaranteed observable — a UI sees the same.
+        // ViewModel wiring: Idle → Importing(0,total) immediately → per-file
+        // Importing → Done. Importing(1,2) specifically is not asserted:
+        // StateFlow conflates intermediate values when the emitter never
+        // suspends, so only the last per-file progress + the F1 start state
+        // are guaranteed observable — a UI sees the same.
         val vm = viewModel()
         val states = mutableListOf<ImportUiState>()
         backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) {
@@ -148,16 +164,49 @@ class LibraryViewModelTest {
         assertEquals(ImportUiState.Idle, states.first(), "states: $states")
         val importings = states.filterIsInstance<ImportUiState.Importing>()
         assertTrue(importings.isNotEmpty(), "expected an Importing state in $states")
-        assertEquals(2, importings.last().total)
-        assertEquals("notes.rtf", importings.last().currentFileName)
+        // F1: the batch reports 0/total before the first file completes.
+        assertEquals(ImportUiState.Importing(0, 2, "Novel.epub"), importings.first(), "states: $states")
+        testScheduler.advanceUntilIdle() // finish the batch (1 ms boundary per file)
+        val finished = states.filterIsInstance<ImportUiState.Importing>()
+        assertTrue(finished.size >= importings.size, "later Importing states may exist: $states")
+        assertEquals(2, finished.last().total)
+        assertEquals("notes.rtf", finished.last().currentFileName)
         assertTrue(
-            states.indexOf(importings.last()) < states.lastIndex,
+            states.indexOf(finished.last()) < states.lastIndex,
             "Importing must precede the final state in $states",
         )
         val done = states.last() as ImportUiState.Done
         assertEquals(1, done.summary.added)
         assertEquals(listOf("notes.rtf" to "format not supported"), done.summary.failed)
     }
+
+    /** F1: cancelling an import settles to Idle (never a partial Done), and a
+     * later import works — completed work stays committed, nothing half-way
+     * is presented as a finished batch. */
+    @Test
+    fun `cancelling an import settles to Idle and a later import still works`() =
+        runTest(mainDispatcherRule.testDispatcher) {
+            val vm = viewModel()
+
+            vm.import(
+                listOf(
+                    source("Novel.epub", epubBook("Novel", "Chapter 1", "Prose here.")),
+                    source("Other.epub", epubBook("Other", "Chapter 1", "Other.")),
+                ),
+            )
+            testScheduler.advanceTimeBy(2) // file 1 parsed; the batch parks on the next boundary
+            vm.cancelImport()
+
+            assertEquals(ImportUiState.Idle, vm.importState.value, "cancel settles to Idle")
+            testScheduler.advanceUntilIdle() // the parked boundary throws: still Idle, never Done
+            assertEquals(ImportUiState.Idle, vm.importState.value, "a cancelled batch never lands Done")
+
+            vm.import(listOf(source("Other.epub", epubBook("Other", "Chapter 1", "Other."))))
+            testScheduler.advanceUntilIdle()
+            val done = vm.importState.value as ImportUiState.Done
+            assertEquals(1, done.summary.added)
+            assertTrue(vm.library.value.any { it.book.title == "Other" }, "a later import is unaffected")
+        }
 
     @Test
     fun `empty source list is a no-op and stays Idle`() = runTest(mainDispatcherRule.testDispatcher) {

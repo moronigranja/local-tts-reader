@@ -203,11 +203,26 @@ fun LibraryScreen(
                     progress = { importing.done / importing.total.toFloat() },
                     modifier = Modifier.fillMaxWidth(),
                 )
-                Text(
-                    text = "Importing ${importing.done}/${importing.total} — ${importing.currentFileName}",
-                    style = MaterialTheme.typography.bodyMedium,
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-                )
+                // F1: in-flight import feedback with clean cancellation — the
+                // batch stops at the next file boundary; committed books stay.
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 4.dp),
+                ) {
+                    Text(
+                        text = "Importing ${importing.done}/${importing.total} — ${importing.currentFileName}",
+                        style = MaterialTheme.typography.bodyMedium,
+                        modifier = Modifier.weight(1f),
+                    )
+                    TextButton(
+                        onClick = {
+                            viewModel.cancelImport()
+                            scope.launch { snackbarHostState.showSnackbar("Import cancelled") }
+                        },
+                    ) { Text("Cancel") }
+                }
             }
 
             if (library.isEmpty()) {

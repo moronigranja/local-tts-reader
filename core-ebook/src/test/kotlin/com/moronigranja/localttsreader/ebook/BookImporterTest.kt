@@ -13,6 +13,12 @@ import java.io.ByteArrayInputStream
 import java.nio.charset.StandardCharsets
 import java.nio.file.Files
 import java.nio.file.Path
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.test.StandardTestDispatcher
+import kotlinx.coroutines.test.advanceTimeBy
+import kotlinx.coroutines.test.runCurrent
+import kotlinx.coroutines.test.runTest
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertInstanceOf
 import org.junit.jupiter.api.Assertions.assertNull
@@ -20,6 +26,7 @@ import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
+@OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
 class BookImporterTest {
 
     // ------------------------------------------------------------------
@@ -141,25 +148,67 @@ class BookImporterTest {
     // ------------------------------------------------------------------
 
     @Test
-    fun `batch import preserves order and reports progress`() {
+    fun `batch import preserves order and reports progress`() = runTest {
         val index = TextIndex()
-        val progress = mutableListOf<Pair<Int, Int>>()
+        val progress = mutableListOf<Triple<String, Int, Int>>()
         val sources = listOf(
             source("One.epub", epubBook("One", "Chapter 1", "First.")),
             source("Two.epub", epubBook("Two", "Chapter 1", "Second.")),
             source("Three.txt", epubBook("Three", "Chapter 1", "Third.")),
         )
 
-        val outcomes = importer(index).importAll(sources, onProgress = { done, total ->
-            progress += done to total
-        })
+        val outcomes = importer(index).importAll(sources) { current, done, total ->
+            progress += Triple(current.fileName, done, total)
+        }
 
         assertEquals(
             listOf(true, true, false),
             outcomes.map { it is ImportOutcome.Added },
         )
-        assertEquals(listOf(1 to 3, 2 to 3, 3 to 3), progress)
+        // F1: a pre-parse event per file — a single large file shows
+        // "Importing 0/1" immediately instead of looking hung.
+        assertEquals(
+            listOf(
+                Triple("One.epub", 0, 3),
+                Triple("One.epub", 1, 3),
+                Triple("Two.epub", 1, 3),
+                Triple("Two.epub", 2, 3),
+                Triple("Three.txt", 2, 3),
+                Triple("Three.txt", 3, 3),
+            ),
+            progress,
+        )
         assertEquals(2, index.bookCount())
+    }
+
+    /** F1: cancelling a batch stops at the next file boundary and never
+     * mutates the index for a file it never started. */
+    @Test
+    fun `cancelling a batch stops at the file boundary and skips later files`() = runTest {
+        val index = TextIndex()
+        val secondBytes = epubBook("Second", "Chapter 1", "Second.")
+        val secondId = Bytes.sha256Hex(secondBytes)
+        var cancelled = false
+        val job = launch(StandardTestDispatcher(testScheduler)) {
+            try {
+                importer(index).importAll(
+                    listOf(
+                        source("One.epub", epubBook("One", "Chapter 1", "First.")),
+                        source("Two.epub", secondBytes),
+                    ),
+                ) { _, _, _ -> }
+            } catch (e: CancellationException) {
+                cancelled = true
+                throw e
+            }
+        }
+        runCurrent() // body starts, parks on the first 1 ms boundary
+        advanceTimeBy(2) // past the boundary: file 1 parsed + indexed; parks again
+        assertEquals(1, index.bookCount(), "file 1 completed before the cancel")
+        job.cancel()
+        advanceTimeBy(2) // the boundary delay throws: the batch stops cleanly
+        assertTrue(cancelled, "importAll propagates the cancellation")
+        assertTrue(!index.contains(secondId), "file 2 must never reach the index")
     }
 
     // ------------------------------------------------------------------

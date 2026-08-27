@@ -2,6 +2,7 @@ package com.moronigranja.localttsreader.ebook
 
 import com.moronigranja.localttsreader.locate.TextIndex
 import com.moronigranja.localttsreader.model.LibraryEntry
+import kotlinx.coroutines.delay
 
 /**
  * The import pipeline's domain core: format detection → parse → segment → index,
@@ -45,15 +46,28 @@ class BookImporter(
         return ImportOutcome.Added(LibraryEntry(segmented, now()), cover)
     }
 
-    /** Batch import with progress reporting; outcomes preserve input order. */
-    fun importAll(
+    /**
+     * Batch import with progress reporting; outcomes preserve input order.
+     *
+     * F1: [onProgress] fires BEFORE each file's parse (done = files already
+     * completed, current = the file about to be read) and AFTER each
+     * completion — so a single large file shows "Importing 0/1 — book.epub"
+     * the moment the batch starts instead of looking hung until the parse
+     * lands. The loop cooperates with cancellation at every file boundary
+     * (a 1 ms [delay] — noise against multi-megabyte parses, but a real
+     * suspension so a cancelled batch stops between files and never mutates
+     * the index for a file it never started).
+     */
+    suspend fun importAll(
         sources: List<EBookSource>,
-        onProgress: (done: Int, total: Int) -> Unit = { _, _ -> },
+        onProgress: (current: EBookSource, done: Int, total: Int) -> Unit = { _, _, _ -> },
     ): List<ImportOutcome> {
         val results = ArrayList<ImportOutcome>(sources.size)
         sources.forEachIndexed { i, source ->
+            delay(1) // cancellation/cooperation boundary between files (F1)
+            onProgress(source, i, sources.size)
             results += import(source)
-            onProgress(i + 1, sources.size)
+            onProgress(source, i + 1, sources.size)
         }
         return results
     }

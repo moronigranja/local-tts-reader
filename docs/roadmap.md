@@ -270,7 +270,7 @@ One cohesive library/import slice rather than separate UI patches.
 
 | ID | Work | Required result |
 |---|---|---|
-| F1 | **Import progress and cancellation** | Large and multi-file imports show current/total progress; cancellation settles cleanly; per-file failures remain isolated and typed. |
+| ~~F1~~ | ~~**Import progress and cancellation**~~ | ~~Large and multi-file imports show current/total progress; cancellation settles cleanly; per-file failures remain isolated and typed.~~ **Complete (2026-08-27, decisions #64):** `BookImporter.importAll` is now suspend with a per-file pre-parse progress event (a single large file shows "Importing 0/1 — …" immediately) and a 1 ms cooperative boundary so a cancelled batch stops between files without mutating the index for untouched files; `LibraryViewModel` publishes `Importing(0,total)` on `import()`, tracks the batch in `importJob`, exposes `cancelImport()` (Idle, never a partial `Done` — guarded by `ensureActive` before the final publish), and the library row/progress bar gains a Cancel control. Per-file failures stay typed via `ImportOutcome.Failed`. Host evidence: `BookImporterTest` (13, incl. pre/post progress sequence + mid-batch cancel skips later files) and `LibraryViewModelTest` (8, incl. start-state `Importing(0,2)`, mid-batch cancel settles Idle, later import unaffected). |
 | F2 | **Library search** | Filter by title and author locally with deterministic empty/no-result states; content identification remains the separate `TextIndex` capability. |
 | F3 | **Folder import via SAF tree — promoted from ideas** | A persisted tree grant feeds supported files through the existing batch importer; recursion policy and a defensive per-batch cap are decided before build. |
 

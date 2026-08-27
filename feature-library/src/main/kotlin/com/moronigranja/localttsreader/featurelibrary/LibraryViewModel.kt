@@ -27,7 +27,11 @@ import com.moronigranja.localttsreader.persistence.ProgressDao
 import com.moronigranja.localttsreader.persistence.ProgressEntity
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -196,25 +200,48 @@ class LibraryViewModel @Inject constructor(
         }
     }
 
+
+    /** The in-flight import batch (F1): a new import supersedes the old one,
+     * and [cancelImport] stops it at the next file boundary. */
+    private var importJob: Job? = null
+
     private val _importState = MutableStateFlow<ImportUiState>(ImportUiState.Idle)
     val importState: StateFlow<ImportUiState> = _importState.asStateFlow()
 
     /** Imports [sources] in order, reporting per-file progress; no-op for an empty list. */
     fun import(sources: List<EBookSource>) {
         if (sources.isEmpty()) return
-        viewModelScope.launch {
-            val summary = withContext(ioDispatcher) {
-                val outcomes = importer.importAll(sources) { done, total ->
-                    _importState.value = ImportUiState.Importing(
-                        done = done,
-                        total = total,
-                        currentFileName = sources[done - 1].fileName,
-                    )
+        importJob?.cancel()
+        // F1: visible progress from the very first file's parse — a large
+        // (or single-file) import must never look hung before its first
+        // completed file.
+        _importState.value = ImportUiState.Importing(
+            done = 0,
+            total = sources.size,
+            currentFileName = sources.first().fileName,
+        )
+        importJob = viewModelScope.launch {
+            try {
+                val outcomes = withContext(ioDispatcher) {
+                    importer.importAll(sources) { current, done, total ->
+                        _importState.value = ImportUiState.Importing(done, total, current.fileName)
+                    }
                 }
-                buildSummary(outcomes)
+                val summary = buildSummary(outcomes)
+                coroutineContext.ensureActive() // a racing cancel must never land Done
+                _importState.value = ImportUiState.Done(summary)
+            } catch (e: CancellationException) {
+                throw e // cancelImport already published Idle; never a partial Done
             }
-            _importState.value = ImportUiState.Done(summary)
         }
+    }
+
+    /** Cancels the in-flight import (F1): the batch stops at the next file
+     * boundary; already-committed books remain (they are fully imported). */
+    fun cancelImport() {
+        importJob?.cancel()
+        importJob = null
+        _importState.value = ImportUiState.Idle
     }
 
     private suspend fun buildSummary(outcomes: List<ImportOutcome>): ImportUiState.Summary {

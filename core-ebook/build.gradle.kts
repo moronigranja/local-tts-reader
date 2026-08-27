@@ -20,7 +20,10 @@ kotlin {
 dependencies {
     api(project(":core-model")) // parsers return Book
     implementation(project(":core-locate")) // BookImporter indexes into TextIndex
+    // F1: importAll cooperates with cancellation at file boundaries (yield/ensureActive).
+    implementation(libs.kotlinx.coroutines.core)
     testImplementation(libs.junit.jupiter)
+    testImplementation(libs.kotlinx.coroutines.test)
     testRuntimeOnly(libs.junit.platform.launcher)
 }
 

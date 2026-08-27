@@ -1,4 +1,37 @@
 # Decision log
+## 64. F1 — Import progress and cancellation (2026-08-27)
+
+Closed the user-reported "import looks hung" defect: `importAll`'s progress
+callback fired only AFTER each file completed, so a single large file showed
+nothing until its parse landed, and nothing could cancel a batch.
+
+- **Pre-parse progress.** `BookImporter.importAll` (now suspend) fires
+  `onProgress(current, done, total)` before each file's parse AND after
+  completion — "Importing 0/1 — book.epub" is visible the moment the batch
+  starts. `LibraryViewModel.import` publishes `Importing(0, total, name)`
+  before launching, so even the first file's parse period is covered.
+- **Clean cancellation.** The batch boundaries are 1 ms cooperative delays —
+  a real suspension (noise against multi-megabyte parses) so a cancelled
+  batch stops between files and never indexes a file it never started.
+  `importJob` tracks the batch; `cancelImport()` cancels and publishes
+  `Idle`; the Done transition is guarded by `coroutineContext.ensureActive()`
+  so a racing cancel can never land a partial `Done` summary (a cancelled
+  non-suspending tail would otherwise run to completion). The library row's
+  import progress gains a Cancel button. Per-file failure isolation stays
+  typed (`ImportOutcome.Failed` + reason mapping).
+- **Contract note (A3 handoff):** a cancelled batch can leave files parsed
+  and INDEXED but not persisted (the ViewModel commits Room rows only in
+  `buildSummary` after the loop). This is exactly the CR-3 divergence the
+  A3 reorder (commit Room in the loop, publish index after) will close.
+
+Evidence: `BookImporterTest` (13 — 6-event progress sequence incl. pre-parse
+events; mid-batch cancel at the file boundary leaves the index untouched for
+later files) and `LibraryViewModelTest` (8 — start state `Importing(0,2)`;
+mid-batch cancel settles Idle and a later import still works; scheduler
+advances replaced eager no-op expectations now that batches park on their
+1 ms boundary). `core-ebook` gained `kotlinx-coroutines-core`/`-test` for
+the suspend contract.
+
 ## 63. A4 — Cross-process PCM LRU bootstrap (CR-4) (2026-08-27)
 
 Closed the CR-4 frozen-cache failure: `PcmPassageCache` built its eviction
