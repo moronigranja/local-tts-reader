@@ -41,7 +41,8 @@ class BookImporter(
 
         val segmented = BookSegmentation.segment(book) // index/segmentation contract (C4)
         index.add(segmented)
-        return ImportOutcome.Added(LibraryEntry(segmented, now()))
+        val cover = parser.coverOf(bytes)
+        return ImportOutcome.Added(LibraryEntry(segmented, now()), cover)
     }
 
     /** Batch import with progress reporting; outcomes preserve input order. */
@@ -60,7 +61,7 @@ class BookImporter(
 
 /** One import's verdict. The index is only ever mutated on [ImportOutcome.Added]. */
 sealed interface ImportOutcome {
-    data class Added(val entry: LibraryEntry) : ImportOutcome
+    data class Added(val entry: LibraryEntry, val coverBytes: ByteArray? = null) : ImportOutcome
     data class Unchanged(val bookId: String) : ImportOutcome
     data class Failed(val fileName: String, val reason: ImportFailureReason) : ImportOutcome
 }

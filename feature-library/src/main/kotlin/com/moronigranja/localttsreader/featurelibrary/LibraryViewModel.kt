@@ -11,6 +11,9 @@ import com.moronigranja.localttsreader.ebook.ImportFailureReason
 import com.moronigranja.localttsreader.ebook.ImportOutcome
 import com.moronigranja.localttsreader.featureplayer.playback.PregenManager
 import com.moronigranja.localttsreader.featureplayer.playback.PregenStorage
+import com.moronigranja.localttsreader.featurelibrary.CoverStore
+import android.content.Context
+import dagger.hilt.android.qualifiers.ApplicationContext
 import com.moronigranja.localttsreader.model.LibraryEntry
 import com.moronigranja.localttsreader.model.LibraryStore
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -21,6 +24,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.io.File
 
 /**
  * Drives the import flow: batches [EBookSource]s through the domain [BookImporter]
@@ -40,7 +44,15 @@ class LibraryViewModel @Inject constructor(
     // Default null: pure-JVM unit tests skip pre-generation (Hilt always supplies it).
     private val pregenManager: PregenManager? = null,
     private val storage: PregenStorage? = null,
+    @ApplicationContext private val context: Context? = null,
 ) : ViewModel() {
+    /** Books the user has covers for (extracted at import; sidecar files). */
+    fun cover(bookId: String): ByteArray? = context?.let { CoverStore(File(it.filesDir, "covers")).load(bookId) }
+
+    /** Dismisses the finished-batch summary; the snackbar/dialog must not re-show on revisit. */
+    fun consumeImportResult() {
+        _importState.value = ImportUiState.Idle
+    }
     /** Starts a manual offline pre-generation run for one book (#42). */
     fun pregenerate(bookId: String) = pregenManager?.pregenerate(bookId)
 
@@ -111,6 +123,9 @@ class LibraryViewModel @Inject constructor(
                 is ImportOutcome.Added -> {
                     added += 1
                     repository.add(outcome.entry)
+                    outcome.coverBytes?.let { cover ->
+                        context?.let { CoverStore(File(it.filesDir, "covers")).save(outcome.entry.book.id, cover) }
+                    }
                 }
                 is ImportOutcome.Unchanged -> unchanged += 1
                 is ImportOutcome.Failed -> failed += outcome.fileName to reasonMessage(outcome.reason)

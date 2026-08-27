@@ -2,6 +2,7 @@ package com.moronigranja.localttsreader.featureplayer.ui
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -18,6 +19,24 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.material3.Icon
+import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.SkipNext
+import androidx.compose.material.icons.filled.SkipPrevious
+import androidx.compose.material.icons.automirrored.filled.Undo
+import androidx.compose.material.icons.filled.Bookmark
+import androidx.compose.material.icons.filled.Pause
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.foundation.layout.size
+import androidx.compose.ui.Alignment
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -52,6 +71,13 @@ fun ReaderScreen(
     viewModel: ReaderViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsState()
+    val scrollState = rememberScrollState()
+    var chapterMenu by remember { mutableStateOf(false) }
+
+    // A passage change (auto-advance or skip) resets the view to the new page.
+    LaunchedEffect(state.chapterIndex, state.passageIndex) {
+        scrollState.scrollTo(0)
+    }
 
     // S3: an explicit target passage (share "Listen here") starts playback
     // there; otherwise normal resume/start.
@@ -70,14 +96,35 @@ fun ReaderScreen(
             TopAppBar(
                 title = { Text(state.bookTitle.ifEmpty { "Reader" }) },
                 navigationIcon = {
-                    TextButton(onClick = onClose) { Text("Back") }
+                    IconButton(onClick = onClose) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                    }
                 },
                 actions = {
+                    Box {
+                        TextButton(
+                            onClick = { chapterMenu = true },
+                            enabled = state.bookId != null && state.chapters.isNotEmpty(),
+                        ) {
+                            Text("Ch ${state.chapterIndex + 1}/${state.chapters.size}")
+                        }
+                        DropdownMenu(expanded = chapterMenu, onDismissRequest = { chapterMenu = false }) {
+                            state.chapters.forEachIndexed { index, title ->
+                                DropdownMenuItem(
+                                    text = { Text("${index + 1}. $title") },
+                                    onClick = {
+                                        chapterMenu = false
+                                        viewModel.playPosition(bookId, index, 0)
+                                    },
+                                )
+                            }
+                        }
+                    }
                     IconButton(onClick = { viewModel.bookmark() }, enabled = state.positioned) {
-                        Text("Bookmark", fontSize = 11.sp)
+                        Icon(Icons.Filled.Bookmark, contentDescription = "Bookmark")
                     }
                     IconButton(onClick = { viewModel.undo() }, enabled = state.canUndo) {
-                        Text("Undo", fontSize = 11.sp)
+                        Icon(Icons.AutoMirrored.Filled.Undo, contentDescription = "Undo")
                     }
                     TextButton(onClick = { viewModel.cycleSleep() }) { Text(state.sleepLabel, fontSize = 12.sp) }
                 },
@@ -92,7 +139,7 @@ fun ReaderScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
-                .verticalScroll(rememberScrollState())
+                .verticalScroll(scrollState)
                 .padding(horizontal = 20.dp, vertical = 12.dp),
         ) {
             state.failure?.let {
@@ -134,22 +181,56 @@ private val PlaybackUiState.sleepLabel: String
 @Composable
 private fun DockedControls(state: PlaybackUiState, viewModel: ReaderViewModel) {
     val playing = state.phase == PlayerPhase.PLAYING || state.phase == PlayerPhase.LOADING
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 12.dp, vertical = 8.dp),
-        horizontalArrangement = Arrangement.SpaceEvenly,
-    ) {
-        Button(onClick = { viewModel.skipBackward() }, enabled = state.positioned) { Text("Prev") }
-        Button(
-            onClick = { if (playing) viewModel.pause() else viewModel.resume() },
-            enabled = state.bookId != null,
-        ) {
-            Text(if (playing) "Pause" else "Play")
+    Column(modifier = Modifier.fillMaxWidth()) {
+        if (state.passageDurationSeconds > 0.0) {
+            val progress = (state.offsetSeconds / state.passageDurationSeconds).coerceIn(0.0, 1.0).toFloat()
+            LinearProgressIndicator(
+                progress = { progress },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 12.dp),
+            )
         }
-        Button(onClick = { viewModel.skipForward() }, enabled = state.positioned) { Text("Next") }
-        OutlinedButton(onClick = { viewModel.cycleSpeed() }, enabled = state.positioned) {
-            Text("${"%.2g".format(state.speed)}×")
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 12.dp, vertical = 8.dp),
+            horizontalArrangement = Arrangement.SpaceEvenly,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            TransportButton(
+                icon = Icons.Filled.SkipPrevious,
+                label = "Prev",
+                enabled = state.positioned,
+            ) { viewModel.skipBackward() }
+            TransportButton(
+                icon = if (playing) Icons.Filled.Pause else Icons.Filled.PlayArrow,
+                label = if (playing) "Pause" else "Play",
+                enabled = state.bookId != null,
+            ) { if (playing) viewModel.pause() else viewModel.resume() }
+            TransportButton(
+                icon = Icons.Filled.SkipNext,
+                label = "Next",
+                enabled = state.positioned,
+            ) { viewModel.skipForward() }
+            OutlinedButton(onClick = { viewModel.cycleSpeed() }, enabled = state.positioned) {
+                Text("${"%.2g".format(state.speed)}×")
+            }
+        }
+    }
+}
+
+@Composable
+private fun TransportButton(
+    icon: ImageVector,
+    label: String,
+    enabled: Boolean,
+    onClick: () -> Unit,
+) {
+    IconButton(onClick = onClick, enabled = enabled) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Icon(icon, contentDescription = label, modifier = Modifier.size(28.dp))
+            Text(label, style = MaterialTheme.typography.labelSmall)
         }
     }
 }

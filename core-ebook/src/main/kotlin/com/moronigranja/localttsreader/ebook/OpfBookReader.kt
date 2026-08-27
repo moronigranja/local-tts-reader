@@ -65,6 +65,30 @@ private val FULL_PATH_RE = Regex("""full-path\s*=\s*["']([^"']+)["']""")
             chapters = chapters,
         )
     }
+    /**
+     * Standard EPUB cover artwork: EPUB2 `<meta name="cover" content="…"/>`
+     * (resolving the manifest item), else EPUB3 `properties="cover-image"`.
+     * Null when absent or not an image item — never a parse failure.
+     */
+    internal fun coverImage(entries: Map<String, ByteArray>, opfPath: String): ByteArray? {
+        val opfBytes = entries.lookup(opfPath) ?: return null
+        val doc = runCatching { parseXml(opfBytes, "content.opf") }.getOrNull() ?: return null
+        val opfDir = opfPath.substringBeforeLast('/', "")
+        var declaredId: String? = null
+        for (meta in doc.elementsByLocalName("meta")) {
+            if (meta.getAttribute("name").equals("cover", ignoreCase = true)) {
+                declaredId = meta.getAttribute("content").ifBlank { null }
+            }
+        }
+        for (item in doc.elementsByLocalName("item")) {
+            val id = item.getAttribute("id")
+            val isCover = declaredId?.let { it == id } == true || item.attributeTokens("properties").contains("cover-image")
+            if (!isCover || !item.getAttribute("media-type").startsWith("image/")) continue
+            val href = item.getAttribute("href").ifBlank { continue }
+            return entries.lookup(resolvePath(opfDir, href))
+        }
+        return null
+    }
 
     // ------------------------------------------------------------------
     // OPF

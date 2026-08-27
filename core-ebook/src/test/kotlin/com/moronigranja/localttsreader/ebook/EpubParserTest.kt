@@ -6,6 +6,7 @@ import com.moronigranja.localttsreader.ebook.EpubFixture.navDoc
 import com.moronigranja.localttsreader.ebook.EpubFixture.ncx
 import com.moronigranja.localttsreader.ebook.EpubFixture.opf
 import com.moronigranja.localttsreader.ebook.EpubFixture.zip
+import com.moronigranja.localttsreader.ebook.EpubFixture.zipBytes
 import java.io.ByteArrayInputStream
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
@@ -209,6 +210,51 @@ class EpubParserTest {
             listOf("First \u00A0 paragraph", "Second paragraph"),
             book.chapters[0].passages.map { it.text },
         )
+    }
+    // ------------------------------------------------------------------
+    // Covers (library polish, 2026-08-27)
+    // ------------------------------------------------------------------
+
+    @Test
+    fun `epub2 meta cover is extracted`() {
+        val cover = byteArrayOf(0x89.toByte(), 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 7, 8, 9)
+        val epub = zipBytes(
+            "META-INF/container.xml" to CONTAINER.toByteArray(),
+            "OEBPS/content.opf" to opf(
+                title = "X",
+                spine = listOf("c1" to "chap1.xhtml"),
+                coverItem = "cover-id" to "cover.jpg",
+            ).toByteArray(),
+            "OEBPS/chap1.xhtml" to chapterHtml(null, listOf("Hello.")).toByteArray(),
+            "OEBPS/cover.jpg" to cover,
+        )
+        assertEquals(cover.toList(), EpubParser.coverOf(epub)?.toList())
+    }
+
+    @Test
+    fun `epub3 cover-image property is extracted`() {
+        val cover = byteArrayOf(0x89.toByte(), 0x50, 0x4E, 0x47, 1, 2, 3, 4)
+        val epub = zipBytes(
+            "META-INF/container.xml" to CONTAINER.toByteArray(),
+            "OEBPS/content.opf" to opf(
+                title = "X",
+                spine = listOf("c1" to "chap1.xhtml"),
+                epub3CoverHref = "cover.jpg",
+            ).toByteArray(),
+            "OEBPS/chap1.xhtml" to chapterHtml(null, listOf("Hello.")).toByteArray(),
+            "OEBPS/cover.jpg" to cover,
+        )
+        assertEquals(cover.toList(), EpubParser.coverOf(epub)?.toList())
+    }
+
+    @Test
+    fun `no cover yields null without throwing`() {
+        val epub = zip(
+            "META-INF/container.xml" to CONTAINER,
+            "OEBPS/content.opf" to opf(title = "X", spine = listOf("c1" to "chap1.xhtml")),
+            "OEBPS/chap1.xhtml" to chapterHtml(null, listOf("Hello.")),
+        )
+        assertNull(EpubParser.coverOf(epub))
     }
 
     @Test

@@ -227,7 +227,7 @@ Idea-pool graduates, deliberately outside v1's critical path (T4/T5/S/V):
 
 - **Offline chapter pre-generation — SHIPPED (2026-08-26, decisions #42)**: [OfflinePregen]
   planner (skip-cached resume, budget + saturation stops), disk tier in the play path,
-  `PregenWorker` (manual 60-min run + 24h charging-gated overnight, 3h wall budget,
+  `PregenWorker` (manual unbounded run — ends when cached/saturated — + 24h charging-gated overnight, 3h wall budget,
   foreground with progress, yields to playback), library-row action + app-start
   overnight scheduling. The CosyVoice3 fallback viability lever stays intact (the
   overnight budget sizing matches its RTF). **S22 device pass DONE (2026-08-26)**:

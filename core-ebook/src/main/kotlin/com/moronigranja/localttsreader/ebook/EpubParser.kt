@@ -22,4 +22,10 @@ object EpubParser : EBookParser {
         val opfPath = OpfBookReader.findOpfPath(entries)
         return OpfBookReader.parseBook(Bytes.sha256Hex(bytes), entries, opfPath, fallbackTitle)
     }
+    /** Cover image bytes, or null when the container has no standard cover. */
+    override fun coverOf(bytes: ByteArray): ByteArray? {
+        val entries = ZipEntries.readAll(bytes)
+        val opfPath = runCatching { OpfBookReader.findOpfPath(entries) }.getOrNull() ?: return null
+        return OpfBookReader.coverImage(entries, opfPath)
+    }
 }

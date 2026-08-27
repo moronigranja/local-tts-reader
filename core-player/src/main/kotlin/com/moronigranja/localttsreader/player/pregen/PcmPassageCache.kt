@@ -135,7 +135,11 @@ class PcmPassageCache(
     }
 
     companion object {
-        /** 256 MiB of PCM ≈ a few hours of listening; a tuning knob. */
-        const val DEFAULT_MAX_BYTES = 256L * 1024 * 1024
+        /**
+         * 4 GiB of PCM — whole books fit (an hour ≈ 170 MB at 24 kHz 16-bit);
+         * LRU still bounds growth past the cap, and the device has the space
+         * (decision #42 follow-up).
+         */
+        const val DEFAULT_MAX_BYTES = 4L * 1024 * 1024 * 1024
     }
 }

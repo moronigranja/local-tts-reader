@@ -791,7 +791,9 @@ the #35 disk tier, plus its playback wiring:
   it (async IO put), so normal use fills the offline cache for free. Saved
   audio is the full pre-slice passage (speed-keyed like the queue: #35).
 - **`PregenWorker`** (`@HiltWorker`, foreground dataSync with a progress
-  notification): manual mode = one book, 60-min wall budget, unique-name KEEP
+  notification): manual mode = one book — wall budget **unbounded from
+  2026-08-27** (whole-book runs; ends when cached, saturated, or cancelled) —
+  unique-name KEEP
   (a second tap is a no-op); overnight mode = 24h periodic, charging +
   battery-not-low, 3h wall budget, yields to an active playback session
   ([`PlaybackActive`]) and to WorkManager cancellation. Voice from settings,
@@ -905,3 +907,69 @@ delete (`formatBytes` shared from feature-player). New tests: estimator math
 (cached-exact vs formula, speed scaling, custom rates), `sizeOf`,
 `usageByBook`. Host suite green; Docker lane green; visual verification on
 the S22 pending reconnect (the rows are thin state + the tested core).
+
+**#42 follow-up (2026-08-27, whole-book storage):** the disk-tier byte cap
+was 256 MiB and the manual run 60 min — both too small to persist a whole
+large book (a real ~5.3k-passage book needs ≈0.9 GiB ≈ 4.4 h at the measured
+~20 passages/min). `PcmPassageCache.DEFAULT_MAX_BYTES` raised to 4 GiB
+(≈24 h of audio; LRU still bounds growth; the S22 has 544 GB free) and
+`MANUAL_BUDGET` is now unbounded time — a tap runs until the book is fully
+cached, the tier saturates, or the job is cancelled. Overnight stays 3 h.
+## 46. Opus storage spike — host profile + S22 MediaCodec finding (2026-08-27)
+Host (`tools/opus_drift_spike.py`, libopus via ffmpeg, real Kokoro passages):
+24 kbps 24 kHz mono round-trip is duration-exact (0.0 ms drift), worst
+sentence-boundary residual +20 ms = one Opus frame — inside the engine's own
+anchor jitter (31–37 ms) and the 250–670 ms sentence pauses. Storage ~11 MB/h
+vs 170 MB/h PCM (15–16×). Anchors are seconds-based in the `.meta` sidecar, so
+a 48 kHz decode would only need a ×2 sample map.
+
+Device (S22 SM-S908U1, BP2A.250605.031.A3): the MediaCodec opus DECODER is
+broken at the native level — every stream (device-encoded and canonical host
+libopus) and every decoder (`c2.android.opus.decoder`, `OMX.google.opus.decoder`;
+sync and async API) errors; the async path SIGSEGVs inside the codec's memcpy.
+The encoder (`c2.android.opus.encoder`, 24 kHz native) emits size-plausible
+payloads with a non-standard 83-byte csd-0 (OpusHead + 64 trailing bytes).
+Consequence: on-device Opus via MediaCodec is not a dependency; an Opus cache
+would need a bundled libopus (native seam) or stay PCM. The host drift numbers
+stand as the codec truth; `OpusDriftInstrumentedTest` pins the encoder behavior
+and stages evidence files (`files/opusdrift/{input.pcm,device.opus}`).
+
+## 47. Download hardening: INTERNET permission + typed network failure (2026-08-27)
+Two bugs made the settings pack download crash the app on-device:
+
+- **Missing `android.permission.INTERNET`**: the app manifest never declared it,
+  so every HTTP call failed at DNS with an unchecked `GaiException` (EPERM)
+  that escaped the download coroutine and killed the process. Added to the app
+  manifest (decision #7's explicit-download path is the app's only network use).
+- **Unchecked runtime failures in `AndroidHttpTransport.open`**: DNS/resolve
+  failures are not `IOException` on this Android — the transport now maps any
+  non-IO, non-cancellation exception to a typed `IOException` so
+  `PackDownloader` surfaces `IoError`, and the settings row shows
+  `failed: network error: …` with Retry instead of crashing.
+Verified on-device: offline Download no longer crashes (typed failure + Retry);
+with network, the voices pack (28 MB) and the Kokoro model (310 MB) both
+downloaded and staged ("ready") through the UI.
+
+## 48. UI polish batch (2026-08-27, user review)
+- **Library covers**: `EpubParser.coverOf` extracts the standard EPUB2/3 cover
+  (content-hash book id → `files/covers/<bookId>` sidecar, written at import;
+  no schema change) and the library row shows a 56×80 thumbnail with a
+  title-initial fallback. TXT/MD/MOBI have no covers (placeholder).
+- **Overflow menu**: the library row's Pre-generate (with space estimate) and
+  Delete-offline-audio moved into a ⋮ `DropdownMenu`; progress stays inline.
+- **Reader**: docked transport is icons + labels (prev/play-pause/next, speed
+  cycle kept as text); Back/Bookmark/Undo are icons; a chapter selector
+  (`Ch n/N` dropdown from `book.chapters`) jumps with `playPosition(ch, 0)`; a
+  passage progress bar renders `offsetSeconds / passageDurationSeconds`
+  (duration published from the last segment anchor); the view scrolls to the
+  top on passage change (auto-advance already existed in the service loop).
+- **Settings**: OCR languages moved to a sub-screen (back-navigating pane);
+  the root row shows a chevron entry. Material icons extended added to
+  feature-player for SkipNext/SkipPrevious/Bookmark/Pause/PlayArrow.
+- **Import result consume-once**: `LibraryViewModel.consumeImportResult()`
+  resets the batch summary after the snackbar/dialog, so revisiting the
+  library no longer re-shows "Added N · Unchanged M".
+Verified visually on the S22 (cover, overflow, reader chrome, settings panes)
+plus the JVM suites (core-ebook cover tests; feature-library). Playback
+progress/auto-advance require a book + packs on device; the service advance
+path is covered by `PregenE2eTest` (decisions #45).

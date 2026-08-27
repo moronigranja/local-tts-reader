@@ -2,6 +2,11 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
 
+    <!-- V1 settings download path (decision #7: explicit, user-consented
+         pack downloads) — without this every HTTP request fails with EPERM
+         and the DNS layer throws unchecked (crash, observed 2026-08-27). -->
+    <uses-permission android:name="android.permission.INTERNET" />
+
     <application
         android:name=".LocalTtsReaderApp"
         android:icon="@mipmap/ic_launcher"

@@ -8,6 +8,7 @@ import java.net.HttpURLConnection
 import java.net.URL
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.CancellationException
 
 /**
  * The on-device download transport (V1): the Android adapter behind
@@ -22,12 +23,12 @@ import kotlinx.coroutines.withContext
 class AndroidHttpTransport : DownloadTransport {
 
     override suspend fun open(url: String, rangeFrom: Long?): OpenResult = withContext(Dispatchers.IO) {
-        val connection = URL(url).openConnection() as HttpURLConnection
-        connection.connectTimeout = CONNECT_TIMEOUT_MS
-        connection.readTimeout = READ_TIMEOUT_MS
-        connection.setRequestProperty("User-Agent", USER_AGENT)
-        if (rangeFrom != null) connection.setRequestProperty("Range", "bytes=$rangeFrom-")
         try {
+            val connection = URL(url).openConnection() as HttpURLConnection
+            connection.connectTimeout = CONNECT_TIMEOUT_MS
+            connection.readTimeout = READ_TIMEOUT_MS
+            connection.setRequestProperty("User-Agent", USER_AGENT)
+            if (rangeFrom != null) connection.setRequestProperty("Range", "bytes=$rangeFrom-")
             val status = connection.responseCode
             if (status in 200..299) {
                 OpenResult.Body(
@@ -43,6 +44,15 @@ class AndroidHttpTransport : DownloadTransport {
             }
         } catch (e: IOException) {
             throw e
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            // Android surfaces DNS failures as an unchecked GaiException (e.g.
+            // airplane mode — getaddrinfo EPERM/EAI_NODATA). The downloader's
+            // contract is typed failures via IOException; anything else would
+            // escape the download coroutine and crash the process (observed
+            // 2026-08-27 on the S22 while offline).
+            throw IOException("network error: ${e.message ?: e.javaClass.simpleName}", e)
         }
     }
 

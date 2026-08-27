@@ -11,10 +11,24 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.AlertDialog
+import androidx.compose.foundation.background
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.draw.clip
+import androidx.compose.foundation.Image
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.ImageBitmap
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material3.ExperimentalMaterial3Api
+import android.graphics.BitmapFactory
 import androidx.compose.material3.Card
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -99,6 +113,7 @@ fun LibraryScreen(
                     "Added ${doneState.summary.added} · Unchanged ${doneState.summary.unchanged}",
                 )
             }
+            viewModel.consumeImportResult()
         }
     }
 
@@ -220,40 +235,64 @@ private fun BookRow(
         if (settled != null) viewModel.refreshOffline()
     }
 
+    val cover = rememberCoverBitmap(viewModel, bookId)
+    var menuOpen by remember { mutableStateOf(false) }
+
     Card(
         modifier = Modifier
             .fillMaxWidth()
             .clickable { onOpenBook(bookId) },
     ) {
-        Column(
+        Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(16.dp),
+                .padding(12.dp),
+            verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text(
-                text = title,
-                style = MaterialTheme.typography.titleMedium,
-            )
-            if (authors.isNotEmpty()) {
-                Text(
-                    text = authors.joinToString(", "),
-                    style = MaterialTheme.typography.bodyMedium,
-                )
-            }
-            Row(
+            Box(
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(top = 8.dp),
-                horizontalArrangement = Arrangement.End,
-                verticalAlignment = Alignment.CenterVertically,
+                    .size(width = 56.dp, height = 80.dp)
+                    .clip(RoundedCornerShape(4.dp))
+                    .background(MaterialTheme.colorScheme.surfaceVariant),
+                contentAlignment = Alignment.Center,
             ) {
+                if (cover != null) {
+                    Image(
+                        bitmap = cover,
+                        contentDescription = null,
+                        modifier = Modifier.fillMaxSize(),
+                        contentScale = ContentScale.Crop,
+                    )
+                } else {
+                    Text(
+                        title.take(1).uppercase(),
+                        style = MaterialTheme.typography.headlineMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .padding(start = 12.dp),
+            ) {
+                Text(
+                    text = title,
+                    style = MaterialTheme.typography.titleMedium,
+                )
+                if (authors.isNotEmpty()) {
+                    Text(
+                        text = authors.joinToString(", "),
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                }
                 when {
                     running -> {
                         LinearProgressIndicator(
                             progress = { percent / 100f },
                             modifier = Modifier
-                                .weight(1f)
-                                .padding(end = 12.dp),
+                                .fillMaxWidth()
+                                .padding(top = 8.dp),
                         )
                         Text("$percent%", style = MaterialTheme.typography.labelSmall)
                     }
@@ -262,23 +301,55 @@ private fun BookRow(
                             Text(
                                 "${formatBytes(usage)} offline",
                                 style = MaterialTheme.typography.labelSmall,
-                                modifier = Modifier.weight(1f),
+                                modifier = Modifier.padding(top = 4.dp),
                             )
-                            TextButton(onClick = { viewModel.deleteOffline(bookId) }) {
-                                Text("Delete")
-                            }
                         }
-                        TextButton(onClick = { viewModel.pregenerate(bookId) }) {
+                    }
+                }
+            }
+            Box {
+                IconButton(onClick = { menuOpen = true }) {
+                    Icon(Icons.Filled.MoreVert, contentDescription = "Book actions")
+                }
+                DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                    DropdownMenuItem(
+                        text = {
                             Text(
                                 buildString {
                                     append(if (ready) "Pre-gen again" else "Pre-generate")
                                     if (estimate > 0L) append(" (≈${formatBytes(estimate)})")
                                 },
                             )
-                        }
-                    }
+                        },
+                        onClick = {
+                            menuOpen = false
+                            viewModel.pregenerate(bookId)
+                        },
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Delete offline audio") },
+                        enabled = usage > 0L,
+                        onClick = {
+                            menuOpen = false
+                            viewModel.deleteOffline(bookId)
+                        },
+                    )
                 }
             }
         }
     }
+}
+
+/** Decodes the book's extracted cover off the main thread; null while loading or absent. */
+@Composable
+private fun rememberCoverBitmap(viewModel: LibraryViewModel, bookId: String): ImageBitmap? {
+    var bitmap by remember { mutableStateOf<ImageBitmap?>(null) }
+    LaunchedEffect(bookId) {
+        bitmap = withContext(Dispatchers.IO) {
+            viewModel.cover(bookId)?.let { bytes ->
+                BitmapFactory.decodeByteArray(bytes, 0, bytes.size)?.asImageBitmap()
+            }
+        }
+    }
+    return bitmap
 }

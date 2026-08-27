@@ -23,10 +23,14 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
@@ -42,6 +46,8 @@ import androidx.compose.runtime.getValue
  * share match threshold, OCR languages, theme. Every row maps directly to a
  * [SettingsViewModel] call — no logic in the view.
  */
+private enum class SettingsPane { Root, OcrLanguages }
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SettingsScreen(
@@ -50,18 +56,22 @@ fun SettingsScreen(
 ) {
     val state by viewModel.state.collectAsState()
     val offlineRows by viewModel.offlineRows.collectAsState()
+    var pane by remember { mutableStateOf(SettingsPane.Root) }
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Settings") },
+                title = { Text(if (pane == SettingsPane.OcrLanguages) "OCR languages" else "Settings") },
                 navigationIcon = {
-                    IconButton(onClick = onBack) {
+                    IconButton(onClick = {
+                        if (pane == SettingsPane.OcrLanguages) pane = SettingsPane.Root else onBack()
+                    }) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
                     }
                 },
             )
         },
     ) { padding ->
+        if (pane == SettingsPane.Root) {
         LazyColumn(
             modifier = Modifier.fillMaxSize().padding(padding),
             contentPadding = androidx.compose.foundation.layout.PaddingValues(16.dp),
@@ -116,15 +126,21 @@ fun SettingsScreen(
                 }
             }
 
-            item { SectionHeader("OCR languages") }
-            items(state.packs.filter { it.packId in OCR_PACK_IDS }) { row ->
-                PackRow(row, onDownload = { viewModel.download(row.packId) })
-                OcrLanguageRow(
-                    packId = row.packId,
-                    enabled = row.staged,
-                    selected = row.packId in state.ocrLanguages,
-                    onToggle = { viewModel.setOcrLanguage(row.packId, it) },
-                )
+            item {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { pane = SettingsPane.OcrLanguages }
+                        .padding(vertical = 8.dp),
+                ) {
+                    Text(
+                        "OCR languages",
+                        style = MaterialTheme.typography.bodyLarge,
+                        modifier = Modifier.weight(1f),
+                    )
+                    Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = null)
+                }
             }
 
             item { SectionHeader("Offline audio") }
@@ -175,6 +191,29 @@ fun SettingsScreen(
                             })
                         }
                     }
+                }
+            }
+        }
+        } else {
+            LazyColumn(
+                modifier = Modifier.fillMaxSize().padding(padding),
+            ) {
+                item { SectionHeader("OCR languages") }
+                items(state.packs.filter { it.packId in OCR_PACK_IDS }) { row ->
+                    PackRow(row, onDownload = { viewModel.download(row.packId) })
+                    OcrLanguageRow(
+                        packId = row.packId,
+                        enabled = row.staged,
+                        selected = row.packId in state.ocrLanguages,
+                        onToggle = { viewModel.setOcrLanguage(row.packId, it) },
+                    )
+                }
+                item {
+                    Text(
+                        "Selected languages are used for shared-image snippets; the bundle installs once.",
+                        style = MaterialTheme.typography.bodySmall,
+                        modifier = Modifier.padding(vertical = 4.dp),
+                    )
                 }
             }
         }

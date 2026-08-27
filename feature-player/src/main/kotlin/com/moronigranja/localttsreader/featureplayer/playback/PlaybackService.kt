@@ -381,6 +381,8 @@ class PlaybackService : Service() {
                 chapterIndex = position?.chapterIndex ?: 0,
                 passageIndex = position?.passageIndex ?: 0,
                 passageText = position?.let { p -> book?.passageText(p.chapterIndex, p.passageIndex) } ?: "",
+                passageDurationSeconds = segments.lastOrNull()?.endSeconds ?: 0.0,
+                chapters = book?.chapters?.map { it.title.orEmpty() } ?: emptyList(),
                 segments = segments,
                 offsetSeconds = liveOffsetSeconds(),
                 speed = state.speed,

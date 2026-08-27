@@ -25,4 +25,6 @@ data class EBookSource(
  */
 interface EBookParser {
     fun parse(source: EBookSource): Book
+    /** Cover artwork bytes (EPUB cover image); null when the format/container has none. */
+    fun coverOf(bytes: ByteArray): ByteArray? = null
 }

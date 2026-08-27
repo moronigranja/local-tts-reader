@@ -27,8 +27,8 @@ import dagger.assisted.AssistedInject
  * shared [PregenCache], so the work is pure scheduling over a tested cache.
  *
  * Modes (input `KEY_MODE`):
- * - `MODE_MANUAL` — one book (`KEY_BOOK_IDS`), generous time budget, runs
- *   immediately (library row action).
+ * - `MODE_MANUAL` — one book (`KEY_BOOK_IDS`), unbounded time: the run ends
+ *   when the book is fully cached, the tier saturates, or the user cancels.
  * - `MODE_OVERNIGHT` — every book, charging-gated periodic job; yields to an
  *   active playback session ([PlaybackActive]) and keeps a 3h wall budget
  *   per night; re-runs resume from whatever the cache already holds.
@@ -177,10 +177,12 @@ class PregenWorker @AssistedInject constructor(
         const val OVERNIGHT_NAME = "offline-pregen-overnight"
         const val NOTIFICATION_ID = 43
         private const val CHANNEL_ID = "pregen"
-
-        /** Manual: a user tap should visibly finish a whole book when it fits. */
-        val MANUAL_BUDGET = PregenBudget(maxTimeMs = 60L * 60 * 1_000)
-
+        /**
+         * Manual: unbounded — a tap runs until the whole book is cached, the
+         * tier saturates at its byte cap, or the user cancels (decisions #42
+         * follow-up: whole-book storage).
+         */
+        val MANUAL_BUDGET = PregenBudget()
         /** Overnight: the charger window is finite; the cache resumes next night. */
         val OVERNIGHT_BUDGET = PregenBudget(maxTimeMs = 3L * 60 * 60 * 1_000)
 
