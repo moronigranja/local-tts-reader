@@ -127,6 +127,16 @@ class BookSegmentationTest {
         assertEquals(0, result.chapters[0].index)
     }
 
+    @Test
+    fun `passages with no letters are stripped`() {
+        val source = book(
+            "T",
+            chapter("Chapter 1", "* * *", "···", "Real prose."),
+        )
+        val result = BookSegmentation.segment(source)
+        assertEquals(listOf("Real prose."), result.chapters[0].passages.map { it.text })
+    }
+
     // ------------------------------------------------------------------
     // Long-passage splitting (the grain)
     // ------------------------------------------------------------------

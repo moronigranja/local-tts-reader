@@ -21,6 +21,9 @@ import com.moronigranja.localttsreader.model.TextPassage
  *   of any length is removed (books list the TOC at any spine depth), while a novel
  *   whose *middle* chapter is literally called "Index" is untouched. If stripping
  *   would remove the whole book, the book is returned unchanged.
+ * - **Empty passages**: any passage whose text contains no letters (e.g. a
+ *   scene-break marker "* * *" or "···") is dropped — otherwise synthesis reads it
+ *   aloud as noise.
  * - **Dense renumbering**: kept chapters are renumbered contiguously from 0, so the
  *   reader/layout never holds empty chapter slots and `chapterIndex` is always a
  *   valid list position (the reader's chapter menu and resume rows use it).
@@ -63,7 +66,8 @@ object BookSegmentation {
             .mapIndexed { index, chapter ->
                 chapter.copy(
                     index = index,
-                    passages = splitLongPassages(chapter.passages, maxPassageWords),
+                    passages = splitLongPassages(chapter.passages, maxPassageWords)
+                        .filter { it.text.any { c -> c.isLetter() } },
                 )
             }
         // Safety net: never strip an entire book.
