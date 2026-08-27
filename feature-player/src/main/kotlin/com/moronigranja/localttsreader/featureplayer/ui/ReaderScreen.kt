@@ -341,12 +341,17 @@ private fun PaginatedChapter(
                         } while (!event.changes.all { it.changedToUp() })
                         if (paged) {
                             val delta = if (dragX < 0f) 1 else -1
-                            page = (page + delta).coerceIn(0, totalPages - 1)
+                            when {
+                                page + delta < 0 -> viewModel.openChapter(bookId, -1)
+                                page + delta > totalPages - 1 -> viewModel.openChapter(bookId, +1)
+                                else -> page = page + delta
+                            }
                         } else {
                             val x = down.position.x
                             when {
-                                x < pageWidthPx -> page = (page - 1).coerceAtLeast(0)
-                                x > pageWidthPx * 2f -> page = (page + 1).coerceAtMost(totalPages - 1)
+                                x < pageWidthPx -> if (page <= 0) viewModel.openChapter(bookId, -1) else page = page - 1
+                                x > pageWidthPx * 2f ->
+                                    if (page >= totalPages - 1) viewModel.openChapter(bookId, +1) else page = page + 1
                                 else -> {
                                     // Middle tap: play the passage under the finger.
                                     val titleBlock = if (page <= 0) titleHeightPx + titleGapPx else 0

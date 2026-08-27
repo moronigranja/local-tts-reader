@@ -140,6 +140,7 @@ class PlaybackService : Service() {
             ACTION_OPEN -> openBook(intent.bookId())
             ACTION_PLAY -> startPlayback(intent.bookId(), explicit = false)
             ACTION_PLAY_POSITION -> startPlayback(intent.bookId(), explicit = true, intent = intent)
+            ACTION_OPEN_CHAPTER -> openChapter(intent.bookId(), intent.getIntExtra(EXTRA_DIRECTION, 0))
             ACTION_RESUME -> resumePlayer()
             ACTION_PAUSE -> pausePlayer(PauseReason.USER)
             ACTION_SKIP_FORWARD -> navigate { it.skipForward() }
@@ -178,6 +179,40 @@ class PlaybackService : Service() {
             queue = buildQueue()
             val position = machine!!.openPosition() ?: machine!!.firstPosition()
             if (position != null) machine!!.present(position)
+            refreshBookmarks()
+            PlaybackStateHolder.update { it.copy(failure = null) }
+            publish()
+            ServiceCompat.stopForeground(this@PlaybackService, ServiceCompat.STOP_FOREGROUND_REMOVE)
+        }
+    }
+
+    /**
+     * Turns the reader across a chapter boundary WITHOUT starting playback
+     * (decisions #52: open ≠ auto-play — same contract as [openBook], but at
+     * the neighbor chapter's first passage instead of the resume point).
+     * The machine is rebuilt over the book while the CURRENT chapter is
+     * captured first; the neighbor is the next/previous chapter with
+     * passages ([BookLayout.nextChapter]/[previousChapter]), so an empty
+     * spine slot is skipped and a boundary turn at the book's edge is a
+     * no-op. The reader's `remember(state.chapterIndex)` resets its local
+     * page to 0, so publishing the new chapter's text lands on page one.
+     */
+    private fun openChapter(bookId: String?, direction: Int) {
+        val id = bookId ?: return
+        val current = machine?.state?.value?.position?.chapterIndex ?: return
+        stopEverything()
+        scope.launch {
+            settings.reload()
+            val activeBook = runCatching { libraryStore.cachedBooks() }.getOrNull()
+                ?.firstOrNull { it.id == id }?.toBook() ?: return@launch
+            book = activeBook
+            machine = PlayerStateMachine(store, BookLayout(activeBook))
+            lastAudio = null
+            queue = buildQueue()
+            val layout = BookLayout(activeBook)
+            val target = if (direction > 0) layout.nextChapter(current) else layout.previousChapter(current)
+            if (target == null) return@launch // book edge: stay (the page turn clamps)
+            machine!!.present(PlayerPosition(id, target, 0))
             refreshBookmarks()
             PlaybackStateHolder.update { it.copy(failure = null) }
             publish()
@@ -753,6 +788,7 @@ class PlaybackService : Service() {
         const val ACTION_OPEN = "open"
         const val ACTION_PLAY = "play"
         const val ACTION_PLAY_POSITION = "play_position"
+        const val ACTION_OPEN_CHAPTER = "open_chapter"
         const val ACTION_RESUME = "resume"
         const val ACTION_PAUSE = "pause"
         const val ACTION_SKIP_FORWARD = "skip_forward"
@@ -767,6 +803,7 @@ class PlaybackService : Service() {
         const val EXTRA_BOOK_ID = "bookId"
         const val EXTRA_CHAPTER = "chapter"
         const val EXTRA_PASSAGE = "passage"
+        const val EXTRA_DIRECTION = "direction"
 
         /**
          * Book-time start slicing: trims the passage PCM to the playhead only.

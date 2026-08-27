@@ -27,6 +27,8 @@ class ReaderViewModel @Inject constructor(
     fun play(bookId: String) = command(PlaybackService.ACTION_PLAY, bookId)
     fun playPosition(bookId: String, chapter: Int, passage: Int) =
         command(PlaybackService.ACTION_PLAY_POSITION, bookId, chapter, passage)
+    fun openChapter(bookId: String, direction: Int) =
+        command(PlaybackService.ACTION_OPEN_CHAPTER, bookId, direction = direction)
     fun skipForward() = command(PlaybackService.ACTION_SKIP_FORWARD)
     fun skipBackward() = command(PlaybackService.ACTION_SKIP_BACKWARD)
     fun undo() = command(PlaybackService.ACTION_UNDO)
@@ -39,13 +41,15 @@ class ReaderViewModel @Inject constructor(
     override fun seekForward() = command(PlaybackService.ACTION_SEEK_FORWARD)
     override fun seekBackward() = command(PlaybackService.ACTION_SEEK_BACKWARD)
     override fun cycleSpeed() = command(PlaybackService.ACTION_SPEED)
-
-    private fun command(action: String, bookId: String? = null, chapter: Int = 0, passage: Int = 0) {
+    private fun command(action: String, bookId: String? = null, chapter: Int = 0, passage: Int = 0, direction: Int = 0) {
         val intent = Intent(context, PlaybackService::class.java).setAction(action)
         if (bookId != null) intent.putExtra(PlaybackService.EXTRA_BOOK_ID, bookId)
         if (action == PlaybackService.ACTION_PLAY_POSITION) {
             intent.putExtra(PlaybackService.EXTRA_CHAPTER, chapter)
             intent.putExtra(PlaybackService.EXTRA_PASSAGE, passage)
+        }
+        if (action == PlaybackService.ACTION_OPEN_CHAPTER) {
+            intent.putExtra(PlaybackService.EXTRA_DIRECTION, direction)
         }
         runCatching { context.startForegroundService(intent) }
     }
