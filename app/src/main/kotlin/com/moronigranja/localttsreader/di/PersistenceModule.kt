@@ -1,14 +1,14 @@
-package com.moronigranja.localttsreader.featurelibrary
+package com.moronigranja.localttsreader.di
 
 import android.content.Context
 import androidx.room.Room
 import com.moronigranja.localttsreader.model.LibraryStore
+import com.moronigranja.localttsreader.persistence.AppSettings
 import com.moronigranja.localttsreader.persistence.BookDao
 import com.moronigranja.localttsreader.persistence.LibraryDatabase
 import com.moronigranja.localttsreader.persistence.MIGRATION_1_2
 import com.moronigranja.localttsreader.persistence.PassageDao
 import com.moronigranja.localttsreader.persistence.ProgressDao
-import com.moronigranja.localttsreader.persistence.AppSettings
 import com.moronigranja.localttsreader.persistence.RoomLibraryStore
 import com.moronigranja.localttsreader.persistence.RoomPlayerStore
 import com.moronigranja.localttsreader.persistence.SettingsDao
@@ -23,9 +23,10 @@ import javax.inject.Singleton
 import kotlinx.coroutines.CoroutineScope
 
 /**
- * Hilt bindings for the Room persistence layer (P1/P2). The store contract
- * [LibraryStore] is bound to the single [RoomLibraryStore] instance, so the
- * list UI, the importer, and the launch-time index rebuild all share one
+ * A6 composition root: the Room persistence layer bindings (formerly
+ * feature-library's PersistenceModule). The store contract [LibraryStore] is
+ * bound to the single [RoomLibraryStore] instance, so the list UI, the
+ * import coordinator, and the launch-time index rebuild all share one
  * database-backed surface.
  */
 @Module

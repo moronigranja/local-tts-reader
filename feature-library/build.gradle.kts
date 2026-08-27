@@ -57,12 +57,9 @@ dependencies {
     // exposes it via project(), so Room itself must be on this classpath.
     implementation(libs.room.runtime)
 
-    // Library-row pre-generation action/progress (decisions #42) drives
-    // feature-player's PregenManager; observeAsState for its LiveData.
-    // WorkInfo/PregenWorker live on this module's API surface.
-    implementation("androidx.compose.runtime:runtime-livedata")
-    implementation(libs.work.runtime.ktx)
-    implementation(project(":feature-player"))
+    // A6: player card + commands come from core contracts (core-ui/core-player);
+    // the app binds the implementations at the composition root.
+    implementation(project(":core-ui"))
 
     implementation(project(":core-model"))
     implementation(project(":core-ebook"))

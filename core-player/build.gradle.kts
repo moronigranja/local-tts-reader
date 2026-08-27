@@ -23,6 +23,8 @@ dependencies {
     // Engine contract types only — core-tts's jar JNA has no Android natives;
     // the app supplies the AAR (decisions #25/#32, same seam as feature-player).
     implementation(project(":core-tts")) { exclude(group = "net.java.dev.jna") }
+    // @IoDispatcher qualifier (A6) — annotation-only, no other DI machinery.
+    implementation("javax.inject:javax.inject:1")
 
     testImplementation(libs.junit.jupiter)
     testImplementation(libs.kotlinx.coroutines.test)

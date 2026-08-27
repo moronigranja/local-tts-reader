@@ -2,6 +2,7 @@ package com.moronigranja.localttsreader.featureplayer.playback
 
 import com.moronigranja.localttsreader.persistence.AppSettings
 import com.moronigranja.localttsreader.persistence.RoomLibraryStore
+import com.moronigranja.localttsreader.player.OfflineStorage
 import com.moronigranja.localttsreader.player.pregen.PcmPassageCache
 import com.moronigranja.localttsreader.player.pregen.PregenSpaceEstimate
 import com.moronigranja.localttsreader.player.pregen.PregenSpaceEstimator
@@ -24,7 +25,7 @@ class PregenStorage @Inject constructor(
     private val manager: PregenManager,
     private val libraryStore: RoomLibraryStore,
     private val settings: AppSettings,
-) {
+): OfflineStorage {
 
     private val estimator = PregenSpaceEstimator(pregenCache.cache)
 
@@ -32,16 +33,16 @@ class PregenStorage @Inject constructor(
     val cache: PcmPassageCache get() = pregenCache.cache
 
     /** Bytes on disk per book (pcm + sidecar files); books without audio are absent. */
-    fun usageByBook(): Map<String, Long> = pregenCache.cache.usageByBook()
+    override fun usageByBook(): Map<String, Long> = pregenCache.cache.usageByBook()
 
     /** Estimates for every cached book in one pass (one cachedBooks() query). */
-    suspend fun estimateAll(): Map<String, PregenSpaceEstimate> {
+    override suspend fun estimateAll(): Map<String, PregenSpaceEstimate> {
         val voice = settings.state.value.voice
         return libraryStore.cachedBooks().associate { it.id to estimator.estimate(it.toBook(), voice, 1.0) }
     }
 
     /** Reclaims one book's pre-generated audio: cancel queued work, then delete. */
-    fun deleteBook(bookId: String) {
+    override fun deleteBook(bookId: String) {
         manager.cancel(bookId)
         pregenCache.cache.deleteBook(bookId)
     }

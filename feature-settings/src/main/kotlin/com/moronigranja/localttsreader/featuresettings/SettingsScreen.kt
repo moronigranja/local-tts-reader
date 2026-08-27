@@ -35,7 +35,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
-import com.moronigranja.localttsreader.featureplayer.playback.formatBytes
+import com.moronigranja.localttsreader.player.formatBytes
 import com.moronigranja.localttsreader.persistence.ThemeMode
 import com.moronigranja.localttsreader.tts.PackStatus
 import androidx.hilt.navigation.compose.hiltViewModel

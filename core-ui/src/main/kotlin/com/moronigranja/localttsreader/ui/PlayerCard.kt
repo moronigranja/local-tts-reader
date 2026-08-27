@@ -1,4 +1,4 @@
-package com.moronigranja.localttsreader.featureplayer.ui
+package com.moronigranja.localttsreader.ui
 
 import android.content.Context
 import android.graphics.BitmapFactory
@@ -44,21 +44,10 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import com.moronigranja.localttsreader.featureplayer.playback.PlaybackUiState
+import com.moronigranja.localttsreader.player.PlaybackUiState
+import com.moronigranja.localttsreader.player.PlayerCommands
 import com.moronigranja.localttsreader.player.PlayerPhase
 import java.io.File
-
-/**
- * The player-card command surface (decisions #53): the same docked-card
- * transport commands, implemented by the reader and library view models.
- */
-interface PlayerCommands {
-    fun resume()
-    fun pause()
-    fun seekForward()
-    fun seekBackward()
-    fun cycleSpeed()
-}
 
 /**
  * The app-wide docked player card (decisions #53, mockup-matched): cover

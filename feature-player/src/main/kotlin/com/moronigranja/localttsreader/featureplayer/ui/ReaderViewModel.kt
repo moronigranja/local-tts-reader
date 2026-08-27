@@ -4,8 +4,9 @@ import android.content.Context
 import android.content.Intent
 import androidx.lifecycle.ViewModel
 import com.moronigranja.localttsreader.featureplayer.playback.PlaybackService
-import com.moronigranja.localttsreader.featureplayer.playback.PlaybackStateHolder
-import com.moronigranja.localttsreader.featureplayer.playback.PlaybackUiState
+import com.moronigranja.localttsreader.player.PlaybackStateHolder
+import com.moronigranja.localttsreader.player.PlaybackUiState
+import com.moronigranja.localttsreader.player.PlayerCommands
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
@@ -24,7 +25,9 @@ class ReaderViewModel @Inject constructor(
 
     /** Opens a book in the reader WITHOUT starting playback (decisions #52). */
     fun open(bookId: String) = command(PlaybackService.ACTION_OPEN, bookId)
-    fun play(bookId: String) = command(PlaybackService.ACTION_PLAY, bookId)
+    override fun play(bookId: String) = command(PlaybackService.ACTION_PLAY, bookId)
+    override fun playAt(bookId: String, chapterIndex: Int, passageIndex: Int) =
+        command(PlaybackService.ACTION_PLAY_POSITION, bookId, chapterIndex, passageIndex)
     fun playPosition(bookId: String, chapter: Int, passage: Int) =
         command(PlaybackService.ACTION_PLAY_POSITION, bookId, chapter, passage)
     fun openChapter(bookId: String, direction: Int) =
@@ -32,7 +35,7 @@ class ReaderViewModel @Inject constructor(
     fun skipForward() = command(PlaybackService.ACTION_SKIP_FORWARD)
     fun skipBackward() = command(PlaybackService.ACTION_SKIP_BACKWARD)
     fun undo() = command(PlaybackService.ACTION_UNDO)
-    fun stop() = command(PlaybackService.ACTION_STOP)
+    override fun stop() = command(PlaybackService.ACTION_STOP)
     fun cycleSleep() = command(PlaybackService.ACTION_SLEEP)
     fun bookmark() = command(PlaybackService.ACTION_BOOKMARK)
 

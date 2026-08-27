@@ -49,9 +49,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.livedata.observeAsState
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -61,11 +60,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
-import androidx.work.WorkInfo
-import com.moronigranja.localttsreader.featureplayer.playback.PregenWorker
-import com.moronigranja.localttsreader.featureplayer.ui.PlayerCard
+import com.moronigranja.localttsreader.player.PregenJobState
+import com.moronigranja.localttsreader.ui.PlayerCard
 import com.moronigranja.localttsreader.player.PlayerPhase
-import com.moronigranja.localttsreader.featureplayer.playback.formatBytes
+import com.moronigranja.localttsreader.player.formatBytes
 import kotlinx.coroutines.launch
 
 /**
@@ -256,7 +254,7 @@ fun LibraryScreen(
                             ) {
                                 PlayerCard(
                                     state = playerState,
-                                    commands = viewModel,
+                                    commands = viewModel.playerCommands,
                                     badge = {
                                         if (activeUsage > 0L) {
                                             Text(
@@ -399,24 +397,22 @@ private fun BookRow(
     onOpenBook: (String) -> Unit,
     viewModel: LibraryViewModel,
 ) {
-    val workInfos by viewModel.pregenWork(bookId).observeAsState(emptyList())
-    val running = workInfos.any { it.state == WorkInfo.State.ENQUEUED || it.state == WorkInfo.State.RUNNING }
-    val percent = workInfos.maxOfOrNull { it.progress.getInt(PregenWorker.KEY_PROGRESS_PERCENT, 0) } ?: 0
+    // A6: the pre-generation row observes the core PregenJobState contract
+    // (the app's WorkManager adapter maps WorkInfo under the hood).
+    val job by viewModel.pregenWork(bookId).collectAsState(PregenJobState())
+    val running = job.running
+    val percent = job.percent
     val usage = offline?.usageBytes ?: 0L
     val estimate = offline?.estimateBytes ?: 0L
 
-    // A settled run changed the tier: re-read usage + estimate (the worker's
-    // own progress only carries percentages).
-    val settled = workInfos.lastOrNull {
-        it.state == WorkInfo.State.SUCCEEDED || it.state == WorkInfo.State.FAILED || it.state == WorkInfo.State.CANCELLED
-    }?.state
-    LaunchedEffect(settled) {
-        if (settled != null) viewModel.refreshOffline()
+    // A settled run changed the tier: re-read usage + estimate (the job state
+    // only carries the percent/error surface).
+    LaunchedEffect(job.running, job.failed, job.error) {
+        if (!job.running && (job.failed || percent > 0)) viewModel.refreshOffline()
     }
     // CR-1: a failed run exposes its typed reason (packs missing, synthesis
     // meltdown) instead of collapsing into a silent no-op success.
-    val pregenError = workInfos.lastOrNull { it.state == WorkInfo.State.FAILED }
-        ?.outputData?.getString(PregenWorker.KEY_ERROR)
+    val pregenError = job.error
 
 
     val cover = rememberCoverBitmap(viewModel, bookId)

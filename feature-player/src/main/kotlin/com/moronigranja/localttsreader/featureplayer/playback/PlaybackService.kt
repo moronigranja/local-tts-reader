@@ -33,6 +33,8 @@ import com.moronigranja.localttsreader.player.PlayerPhase
 import com.moronigranja.localttsreader.player.PlayerPosition
 import com.moronigranja.localttsreader.player.PlayerStateMachine
 import com.moronigranja.localttsreader.player.PlayerStore
+import com.moronigranja.localttsreader.player.PlaybackStateHolder
+import com.moronigranja.localttsreader.player.PlaybackUiState
 import com.moronigranja.localttsreader.player.passageText
 import com.moronigranja.localttsreader.player.pregen.PregenAudio
 import com.moronigranja.localttsreader.player.pregen.PregenKey

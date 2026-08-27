@@ -59,8 +59,8 @@ dependencies {
     implementation(project(":core-tts")) { exclude(group = "net.java.dev.jna") }
     implementation(project(":core-ocr"))
     implementation(project(":core-persistence"))
-    implementation(project(":feature-ocr"))
-    implementation(project(":feature-player")) // PregenStorage for the Offline-audio section (#44)
+    // A6: EspeakStager/OfflineStorage/formatBytes contracts come from core-player.
+    implementation(project(":core-player"))
 
     testImplementation(libs.junit.jupiter)
     testRuntimeOnly(libs.junit.platform.launcher)

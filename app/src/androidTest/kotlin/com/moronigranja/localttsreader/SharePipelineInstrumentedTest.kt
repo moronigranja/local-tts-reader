@@ -7,7 +7,7 @@ import android.graphics.Paint
 import android.net.Uri
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
-import com.moronigranja.localttsreader.featureocr.TessDataStager
+import com.moronigranja.localttsreader.ocr.TessDataStager
 import com.moronigranja.localttsreader.featureocr.TessTwoOcrEngine
 import com.moronigranja.localttsreader.featureshare.ImageDecoder
 import com.moronigranja.localttsreader.featureshare.ShareInput

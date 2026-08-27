@@ -62,7 +62,8 @@ import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
-import com.moronigranja.localttsreader.featureplayer.playback.PlaybackUiState
+import com.moronigranja.localttsreader.player.PlaybackUiState
+import com.moronigranja.localttsreader.ui.PlayerCard
 import com.moronigranja.localttsreader.player.PlayerPhase
 import com.moronigranja.localttsreader.player.PlayerPosition
 import com.moronigranja.localttsreader.player.SleepTimer

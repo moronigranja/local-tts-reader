@@ -1,25 +1,24 @@
 package com.moronigranja.localttsreader.featurelibrary
 
 import androidx.lifecycle.LiveData
-import androidx.lifecycle.MutableLiveData
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import androidx.work.WorkInfo
-import android.content.Intent
 import android.content.Context
 import com.moronigranja.localttsreader.ebook.EBookSource
 import com.moronigranja.localttsreader.ebook.ImportCoordinator
 import com.moronigranja.localttsreader.ebook.ImportFailureReason
 import com.moronigranja.localttsreader.ebook.ImportOutcome
 import com.moronigranja.localttsreader.locate.IndexLock
-import com.moronigranja.localttsreader.featureplayer.playback.PlaybackService
-import com.moronigranja.localttsreader.featureplayer.playback.PlaybackStateHolder
-import com.moronigranja.localttsreader.featureplayer.playback.PlaybackUiState
-import com.moronigranja.localttsreader.featureplayer.ui.PlayerCommands
-import com.moronigranja.localttsreader.featureplayer.playback.PregenManager
-import com.moronigranja.localttsreader.featureplayer.playback.PregenStorage
 import com.moronigranja.localttsreader.featurelibrary.CoverStore
 import com.moronigranja.localttsreader.locate.TextIndex
+import com.moronigranja.localttsreader.player.IoDispatcher
+import com.moronigranja.localttsreader.player.OfflineStorage
+import com.moronigranja.localttsreader.player.PlaybackStateHolder
+import com.moronigranja.localttsreader.player.PlaybackUiState
+import com.moronigranja.localttsreader.player.PlayerCommands
+import com.moronigranja.localttsreader.player.PregenJobState
+import com.moronigranja.localttsreader.player.PregenScheduler
+import kotlinx.coroutines.flow.flowOf
 import com.moronigranja.localttsreader.model.LibraryEntry
 import com.moronigranja.localttsreader.model.LibraryStore
 import com.moronigranja.localttsreader.persistence.ChapterCount
@@ -33,6 +32,7 @@ import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -63,15 +63,17 @@ class LibraryViewModel @Inject constructor(
     // Default null: tests pass their own lock (Hilt supplies it).
     private val indexLock: IndexLock? = null,
     // Default null: pure-JVM unit tests skip pre-generation (Hilt always supplies it).
-    private val pregenManager: PregenManager? = null,
-    private val storage: PregenStorage? = null,
+    private val pregenScheduler: PregenScheduler? = null,
+    private val storage: OfflineStorage? = null,
     @ApplicationContext private val context: Context? = null,
     // Default null: pure-JVM unit tests skip the Room progress surface (Hilt provides it).
     private val passageDao: PassageDao? = null,
     private val progressDao: ProgressDao? = null,
     // Default null: unit tests drop the index; Hilt provides the shared one.
     private val index: TextIndex? = null,
-) : ViewModel(), PlayerCommands {
+    // A6: the app binds the intent-dispatching sender; tests pass a fake.
+    private val commands: PlayerCommands,
+) : ViewModel() {
     /** Books the user has covers for (extracted at import; sidecar files). */
     fun cover(bookId: String): ByteArray? = context?.let { CoverStore(File(it.filesDir, "covers")).load(bookId) }
 
@@ -82,38 +84,27 @@ class LibraryViewModel @Inject constructor(
     /** The service-published player state — docks the shared player card. */
     val playerState: StateFlow<PlaybackUiState> = PlaybackStateHolder.state
 
+    /** The app-bound command surface, exposed for the player card (A6). */
+    val playerCommands: PlayerCommands = commands
+
     /** Quick play from a library row: resumes the book's audio (decisions #52). */
-    fun playBook(bookId: String) {
-        val ctx = context ?: return
-        val intent = Intent(ctx, PlaybackService::class.java)
-            .setAction(PlaybackService.ACTION_PLAY)
-            .putExtra(PlaybackService.EXTRA_BOOK_ID, bookId)
-        runCatching { ctx.startForegroundService(intent) }
-    }
+    fun playBook(bookId: String) = commands.play(bookId)
 
-    // Player-card command surface (decisions #53): the library docks the same
-    // docked-card commands as the reader.
-    private fun command(action: String) {
-        val ctx = context ?: return
-        runCatching {
-            ctx.startForegroundService(
-                Intent(ctx, PlaybackService::class.java).setAction(action),
-            )
-        }
-    }
-
-    override fun resume() = command(PlaybackService.ACTION_RESUME)
-    override fun pause() = command(PlaybackService.ACTION_PAUSE)
-    override fun seekForward() = command(PlaybackService.ACTION_SEEK_FORWARD)
-    override fun seekBackward() = command(PlaybackService.ACTION_SEEK_BACKWARD)
-    override fun cycleSpeed() = command(PlaybackService.ACTION_SPEED)
+    // Player-card command surface (decisions #53): delegated to the
+    // app-bound [PlayerCommands] implementation (A6).
+    fun resume() = commands.resume()
+    fun pause() = commands.pause()
+    fun stop() = commands.stop()
+    fun seekForward() = commands.seekForward()
+    fun seekBackward() = commands.seekBackward()
+    fun cycleSpeed() = commands.cycleSpeed()
     /** Starts a manual pre-generation run for one book (#42); null budget = whole book. */
     fun pregenerate(bookId: String, budgetMinutes: Long? = null) =
-        pregenManager?.pregenerate(bookId, budgetMinutes)
+        pregenScheduler?.pregenerate(bookId, budgetMinutes)
 
     /** The book's manual pre-generation job, for row progress (KEEP-deduplicated). */
-    fun pregenWork(bookId: String): LiveData<List<WorkInfo>> =
-        pregenManager?.workInfo(bookId) ?: MutableLiveData(emptyList())
+    fun pregenWork(bookId: String): Flow<PregenJobState> =
+        pregenScheduler?.observe(bookId) ?: flowOf(PregenJobState())
 
     val library: StateFlow<List<LibraryEntry>> = repository.books
     /** Recently-active books (resume rows, most recent first) — the library's
@@ -188,13 +179,7 @@ class LibraryViewModel @Inject constructor(
             withContext(ioDispatcher) {
                 // Stop live playback first: the service holds its own book
                 // reference and would otherwise keep reading the removed book.
-                context?.let { ctx ->
-                    runCatching {
-                        ctx.startService(
-                            Intent(ctx, PlaybackService::class.java).setAction(PlaybackService.ACTION_STOP),
-                        )
-                    }
-                }
+                                commands.stop()
                 // CR-3/A3: durable delete FIRST — a failed durable removal must
                 // never leave a surviving Room book missing from the index.
                                 val deleted = runCatching { repository.delete(bookId) }

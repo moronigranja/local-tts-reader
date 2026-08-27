@@ -1,8 +1,5 @@
-package com.moronigranja.localttsreader.featureplayer.playback
+package com.moronigranja.localttsreader.player
 
-import com.moronigranja.localttsreader.player.Bookmark
-import com.moronigranja.localttsreader.player.PlayerPhase
-import com.moronigranja.localttsreader.player.SleepTimer
 import com.moronigranja.localttsreader.tts.SegmentAnchor
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -10,7 +7,9 @@ import kotlinx.coroutines.flow.update
 
 /**
  * The single observable player surface the service writes and the reader UI
- * reads (T4-2). The [PlayerStateMachine] remains the only *persistence*
+ * reads (T4-2, moved to core-player as part of the A6 composition cutover —
+ * feature modules observe it through this core type, never through the
+ * implementation). The [PlayerStateMachine] remains the only *persistence*
  * writer; this holder is in-memory UI/edge state only.
  */
 object PlaybackStateHolder {

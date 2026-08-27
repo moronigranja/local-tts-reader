@@ -69,6 +69,7 @@ dependencies {
     implementation(project(":core-tts")) { exclude(group = "net.java.dev.jna") }
     implementation(project(":core-persistence"))
     implementation(project(":core-player"))
+    implementation(project(":core-ui")) // shared PlayerCard composable (A6)
 
     // PregenWorker host tests (CR-1): Robolectric runs the real worker with
     // in-memory Room + a fake engine; work-testing provides the test

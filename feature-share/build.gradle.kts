@@ -58,11 +58,8 @@ dependencies {
     implementation(project(":core-locate")) // TextIndex/IndexRebuilder — must be the API visible to the resolver
     implementation(project(":core-persistence")) // AppSettings mirror (threshold, OCR langs)
     implementation(project(":core-ocr"))
-    implementation(project(":feature-ocr")) // OcrEngine binding (tess-two adapter)
-    // ImportModule/PersistenceModule: the single TextIndex + IndexRebuilder and
-    // AppSettings singletons (the share gateway must query THE index the app
-    // rebuilds, never a second instance).
-    implementation(project(":feature-library"))
+    // A6: the OcrEngine binding and the app-wide singletons move to the app
+    // composition root; this feature depends only on the core seams.
     implementation(project(":core-tts")) { exclude(group = "net.java.dev.jna") }
 
     testImplementation(libs.junit.jupiter)

@@ -66,11 +66,14 @@ dependencies {
     debugImplementation(libs.compose.ui.tooling)
     implementation(libs.hilt.android)
     ksp(libs.hilt.compiler)
+    // di/ (composition root, A6) references these core contracts directly.
     implementation(project(":core-model"))
     implementation(project(":core-ebook"))
     implementation(project(":core-locate"))
     implementation(project(":core-persistence"))
+    implementation(libs.room.runtime) // di/PersistenceModule builds LibraryDatabase
     implementation(project(":core-player")) // PlayerPhase etc. for the player surface
+    implementation(project(":core-ui")) // the app's composition root renders nothing, but di/ references player contracts
     implementation(project(":feature-library"))
     implementation(project(":feature-player"))
     implementation(project(":feature-settings"))

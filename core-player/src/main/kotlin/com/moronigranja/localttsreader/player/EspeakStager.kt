@@ -1,4 +1,4 @@
-package com.moronigranja.localttsreader.featureplayer.playback
+package com.moronigranja.localttsreader.player
 
 import com.moronigranja.localttsreader.tts.PackCache
 import com.moronigranja.localttsreader.tts.TtsPack
@@ -7,11 +7,14 @@ import java.util.zip.ZipInputStream
 
 /**
  * Stages the downloaded espeak-ng bundle under `files/espeak/` — the layout
- * [KokoroRuntime] and the settings status read (decision #32: lib + data
+ * the Kokoro runtime and the settings status read (decision #32: lib + data
  * staged next to each other, loaded by explicit path). The pack artifact is
  * a zip of `libespeak-ng.so` + `espeak-ng-data/` at its root; the download
  * itself is a normal verified pack ([PackCache] layout, decision #7), so the
  * staging is an accelerator-style extract, idempotent and cheap.
+ *
+ * A6: moved to core-player — pure File logic, shared by the player runtime
+ * (feature-player) and the settings surface without a feature edge.
  */
 object EspeakStager {
 
@@ -63,4 +66,11 @@ object EspeakStager {
         backup.deleteRecursively()
         return true
     }
+}
+
+/** UI display for the storage-transparency surfaces (decisions #44; A6). */
+fun formatBytes(bytes: Long): String = when {
+    bytes >= 1_048_576 -> "%.1f MB".format(bytes / 1_048_576.0)
+    bytes >= 1_024 -> "%.0f KB".format(bytes / 1_024.0)
+    else -> "$bytes B"
 }

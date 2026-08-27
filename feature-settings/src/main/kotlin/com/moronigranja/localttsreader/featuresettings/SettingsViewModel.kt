@@ -2,10 +2,10 @@ package com.moronigranja.localttsreader.featuresettings
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.moronigranja.localttsreader.featureocr.TessDataStager
-import com.moronigranja.localttsreader.featureplayer.playback.EspeakStager
-import com.moronigranja.localttsreader.featureplayer.playback.PregenStorage
-import com.moronigranja.localttsreader.featureplayer.playback.formatBytes
+import com.moronigranja.localttsreader.ocr.TessDataStager
+import com.moronigranja.localttsreader.player.EspeakStager
+import com.moronigranja.localttsreader.player.OfflineStorage
+import com.moronigranja.localttsreader.player.formatBytes
 import com.moronigranja.localttsreader.model.LibraryStore
 import com.moronigranja.localttsreader.ocr.TrainedDataPacks
 import com.moronigranja.localttsreader.persistence.AppSettings
@@ -67,7 +67,7 @@ class SettingsViewModel @Inject constructor(
     @Named("app_files_dir") private val filesDir: File,
     // Default null: pure-JVM tests skip the offline-audio section (Hilt supplies it).
     private val repository: LibraryStore? = null,
-    private val storage: PregenStorage? = null,
+    private val storage: com.moronigranja.localttsreader.player.OfflineStorage? = null,
 ) : ViewModel() {
 
     private val progress = MutableStateFlow<Map<String, Double>>(emptyMap())

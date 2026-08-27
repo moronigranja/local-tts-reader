@@ -1,4 +1,39 @@
 # Decision log
+## 66. A6 — Composition root + feature boundaries (CR-6) (2026-08-27)
+
+Turned `app` into the effective composition root and removed every
+`feature-* → feature-*` project edge:
+
+- **Contracts moved down.** `PlaybackStateHolder`/`PlaybackUiState`,
+  `PlayerCommands` (widened with `play`/`playAt`/`stop`), `EspeakStager`,
+  `formatBytes` and the new `PregenScheduler`/`OfflineStorage`/`PregenJobState`
+  contracts live in core-player; `TessDataStager` moved to core-ocr (both
+  were pure File logic all along); the shared `PlayerCard` composable moved
+  to the new `core-ui` Android library (the roadmap's B2 "shared component
+  home" decision, resolved during A6 as the record suggested).
+- **Bindings moved up.** `PersistenceModule`, the import-core providers
+  (`TextIndex`, parse-only `BookImporter`, `ImportCoordinator`, `IndexLock`,
+  `IndexRebuilder`, `appScope`, `@IoDispatcher` — the qualifier now lives in
+  core-player so features share it) and `OcrModule` are in `app.di`;
+  `app` binds `PlayerCommands` (the intent `PlaybackCommandSender`),
+  `PregenScheduler` (WorkManager adapter via callbackFlow over
+  `PregenManager.workInfo`, mapping to `PregenJobState`), and
+  `OfflineStorage` (feature-player's `PregenStorage` now implements the
+  contract directly). feature-library consumes the contracts; its
+  `PregenManager`/`PregenStorage`/`PlaybackService` imports are gone and its
+  pregen row observes `Flow<PregenJobState>` via `collectAsState`.
+- **Build check.** Root `checkFeatureBoundaries` task scans every
+  feature module's `implementation` project dependencies and fails the
+  build on any `feature-* → feature-*` edge.
+- **Testability payoff.** LibraryViewModel takes an injected
+  `PlayerCommands` fake + the coordinator; settings binds `OfflineStorage`
+  through the same contract the library uses.
+
+Evidence: zero feature-to-feature edges (`checkFeatureBoundaries`), all
+feature host suites (library 9, player 18, settings, share, core-ocr)
+green after the cutover, app + androidTest compile. Device regression
+(import → share → pregen on one session) pending on the S22.
+
 ## 65. A3 — Room/index consistency (CR-3) (2026-08-27)
 
 Closed the CR-3 divergence family with one orchestration boundary:

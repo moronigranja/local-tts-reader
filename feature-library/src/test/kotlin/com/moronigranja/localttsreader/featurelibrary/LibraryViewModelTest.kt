@@ -10,6 +10,7 @@ import com.moronigranja.localttsreader.ebook.EpubFixture.opf
 import com.moronigranja.localttsreader.ebook.EpubFixture.zip
 import com.moronigranja.localttsreader.locate.TextIndex
 import com.moronigranja.localttsreader.model.InMemoryLibraryStore
+import com.moronigranja.localttsreader.player.PlayerCommands
 import java.io.ByteArrayInputStream
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.launch
@@ -51,6 +52,18 @@ class LibraryViewModelTest {
     private fun source(name: String, bytes: ByteArray): EBookSource =
         EBookSource(name) { ByteArrayInputStream(bytes) }
 
+    /** A6: tests supply a no-op command surface (the app binds the sender). */
+    private val noopCommands = object : PlayerCommands {
+        override fun play(bookId: String) = Unit
+        override fun playAt(bookId: String, chapterIndex: Int, passageIndex: Int) = Unit
+        override fun resume() = Unit
+        override fun pause() = Unit
+        override fun stop() = Unit
+        override fun seekForward() = Unit
+        override fun seekBackward() = Unit
+        override fun cycleSpeed() = Unit
+    }
+
     private fun viewModel(
         store: com.moronigranja.localttsreader.model.LibraryStore = InMemoryLibraryStore(),
         index: TextIndex = TextIndex(),
@@ -62,6 +75,7 @@ class LibraryViewModelTest {
         mainDispatcherRule.testDispatcher,
         indexLock = indexLock,
         index = index,
+        commands = noopCommands,
     )
 
     // ------------------------------------------------------------------
