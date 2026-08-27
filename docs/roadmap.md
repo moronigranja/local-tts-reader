@@ -299,13 +299,34 @@ Idea-pool graduates, deliberately outside v1's critical path (T4/T5/S/V):
     positionAt round-trips (value mid-book, exact edges, clamp both ends);
     (feature-player, optional) service rolling-seek crossing a passage
     boundary on-device.
-  - **Acceptance (S22)**: tap library play → card spins + "Generating…" then
-    animates into the docked slot; card persists into the reader; ±30s rolls
-    across passage boundaries; Ch▶/◀ land on next/prev chapter start, even
-    across empty chapters; elapsed/remaining track (÷speed for remaining);
-    speed pill cycles and the label updates live; pause → play resumes at the
-    same offset with its own spin-up "Generating…"; no double-orders, no
-    ring corruption (undo restores the pre-seek passage).
+- **Pitch-adjusted speed controls — FUTURE (2026-08-27; extends decisions
+  #52)**: speed today is `AudioTrack.setPlaybackRate(sampleRate × speed)`
+  (decisions #52) — a chip-level sample-rate conversion that shifts pitch
+  with speed (1.5× sounds brighter/chipper, 0.75× darker) on most devices.
+  The upgrade: pitch-preserving time-stretch in user space — WSOLA (or
+  phase-vocoder) DSP on the 24 kHz mono 16-bit PCM stream before the
+  `AudioTrack` write, streamed through a stretch ring buffer, not
+  per-passage batch.
+  - Tradeoffs to weigh when built:
+    - **CPU**: WSOLA at 24 kHz mono is a few % of one core vs. the free
+      hardware rate conversion — run on a dedicated audio-priority thread;
+      note the S22 chip RTF gains still favor the hardware path for battery.
+    - **Pregen cache consistency**: stretched audio must join the cache key
+      (speed + pitch-correct flag extend `PregenKey`) — otherwise the disk
+      tier plays unchanged-speed audio while the live path is pitch-correct
+      (audible inconsistency when a pre-generated passage follows a live
+      one).
+    - **UI**: per-book or global "pitch-correct speed" toggle; reachable
+      speeds 0.75–2× unchanged; elapsed/remaining math unchanged (book-time
+      ÷ speed).
+    - **Verify**: A/B on S22 at 1.5×/0.75× with and without correction
+      (listening + spectrogram spot-check); unit-test the resampler
+      (duration = N/speed, no drift across passage boundaries, frame
+      rounding at edges).
+  - Alternatives rejected at design time: TTS-side speed (no engine hook for
+    Kokoro today — verify against sherpa if it gains one), third-party libs
+    (Sonic/SoundTouch add a native dependency; WSOLA ≈ 150 LOC, keeps the
+    in-process clean-room posture).
 - **TODAY stats dashboard** — new local per-day read/listen-minutes table + home
   restructure (offline-first holds).
 - **Kindle official-export / Highlights-API sync** — on-demand position import from
