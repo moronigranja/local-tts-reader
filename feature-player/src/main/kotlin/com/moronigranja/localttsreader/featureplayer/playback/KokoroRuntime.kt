@@ -3,6 +3,7 @@ package com.moronigranja.localttsreader.featureplayer.playback
 import android.content.Context
 import com.moronigranja.localttsreader.tts.DefaultEngines
 import com.moronigranja.localttsreader.tts.PackCache
+import com.moronigranja.localttsreader.tts.TTSEngine
 import com.moronigranja.localttsreader.tts.kokoro.EspeakPhonemizer
 import com.moronigranja.localttsreader.tts.kokoro.KokoroEngine
 import com.moronigranja.localttsreader.tts.kokoro.KokoroPacks
@@ -19,14 +20,14 @@ import javax.inject.Singleton
  * in build.md until V1 wires the pack download).
  */
 @Singleton
-class KokoroRuntime @Inject constructor(
+open class KokoroRuntime @Inject constructor(
     @ApplicationContext private val context: Context,
 ) {
     @Volatile private var engine: KokoroEngine? = null
     @Volatile private var failure: String? = null
 
     /** The ready engine, or null with [failure] set when packs/bundle are missing. */
-    fun engine(): KokoroEngine? {
+    open fun engine(): TTSEngine? {
         engine?.let { return it }
         failure?.let { return null }
         synchronized(this) {
@@ -62,5 +63,5 @@ class KokoroRuntime @Inject constructor(
         }
     }
 
-    val failureReason: String? get() = failure
+    open val failureReason: String? get() = failure
 }

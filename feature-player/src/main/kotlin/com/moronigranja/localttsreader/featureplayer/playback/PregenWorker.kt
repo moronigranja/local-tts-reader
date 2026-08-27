@@ -11,11 +11,13 @@ import androidx.work.CoroutineWorker
 import androidx.work.ForegroundInfo
 import androidx.work.WorkerParameters
 import androidx.work.workDataOf
+import com.moronigranja.localttsreader.model.CachedBook
 import com.moronigranja.localttsreader.persistence.AppSettings
 import com.moronigranja.localttsreader.persistence.RoomLibraryStore
 import com.moronigranja.localttsreader.player.pregen.OfflinePregen
 import com.moronigranja.localttsreader.player.pregen.PregenBudget
 import com.moronigranja.localttsreader.player.pregen.PregenProgress
+import com.moronigranja.localttsreader.player.pregen.PregenTerminal
 import com.moronigranja.localttsreader.tts.SynthesisOutcome
 import com.moronigranja.localttsreader.tts.SynthesisRequest
 import dagger.assisted.Assisted
@@ -38,6 +40,12 @@ import dagger.assisted.AssistedInject
  * library row observes [androidx.work.WorkInfo] progress. The engine's
  * synthesis is cancellable per batch ([PregenWorker]'s cancellation stops the
  * run at the next passage boundary).
+ *
+ * CR-1: only safely bounded terminals ([PregenTerminal.Completed],
+ * [PregenTerminal.BudgetExhausted], [PregenTerminal.CacheSaturated] and the
+ * overnight playback yield) settle as success. Engine failure terminals
+ * ([PregenTerminal.Unavailable], [PregenTerminal.FailureCap]) fail the job
+ * with a typed error and the run's progress counts.
  */
 @HiltWorker
 class PregenWorker @AssistedInject constructor(
@@ -69,12 +77,10 @@ class PregenWorker @AssistedInject constructor(
         val books = libraryStore.cachedBooks().filter { wantedIds == null || it.id in wantedIds }
         if (books.isEmpty()) return Result.success()
 
-        val startedAt = System.currentTimeMillis()
         val synthesize: suspend (String) -> SynthesisOutcome = { text ->
             engine.synthesize(SynthesisRequest(text, voice, speed))
         }
         var chapterNotified = -1
-        var bookIndex = 0
 
         suspend fun notify(bookTitle: String, progress: PregenProgress) {
             val percent = progress.percent
@@ -106,10 +112,42 @@ class PregenWorker @AssistedInject constructor(
             }
         }
 
+        return runBooks(
+            books = books,
+            mode = mode,
+            budget = budget,
+            voice = voice,
+            speed = speed,
+            synthesize = synthesize,
+            notify = { title, progress -> notify(title, progress) },
+        )
+    }
+
+    /**
+     * The book loop over [OfflinePregen], separated from [doWork]'s engine
+     * open so host tests can drive it with a virtual [clock] (CR-1:
+     * whole-book runs are unbounded and failure terminals fail the job).
+     */
+    internal suspend fun runBooks(
+        books: List<CachedBook>,
+        mode: String,
+        budget: PregenBudget,
+        voice: String,
+        speed: Double,
+        synthesize: suspend (String) -> SynthesisOutcome,
+        clock: () -> Long = System::currentTimeMillis,
+        notify: suspend (String, PregenProgress) -> Unit = { _, _ -> },
+    ): Result {
+        val startedAt = clock()
+        var bookIndex = 0
         for (book in books) {
             if (mode == MODE_OVERNIGHT && PlaybackActive.isActive) break
-            val elapsed = System.currentTimeMillis() - startedAt
-            val remaining = budget.maxTimeMs?.minus(elapsed)?.takeIf { it > 0 } ?: break
+            val elapsed = clock() - startedAt
+            // CR-1: an absent deadline (whole-book manual) is NOT an expired
+            // one. remaining == null → unbounded; break only when non-null and
+            // exhausted.
+            val remaining = budget.remainingTimeMs(elapsed)
+            if (remaining != null && remaining <= 0L) break
             val runner = OfflinePregen(
                 cache = pregenCache.cache,
                 synthesize = synthesize,
@@ -125,14 +163,52 @@ class PregenWorker @AssistedInject constructor(
                     ),
                 )
             }
-            runner.run(
+            val result = runner.run(
                 book = book.toBook(),
                 voice = voice,
                 speed = speed,
                 budget = budget.copy(maxTimeMs = remaining),
             ) { notify(book.title, it) }
+            // CR-1: failure terminals must not settle as success. Engine
+            // conditions (missing packs, a synthesis meltdown) are global —
+            // they will hit every remaining book the same way, so the job
+            // stops with a typed error instead of reporting completed work.
+            when (result.terminal) {
+                PregenTerminal.Completed,
+                PregenTerminal.BudgetExhausted,
+                PregenTerminal.CacheSaturated,
+                PregenTerminal.Yielded,
+                -> Unit
+                PregenTerminal.Unavailable,
+                PregenTerminal.FailureCap,
+                -> return Result.failure(
+                    workDataOf(
+                        KEY_ERROR to runErrorMessage(book.title, result, result.terminal ?: PregenTerminal.Completed),
+                        KEY_PROGRESS_SYNTHESIZED to result.passagesSynthesized,
+                        KEY_PROGRESS_CACHED to result.passagesCached,
+                        KEY_PROGRESS_FAILURES to result.failures,
+                    ),
+                )
+                // run() sets a terminal on every return path; a missing one
+                // is a contract violation — never a silent success.
+                null -> return Result.failure(
+                    workDataOf(KEY_ERROR to "Pre-generation stopped without a terminal reason ($book.title)"),
+                )
+            }
         }
         return Result.success()
+    }
+
+    private fun runErrorMessage(bookTitle: String, progress: PregenProgress, terminal: PregenTerminal): String {
+        val reason = when (terminal) {
+            PregenTerminal.Unavailable ->
+                "Pre-generation stopped: the synthesis engine is unavailable (packs missing?)"
+            PregenTerminal.FailureCap ->
+                "Pre-generation stopped after ${progress.failures} repeated synthesis failures"
+            else -> "Pre-generation stopped ($terminal)"
+        }
+        return "$reason — $bookTitle (" +
+            "${progress.passagesSynthesized} synthesized, ${progress.passagesCached} cached, ${progress.failures} failed)"
     }
 
     private fun pregenNotification(
@@ -174,6 +250,9 @@ class PregenWorker @AssistedInject constructor(
         const val KEY_SPEED = "speed"
         const val KEY_BUDGET_TIME_MS = "budgetTimeMs"
         const val KEY_ERROR = "error"
+        const val KEY_PROGRESS_SYNTHESIZED = "progressSynthesized"
+        const val KEY_PROGRESS_CACHED = "progressCached"
+        const val KEY_PROGRESS_FAILURES = "progressFailures"
         const val KEY_PROGRESS_PERCENT = "progressPercent"
         const val KEY_PROGRESS_CHAPTER = "progressChapter"
         const val KEY_PROGRESS_TOTAL_CHAPTERS = "progressTotalChapters"

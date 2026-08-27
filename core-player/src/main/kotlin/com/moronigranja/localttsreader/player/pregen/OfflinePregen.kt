@@ -13,7 +13,15 @@ data class PregenBudget(
     val maxChapters: Int? = null,
     /** Wall-clock stop for the whole run. */
     val maxTimeMs: Long? = null,
-)
+) {
+    /**
+     * Wall-clock budget left after [elapsedMs] has been spent, or null when
+     * this budget has no deadline ([maxTimeMs] absent). CR-1: null NEVER
+     * means "expired" — an unbounded run has no deadline by construction. A
+     * caller breaks only when the result is non-null and `<= 0`.
+     */
+    fun remainingTimeMs(elapsedMs: Long): Long? = maxTimeMs?.minus(elapsedMs)
+}
 
 /**
  * Running tallies for one book; [OnProgress] fires after every passage.
@@ -27,9 +35,32 @@ data class PregenProgress(
     val failures: Int = 0,
     val totalChapters: Int,
     val totalPassages: Int,
+    /**
+     * Why the run ended, set by [OfflinePregen.run] before it returns; null
+     * only while the run is in flight (progress events before the terminal).
+     * The worker maps failure terminals to WorkManager failure deliberately
+     * instead of collapsing every partial run into success (CR-1).
+     */
+    val terminal: PregenTerminal? = null,
 ) {
     val processed: Int get() = passagesSynthesized + passagesCached + failures
     val percent: Int get() = if (totalPassages == 0) 100 else (processed * 100 / totalPassages).coerceIn(0, 100)
+}
+
+/** The terminal reason an [OfflinePregen] run stopped. */
+enum class PregenTerminal {
+    /** Walked every chapter to the end — the whole book is processed. */
+    Completed,
+    /** A finite budget (passages, chapters or wall-clock) ran out. */
+    BudgetExhausted,
+    /** The disk tier is full; a put would only evict another entry. */
+    CacheSaturated,
+    /** The caller's [OfflinePregen.shouldContinue] turned false (playback yield). */
+    Yielded,
+    /** Synthesis reported [SynthesisOutcome.Unavailable]; packs will not heal within the run. */
+    Unavailable,
+    /** [OfflinePregen.consecutiveFailureCap] consecutive synthesis failures. */
+    FailureCap,
 }
 
 /**
@@ -51,6 +82,10 @@ data class PregenProgress(
  *   holds a placeholder — but [consecutiveFailureCap] consecutive failures
  *   stop the run (an engine meltdown must not spin). `Unavailable` stops
  *   immediately: missing packs will not heal within the run.
+ * - The returned [PregenProgress.terminal] names the stopping reason, so a
+ *   caller (the WorkManager worker) can distinguish a safely bounded run
+ *   from an engine failure instead of reporting every partial run as success
+ *   (CR-1).
  */
 class OfflinePregen(
     private val cache: PcmPassageCache,
@@ -89,16 +124,24 @@ class OfflinePregen(
             onProgress(progress)
         }
 
+        /** Sets the terminal and fires one final event, so the last observed
+         * progress equals the returned result. */
+        suspend fun finished(terminal: PregenTerminal): PregenProgress {
+            val final = progress.copy(terminal = terminal)
+            onProgress(final)
+            return final
+        }
+
         for (chapter in book.chapters) {
-            budget.maxChapters?.let { if (progress.chaptersDone >= it) return progress }
+            budget.maxChapters?.let { if (progress.chaptersDone >= it) return finished(PregenTerminal.BudgetExhausted) }
             context.ensureActive()
-            if (!shouldContinue()) return progress
+            if (!shouldContinue()) return finished(PregenTerminal.Yielded)
 
             for ((passageIndex, passage) in chapter.passages.withIndex()) {
                 context.ensureActive()
-                if (!shouldContinue()) return progress
-                budget.maxTimeMs?.let { if (clock() - startedAt >= it) return progress }
-                budget.maxPassages?.let { if (progress.processed >= it) return progress }
+                if (!shouldContinue()) return finished(PregenTerminal.Yielded)
+                budget.maxTimeMs?.let { if (clock() - startedAt >= it) return finished(PregenTerminal.BudgetExhausted) }
+                budget.maxPassages?.let { if (progress.processed >= it) return finished(PregenTerminal.BudgetExhausted) }
 
                 val key = PregenKey(book.id, chapter.index, passageIndex, voice, speed)
                 if (cache.contains(key)) {
@@ -106,8 +149,8 @@ class OfflinePregen(
                     consecutiveFailures = 0
                     continue
                 }
-                if (cache.bytesRemaining() == 0L) return progress
-                if (lastPutBytes > 0L && cache.bytesRemaining() < lastPutBytes) return progress
+                if (cache.bytesRemaining() == 0L) return finished(PregenTerminal.CacheSaturated)
+                if (lastPutBytes > 0L && cache.bytesRemaining() < lastPutBytes) return finished(PregenTerminal.CacheSaturated)
 
                 when (val outcome = synthesize(passage.text)) {
                     is SynthesisOutcome.Audio -> {
@@ -116,16 +159,16 @@ class OfflinePregen(
                         consecutiveFailures = 0
                         lastPutBytes = outcome.pcm.size.toLong()
                     }
-                    is SynthesisOutcome.Unavailable -> return progress
+                    is SynthesisOutcome.Unavailable -> return finished(PregenTerminal.Unavailable)
                     is SynthesisOutcome.Failed -> {
                         bump { copy(failures = failures + 1) }
                         consecutiveFailures++
-                        if (consecutiveFailures >= consecutiveFailureCap) return progress
+                        if (consecutiveFailures >= consecutiveFailureCap) return finished(PregenTerminal.FailureCap)
                     }
                 }
             }
             bump { copy(chaptersDone = chaptersDone + 1) }
         }
-        return progress
+        return finished(PregenTerminal.Completed)
     }
 }

@@ -70,8 +70,15 @@ dependencies {
     implementation(project(":core-persistence"))
     implementation(project(":core-player"))
 
+    // PregenWorker host tests (CR-1): Robolectric runs the real worker with
+    // in-memory Room + a fake engine; work-testing provides the test
+    // WorkManager singleton (progress/foreground updates) + the worker builder.
     testImplementation(libs.junit.jupiter)
     testRuntimeOnly(libs.junit.platform.launcher)
+    testImplementation(libs.robolectric)
+    testImplementation(libs.vintage.engine)
+    testImplementation(libs.kotlinx.coroutines.test)
+    testImplementation(libs.work.testing)
 
     androidTestImplementation(libs.junit4)
     androidTestImplementation(libs.androidx.test.runner)

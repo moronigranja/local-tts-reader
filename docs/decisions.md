@@ -1,4 +1,134 @@
 # Decision log
+## 60. A1 — Pre-generation terminal truth (CR-1) (2026-08-27)
+
+Closed the CR-1 false-success: choosing “Whole book” in the pre-generation
+overlay silently did nothing and settled as a successful job. Two defects and
+their repairs:
+
+- **Deadline conflation.** `PregenWorker` computed
+  `budget.maxTimeMs?.minus(elapsed)?.takeIf { it > 0 } ?: break`, so a null
+  deadline (“whole book”) was treated as an already-expired deadline and the
+  loop broke before constructing `OfflinePregen`. `PregenBudget` now exposes
+  `remainingTimeMs(elapsed): Long?` (null = unbounded by construction) and the
+  worker breaks only when the value is non-null and `<= 0`, passing null
+  through as an unbounded `maxTimeMs`.
+- **False success.** `doWork` returned `Result.success()` unconditionally,
+  hiding every `OfflinePregen` stop. `PregenProgress` now carries a
+  `PregenTerminal` (`Completed`, `BudgetExhausted`, `CacheSaturated`,
+  `Yielded`, `Unavailable`, `FailureCap`) set by `run()` on every return path
+  (the terminal event is the final progress event, so the observed tail equals
+  the result). The worker maps `Unavailable`/`FailureCap` to
+  `Result.failure` with `KEY_ERROR` + per-run counts (overnight stops the whole
+  job: engine conditions are global), and `LibraryScreen.BookRow` surfaces the
+  error text. A `null` terminal is itself a failure, never a silent success.
+
+Testability: `KokoroRuntime` became `open` with `engine(): TTSEngine?` (the
+only surface any caller uses — zero behavior change) so host tests inject a
+fake engine; `feature-player` gained Robolectric + `work-testing` (+
+`vintage-engine`, `kotlinx-coroutines-test`) and `PregenWorkerTest` drives the
+real worker over in-memory Room (`RoomLibraryStore` + `AppSettings` over an
+in-memory `LibraryDatabase`) and the real `PregenCache` tier. The book loop
+lives in `runBooks` with an injectable clock for deterministic budget tests.
+
+Evidence: `PregenWorkerTest` (6 — whole-book without budget synthesizes and
+caches, expired finite budget does nothing, unbounded is not expired,
+`Unavailable`/meltdown fail with typed errors, missing engine fails),
+`PregenBudgetTest` (4), `OfflinePregenTest` (13, terminals asserted). Device
+`PregenE2eTest` (no-budget whole-book path) re-run pending on the Bigme B6 /
+S22.
+
+## 59. Fresh-install journey, primary-flow voice selector, review backlog (2026-08-27)
+
+The roadmap gains Phase C after the visual system and before performance/data feature
+work. A clean install has no books or speech assets; successful first audio must be a
+designed journey rather than a sequence the user infers from Settings.
+
+- **Guided setup:** explain offline/privacy behavior, choose language + voice, present
+  exact required-pack/storage cost, coordinate Kokoro model + voices + espeak-ng
+  downloads, keep OCR optional, then import a book and reach first audio. Network loss,
+  cancellation, low storage and process restart are acceptance cases.
+- **Durable facts, not a completion bit:** setup derives from ready packs, selected
+  voice and library contents. Missing or cleared assets reopen the actual missing step;
+  every action remains reachable later.
+- **Voice selector:** the existing Settings picker/favorites remains the management
+  surface, but one shared selector also appears in first-run and the primary
+  player/reader flow. Initial scope is one global voice; per-book voice is not implied.
+  Selection is explicit: a persistent "Selected voice: …" summary plus a radio/check on
+  exactly one available row. Stars mean favorite only; row taps select and star taps
+  only toggle favorite. A saved voice missing from the catalog is shown unavailable
+  with a download/reselect action, never as an all-unselected list. A switch preserves
+  the playhead, supersedes stale synthesis after CR-5/A5, uses the voice-keyed cache,
+  persists through `AppSettings`, and never silently falls back when an asset is missing.
+- **Voice sampling:** every ready voice row has Preview/Stop using a short fixed phrase
+  appropriate to its language. Auditioning never selects/favorites the voice and never
+  writes book progress, history or passage-cache entries. One sample owns the audition
+  path; a newer preview cancels the old one and slow generation is visible/cancellable.
+  Active narration pauses at a captured playhead and resumes only if it was previously
+  playing, serialized through CR-5/A5. Missing assets show the normal download action.
+- **Sample content:** not decided. First-run must work with a user-imported book; a
+  public-domain sample can be reviewed independently.
+- **Further reviews recorded, not scheduled:** data survival/user-owned storage,
+  hostile-input/resource ceilings, release readiness, narration-quality corpus,
+  Android lifecycle/interruption matrix, OCR replacement, library metadata, local
+  diagnostics and battery/storage policy.
+
+The former roadmap phases C–G shift to D–H. Promoted-idea destinations now point to D2,
+F3 and G1–G3.
+
+
+## 58. Material 3 design-system and UI-redesign slice (2026-08-27)
+
+The roadmap gains Phase B after stabilization and before new product screens. Ayvu
+already depends on Compose Material 3; the gap is a shared visual system and deliberate
+surface design, not the absence of a component toolkit.
+
+- **Foundation:** keep Material 3; centralize branded light/dark color roles,
+  typography, shapes, elevation, spacing and motion in `AyvuTheme` instead of applying
+  default schemes directly in `MainActivity`.
+- **Components:** build only the shared cards, rows, controls, progress, dialogs and
+  state panels required by real screens. Shared UI owns no business logic, navigation,
+  stores or ViewModels.
+- **Boundary:** settle the component home during CR-6. A small Android `core-ui` module
+  is allowed only when it prevents feature-to-feature dependencies; it is not a new
+  application layer.
+- **Redesign order:** player card/library, reader, settings/storage, then share/import
+  states. Backup, folder import and stats reuse the resulting system rather than adding
+  one-off styling.
+- **Third-party rule:** adopt a Compose library only for a named missing component after
+  accessibility, maintenance, license and APK-cost review. No wholesale UI-kit swap.
+- **Acceptance:** approved reference screenshots plus light/dark, font-scale, TalkBack,
+  touch-target, reduced-motion and contrast checks on the S22; low-motion/e-ink behavior
+  on the HiBreak.
+
+The former roadmap phases B–F shift to C–G. Idea dispositions now point to C2, E3 and
+F1–F3.
+
+
+## 57. Roadmap reset: stabilization first + five idea promotions (2026-08-27)
+
+The completed build-era phase plan was no longer an active roadmap: it mixed shipped
+implementation history, stale estimates and unfinished post-v1 work. `roadmap.md` is
+now a current sequence with the v1 phases compressed to a reference table.
+
+- **First gate: shipped-contract stabilization.** CR-1 through CR-5 are release-blocking
+  correctness work; CR-3 + CR-6 form the Room/index ownership and feature-boundary
+  cutover. Instant seeking waits for cache/command correctness; backup waits for durable
+  Room/index consistency; cross-feature work waits for clean composition boundaries.
+- **Next sequence:** instant-seek + weak-device performance, backup/restore, library
+  completion, narration/reader controls, then TODAY stats. Translation, CosyVoice,
+  Kindle sync and timing-heavy reader features remain later strategic work.
+- **Promoted from `ideas.md`, superseding #29's ideas-only disposition:**
+  (1) accelerator/quantization/power measurement gate,
+  (2) folder import paired with import progress/cancellation, (3) general TTS
+  pronunciation replacements, (4) paragraph long-press Play/Copy menu, and (5) the
+  narrow hardware/listening gesture subset. A fully configurable tap-zone editor is
+  explicitly not promoted.
+- **Safety boundaries:** pronunciation changes are output-side only; volume keys keep
+  normal system behavior by default; accelerator changes ship only after device and
+  audio-quality evidence.
+- Historical estimates and completed player-card specifications remain recoverable in
+  this ledger and git history; they no longer obscure active work.
+
 
 ## 56. Player card refinement: in-list on the library, channel cuts (2026-08-27)
 
@@ -1301,5 +1431,34 @@ User-review batch #2 — five items, all verified live on the S22:
   shows the book cover (`files/covers/<bookId>` decoded, downsampled to
   ≤512 px, cached per book) as MediaStyle album art, the app name is "Ayvu"
   (fallback title + "Ayvu playback" channel; the launcher label was already
+
   Ayvu), and the book title remains the content title. Verified on-device:
   `largeIcon=Bitmap`, title=Impulse, MediaStyle template.
+
+## 53. EPUB import: XML-valid entities killed the parse (2026-08-27)
+User reported "No More Mr Nice Guy" (from a real bundled epub) failing to
+import on the device. Reproduced on host with the exact pipeline
+(`BookImporter.import` → parse → segment → index): `ParseError(ParseError(
+message=malformed content.opf))`, SAX fatal "The entity name must
+immediately follow the '&'" at the OPF's `&amp;`.
+
+Root cause: `parseXml` decoded ALL entities (`&amp;` → `&`) before handing
+the document to the DOM parser (the 2026-08-26 HTML-entity pre-pass for
+real-world OPFs). A legitimately-escaped `&amp;` in metadata text became a
+bare `&` — invalid XML — and the parse died. Any OPF/NCX with `&` in a
+title/creator/subject failed, regardless of parser (host or Android).
+Books without `&` in metadata were unaffected, which is why earlier
+imports passed.
+
+Fix: the pre-parse pass now decodes ONLY what the XML parser cannot —
+HTML-named extras (`&nbsp;` `&mdash;` …) become their characters and a
+bare `&` is escaped to `&amp;`. XML-valid entities (`&amp;` `&lt;` `&quot;`
+`&apos;` `&gt;`, numeric refs) stay for the parser, which resolves them
+into `textContent`. `decodeEntities` (post-tag-strip chapter text, MOBI
+NCX labels) is unchanged. Regression: `XmlPreprocessingTest` — "Love
+&amp; Romance &mdash; R&amp;D" parses with correct textContent; bare "a &
+b" survives. Verified: the real epub imports Added — title "No More Mr
+Nice Guy", authors [Robert A. Glover], 3 chapters / 1809 passages; full
+core-ebook JVM suite green (host) — and on the S22, the rebuilt APK +
+the new `RealEpubImportProbe.niceGuyEntityEpubImportsOnDevice` case
+(pp.epub + nmmng.epub staged) both pass: 2 tests OK.

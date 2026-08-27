@@ -89,6 +89,7 @@ class OfflinePregenTest {
         assertEquals(0, result.passagesCached)
         assertEquals(listOf("p0", "p1", "p2", "p3", "p4"), synthesized)
         assertTrue(result.percent == 100, "full walk -> 100%")
+        assertEquals(PregenTerminal.Completed, result.terminal)
     }
 
     @Test
@@ -107,6 +108,7 @@ class OfflinePregenTest {
         assertEquals(listOf("p0", "p1"), synthesized)
         assertEquals(2, result.processed)
         assertEquals(40, result.percent)
+        assertEquals(PregenTerminal.BudgetExhausted, result.terminal)
     }
 
     @Test
@@ -115,6 +117,7 @@ class OfflinePregenTest {
         assertEquals(listOf("p0", "p1", "p2"), synthesized)
         assertEquals(1, result.chaptersDone)
         assertEquals(60, result.percent)
+        assertEquals(PregenTerminal.BudgetExhausted, result.terminal)
     }
 
     @Test
@@ -124,6 +127,7 @@ class OfflinePregenTest {
             .run(book, voice, speed, PregenBudget(maxTimeMs = 2_500))
         assertEquals(listOf("p0", "p1"), synthesized, "two passages fit in 2.5s of virtual time")
         assertEquals(2, result.processed)
+        assertEquals(PregenTerminal.BudgetExhausted, result.terminal)
     }
 
     @Test
@@ -137,6 +141,7 @@ class OfflinePregenTest {
         assertEquals(2, second.passagesCached)
         assertEquals(3, second.passagesSynthesized)
         assertEquals(100, second.percent)
+        assertEquals(PregenTerminal.Completed, second.terminal)
     }
 
     @Test
@@ -146,6 +151,7 @@ class OfflinePregenTest {
         assertEquals(listOf("p0", "p1", "p2", "p3", "p4"), synthesized, "failed passages still walked")
         assertEquals(2, result.failures)
         assertEquals(3, result.passagesSynthesized)
+        assertEquals(PregenTerminal.Completed, result.terminal, "isolated failures do not fail the run")
     }
 
     @Test
@@ -155,6 +161,7 @@ class OfflinePregenTest {
         assertEquals(listOf("p0", "p1", "p2"), synthesized)
         assertEquals(2, result.failures)
         assertEquals(1, result.passagesSynthesized)
+        assertEquals(PregenTerminal.FailureCap, result.terminal)
     }
 
     @Test
@@ -164,6 +171,7 @@ class OfflinePregenTest {
         assertEquals(listOf("p0", "p1"), synthesized)
         assertEquals(1, result.passagesSynthesized)
         assertEquals(0, result.failures, "Unavailable is a state, not a passage failure")
+        assertEquals(PregenTerminal.Unavailable, result.terminal)
     }
 
     @Test
@@ -177,6 +185,7 @@ class OfflinePregenTest {
         assertEquals(3, result.passagesCached)
         assertEquals(1, result.passagesSynthesized)
         assertEquals(4, result.processed)
+        assertEquals(PregenTerminal.CacheSaturated, result.terminal)
     }
 
     @Test
@@ -185,6 +194,7 @@ class OfflinePregenTest {
         val result = runner(cache(), shouldContinue = { gates++ < 3 }).run(book, voice, speed)
         assertEquals(listOf("p0", "p1"), synthesized)
         assertEquals(2, result.processed)
+        assertEquals(PregenTerminal.Yielded, result.terminal)
     }
 
     @Test
@@ -214,6 +224,7 @@ class OfflinePregenTest {
         val result = runner(cache()).run(book, voice, speed, PregenBudget(), events::add)
         assertTrue(events.isNotEmpty())
         assertEquals(result, events.last())
+        assertEquals(PregenTerminal.Completed, events.last().terminal, "the final event carries the terminal")
         val percents = events.map { it.percent }
         assertEquals(percents.sorted(), percents, "percent never decreases")
         assertTrue(events.size >= result.processed, "at least one event per processed passage")

@@ -398,6 +398,11 @@ private fun BookRow(
     LaunchedEffect(settled) {
         if (settled != null) viewModel.refreshOffline()
     }
+    // CR-1: a failed run exposes its typed reason (packs missing, synthesis
+    // meltdown) instead of collapsing into a silent no-op success.
+    val pregenError = workInfos.lastOrNull { it.state == WorkInfo.State.FAILED }
+        ?.outputData?.getString(PregenWorker.KEY_ERROR)
+
 
     val cover = rememberCoverBitmap(viewModel, bookId)
     var menuOpen by remember { mutableStateOf(false) }
@@ -487,7 +492,14 @@ private fun BookRow(
                         Text("$percent%", style = MaterialTheme.typography.labelSmall)
                     }
                     else -> {
-                        if (usage > 0L) {
+                        if (pregenError != null) {
+                            Text(
+                                pregenError,
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.error,
+                                modifier = Modifier.padding(top = 4.dp),
+                            )
+                        } else if (usage > 0L) {
                             Text(
                                 "${formatBytes(usage)} offline",
                                 style = MaterialTheme.typography.labelSmall,
