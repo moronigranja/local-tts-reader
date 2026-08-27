@@ -31,6 +31,8 @@ import com.moronigranja.localttsreader.player.PlayerPosition
 import com.moronigranja.localttsreader.player.PlayerStateMachine
 import com.moronigranja.localttsreader.player.PlayerStore
 import com.moronigranja.localttsreader.player.passageText
+import com.moronigranja.localttsreader.player.pregen.PregenAudio
+import com.moronigranja.localttsreader.player.pregen.PregenKey
 import com.moronigranja.localttsreader.player.pregen.PregenQueue
 import com.moronigranja.localttsreader.player.SleepTimer
 import com.moronigranja.localttsreader.persistence.AppSettings
@@ -66,6 +68,7 @@ class PlaybackService : Service() {
     @Inject lateinit var libraryStore: RoomLibraryStore
     @Inject lateinit var runtime: KokoroRuntime
     @Inject lateinit var settings: AppSettings
+    @Inject lateinit var pregenCache: PregenCache
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private var machine: PlayerStateMachine? = null
@@ -155,6 +158,7 @@ class PlaybackService : Service() {
                 PlaybackStateHolder.update { it.copy(failure = "nothing to play") }
                 return@launch
             }
+            PlaybackActive.markStarted() // overnight pre-gen yields while a session is live (#42)
             startForeground(NOTIFICATION_ID, buildNotification())
             publish()
             startLoop()
@@ -176,6 +180,7 @@ class PlaybackService : Service() {
                 active.resume()
             }
             queue = buildQueue()
+            PlaybackActive.markStarted()
             startForeground(NOTIFICATION_ID, buildNotification())
             publish()
             startLoop()
@@ -257,6 +262,7 @@ class PlaybackService : Service() {
     }
 
     private fun stopPlayer() {
+        PlaybackActive.markStopped()
         stopEverything()
         scope.launch {
             machine?.stop(liveOffsetSeconds())
@@ -276,26 +282,46 @@ class PlaybackService : Service() {
             val current = active.state.value
             if (current.phase != PlayerPhase.LOADING) return
             val position = current.position ?: return
-            val text = book?.passageText(position.chapterIndex, position.passageIndex) ?: return
+            val activeBook = book ?: return
+            val text = activeBook.passageText(position.chapterIndex, position.passageIndex) ?: return
 
-            // Fast path: the pre-generation queue (T5) already synthesized it
-            // while the previous passage played; fall back to a synchronous
-            // synthesize otherwise (cold start, jump into the future).
-            val pregen = queue?.take(position.chapterIndex, position.passageIndex)
-            val outcome = pregen
+            // Fast path (T5), now with two tiers: the in-memory look-ahead queue
+            // first, then the offline disk cache (#42) — a passage pre-generated
+            // overnight plays without synthesis; a cold/jumped passage falls
+            // back to a synchronous synthesize.
+            val voice = activeVoice()
+            val key = PregenKey(activeBook.id, position.chapterIndex, position.passageIndex, voice, current.speed)
+            val fromQueue = queue?.take(position.chapterIndex, position.passageIndex)
+            val fromDisk = fromQueue
+                ?.let { null }
+                ?: pregenCache.cache.get(key)
+            val outcome = fromQueue
                 ?.let { SynthesisOutcome.Audio(it.pcm, it.sampleRateHz, channelCount = 1, segments = it.segments) }
-                ?: (runtime.engine()?.synthesize(SynthesisRequest(text, activeVoice(), speed = current.speed))
+                ?: fromDisk
+                    ?.let { SynthesisOutcome.Audio(it.pcm, it.sampleRateHz, channelCount = 1, segments = it.segments) }
+                ?: (runtime.engine()?.synthesize(SynthesisRequest(text, voice, speed = current.speed))
                     ?: SynthesisOutcome.Failed("engine unavailable"))
-            android.util.Log.d("PlaybackService", "loop: source=" + if (pregen != null) "pregen" else "synthesized")
+            android.util.Log.d("PlaybackService", "loop: source=" + when {
+                fromQueue != null -> "pregen"
+                fromDisk != null -> "disk"
+                else -> "synthesized"
+            })
             val audio = outcome as? SynthesisOutcome.Audio ?: run {
                 val reason = (outcome as? SynthesisOutcome.Failed)?.reason ?: "engine/packs unavailable"
                 PlaybackStateHolder.update { it.copy(failure = "synthesis failed: $reason") }
                 return
             }
+            // First listen of this passage (neither tier had it): persist it so
+            // an offline run never redoes the work — normal use fills the cache.
+            if (fromQueue == null && fromDisk == null) {
+                scope.launch(Dispatchers.IO) {
+                    pregenCache.cache.put(key, PregenAudio(audio.pcm, audio.sampleRateHz, audio.segments))
+                }
+            }
             segments = audio.segments ?: emptyList()
             baselineOffset = position.offsetSeconds
             active.onAudioStarted()
-            android.util.Log.d("PlaybackService", "loop: playing ${position.chapterIndex}/${position.passageIndex} ${audio.pcm.size / 2} frames at ${current.speed}x voice=${activeVoice()}")
+            android.util.Log.d("PlaybackService", "loop: playing ${position.chapterIndex}/${position.passageIndex} ${audio.pcm.size / 2} frames at ${current.speed}x voice=$voice")
 
             val sliced = sliceForSpeed(audio.pcm, baselineOffset, audio.sampleRateHz, current.speed)
             output.play(sliced, audio.sampleRateHz)
@@ -530,6 +556,7 @@ class PlaybackService : Service() {
     }
 
     override fun onDestroy() {
+        PlaybackActive.markStopped()
         runBlocking { stopEverything(); machine?.stop(liveOffsetSeconds()); PlaybackStateHolder.reset() }
         session.isActive = false
         session.release()

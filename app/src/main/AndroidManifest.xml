@@ -1,12 +1,33 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
 
     <application
         android:name=".LocalTtsReaderApp"
         android:icon="@mipmap/ic_launcher"
+        android:label="@string/app_name"
         android:roundIcon="@mipmap/ic_launcher_round"
-        android:label="Local TTS Reader"
         android:theme="@android:style/Theme.Material.Light.NoActionBar">
+        <!-- PregenWorker (decisions #42) is Hilt-injected: LocalTtsReaderApp is
+             the Configuration.Provider that hands WorkManager the
+             HiltWorkerFactory. The default initializer must not run first (it
+             would initialize WorkManager with the reflection factory and win
+             the once-only init). -->
+        <provider
+            android:name="androidx.startup.InitializationProvider"
+            android:authorities="${applicationId}.androidx-startup"
+            android:exported="false"
+            tools:node="merge">
+            <meta-data
+                android:name="androidx.work.WorkManagerInitializer"
+                tools:node="remove" />
+        </provider>
+        <!-- WorkManager's foreground worker needs an FGS type at targetSdk 34+
+             (its own manifest leaves it untyped; the system rejects type-none). -->
+        <service
+            android:name="androidx.work.impl.foreground.SystemForegroundService"
+            android:foregroundServiceType="dataSync"
+            tools:node="merge" />
         <activity
             android:name=".MainActivity"
             android:exported="true">
@@ -15,6 +36,5 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
-    </application>
-
+        </application>
 </manifest>

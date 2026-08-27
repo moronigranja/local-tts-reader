@@ -55,6 +55,10 @@ dependencies {
     debugImplementation(libs.compose.ui.tooling)
     implementation(libs.room.runtime) // RoomLibraryStore's concrete type is on the API surface
     implementation(libs.kotlinx.coroutines.core)
+    // Offline pre-generation (decisions #42): WorkManager job core + Hilt worker injection.
+    implementation(libs.work.runtime.ktx)
+    implementation(libs.androidx.hilt.work)
+    ksp(libs.androidx.hilt.compiler)
 
     implementation(project(":core-model"))
     // JNA seam (decisions #25/#32): core-tts's jar JNA has no Android natives;

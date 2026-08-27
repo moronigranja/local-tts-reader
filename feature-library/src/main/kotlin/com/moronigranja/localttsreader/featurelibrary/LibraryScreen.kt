@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -31,6 +32,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.livedata.observeAsState
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -40,6 +42,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.work.WorkInfo
+import com.moronigranja.localttsreader.featureplayer.playback.PregenWorker
 import kotlinx.coroutines.launch
 
 /**
@@ -146,24 +150,7 @@ fun LibraryScreen(
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
                     items(library, key = { it.book.id }) { entry ->
-                        Card(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clickable { onOpenBook(entry.book.id) },
-                        ) {
-                            Column(modifier = Modifier.padding(16.dp)) {
-                                Text(
-                                    text = entry.book.title,
-                                    style = MaterialTheme.typography.titleMedium,
-                                )
-                                if (entry.book.authors.isNotEmpty()) {
-                                    Text(
-                                        text = entry.book.authors.joinToString(", "),
-                                        style = MaterialTheme.typography.bodyMedium,
-                                    )
-                                }
-                            }
-                        }
+                        BookRow(entry.book.id, entry.book.title, entry.book.authors, onOpenBook, viewModel)
                     }
                 }
             }
@@ -190,5 +177,69 @@ fun LibraryScreen(
                 TextButton(onClick = { resultSummary = null }) { Text("OK") }
             },
         )
+    }
+}
+
+/**
+ * One library card with the offline pre-generation action (decisions #42):
+ * starts the manual worker (KEEP-deduplicated), shows its live progress from
+ * WorkManager, and flips to a "again" affordance once a run succeeded.
+ */
+@Composable
+private fun BookRow(
+    bookId: String,
+    title: String,
+    authors: List<String>,
+    onOpenBook: (String) -> Unit,
+    viewModel: LibraryViewModel,
+) {
+    val workInfos by viewModel.pregenWork(bookId).observeAsState(emptyList())
+    val running = workInfos.any { it.state == WorkInfo.State.ENQUEUED || it.state == WorkInfo.State.RUNNING }
+    val percent = workInfos.maxOfOrNull { it.progress.getInt(PregenWorker.KEY_PROGRESS_PERCENT, 0) } ?: 0
+    val ready = workInfos.any { it.state == WorkInfo.State.SUCCEEDED }
+
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { onOpenBook(bookId) },
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+        ) {
+            Text(
+                text = title,
+                style = MaterialTheme.typography.titleMedium,
+            )
+            if (authors.isNotEmpty()) {
+                Text(
+                    text = authors.joinToString(", "),
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+            }
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 8.dp),
+                horizontalArrangement = Arrangement.End,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                when {
+                    running -> {
+                        LinearProgressIndicator(
+                            progress = { percent / 100f },
+                            modifier = Modifier
+                                .weight(1f)
+                                .padding(end = 12.dp),
+                        )
+                        Text("$percent%", style = MaterialTheme.typography.labelSmall)
+                    }
+                    else -> TextButton(onClick = { viewModel.pregenerate(bookId) }) {
+                        Text(if (ready) "Pre-gen again" else "Pre-generate")
+                    }
+                }
+            }
+        }
     }
 }

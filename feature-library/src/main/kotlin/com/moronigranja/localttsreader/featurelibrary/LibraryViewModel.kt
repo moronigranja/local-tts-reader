@@ -1,11 +1,15 @@
 package com.moronigranja.localttsreader.featurelibrary
 
+import androidx.lifecycle.LiveData
+import androidx.lifecycle.MutableLiveData
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import androidx.work.WorkInfo
 import com.moronigranja.localttsreader.ebook.BookImporter
 import com.moronigranja.localttsreader.ebook.EBookSource
 import com.moronigranja.localttsreader.ebook.ImportFailureReason
 import com.moronigranja.localttsreader.ebook.ImportOutcome
+import com.moronigranja.localttsreader.featureplayer.playback.PregenManager
 import com.moronigranja.localttsreader.model.LibraryEntry
 import com.moronigranja.localttsreader.model.LibraryStore
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -32,7 +36,15 @@ class LibraryViewModel @Inject constructor(
     private val repository: LibraryStore,
     private val importer: BookImporter,
     @IoDispatcher private val ioDispatcher: CoroutineDispatcher,
+    // Default null: pure-JVM unit tests skip pre-generation (Hilt always supplies it).
+    private val pregenManager: PregenManager? = null,
 ) : ViewModel() {
+    /** Starts a manual offline pre-generation run for one book (#42). */
+    fun pregenerate(bookId: String) = pregenManager?.pregenerate(bookId)
+
+    /** The book's manual pre-generation job, for row progress (KEEP-deduplicated). */
+    fun pregenWork(bookId: String): LiveData<List<WorkInfo>> =
+        pregenManager?.workInfo(bookId) ?: MutableLiveData(emptyList())
 
     val library: StateFlow<List<LibraryEntry>> = repository.books
 

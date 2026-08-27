@@ -48,6 +48,11 @@ class PcmPassageCache(
         recency[key] = now
         PregenAudio(pcmFile.readBytes(), parsed.first, parsed.second)
     }
+    /** Existence check without reading the PCM — the pregen planner's skip-check. */
+    fun contains(key: PregenKey): Boolean = synchronized(lock) { pcmFile(key).isFile }
+
+    /** Free bytes under the cap; the planner stops at 0 (a put would only evict). */
+    fun bytesRemaining(): Long = synchronized(lock) { (maxBytes - totalBytesLocked()).coerceAtLeast(0) }
 
     fun delete(key: PregenKey) = synchronized(lock) {
         val pcmFile = pcmFile(key)
