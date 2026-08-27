@@ -15,6 +15,7 @@ plan — slicing happens through decisions.md.
 | **Library search not built** | `feature-library` has no search UI; the index/matcher core (core-locate) is live and rebuilt at launch, the surface is not. | Open — feature gap, not a regression | `modules.md` (feature-library row), `architecture.md` §2/§4 |
 | **CosyVoice3 bundle URLs not pinned in the repo** | The #49 on-device run staged models ad-hoc (HF snapshot `jiangzhuo9357/cosyvoice3-0.5b-onnx` + locally derived prompt wavs); the repo carries no URL/hash for the bundle, so the fallback tier isn't reproducible from the repo. | Open — revisit whether to pin exact URLs | decisions #49 |
 | **Android Auto media controls unverified on device** | T4 acceptance lists "Auto verify" (MediaSession-based controls on Android Auto); no device-pass evidence is recorded yet. | Open — verification pending | `roadmap.md` T4 row, ideas.md |
+| **No progress feedback during book import** | A SAF import batch shows no in-flight progress or cancellation — the "Added N · Unchanged M" summary appears only after completion, so large/multi-file imports look hung. (Roadmap C5/C6 claim "batch import with progress"; the UI doesn't surface it.) | Open — user report 2026-08-27 | user report; `roadmap.md` C5/C6 |
 
 ## Test-harness limitations (worked around, not fixed)
 
