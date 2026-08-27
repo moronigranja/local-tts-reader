@@ -90,13 +90,14 @@ class PlayerStateMachine(
     // Transport
 
     /** Starts playback at the stored resume point; returns it, or null when
-     * the book was never played. Ring untouched (nothing is being left). */
+     * the book was never played or the stored point no longer maps to the
+     * current layout (stale parse from an older import/device cycle — the
+     * caller falls back to a fresh start and overwrites the stale row).
+     * Ring untouched (nothing is being left). */
     suspend fun resume(): PlayerPosition? {
         val stored = storeOp { store.readProgress(bookId) } ?: return null
         val position = stored.toPosition()
-        require(layout.isValid(position.chapterIndex, position.passageIndex)) {
-            "stored progress points outside the layout: $position"
-        }
+        if (!layout.isValid(position.chapterIndex, position.passageIndex)) return null
         _state.update {
             it.copy(
                 phase = PlayerPhase.LOADING,

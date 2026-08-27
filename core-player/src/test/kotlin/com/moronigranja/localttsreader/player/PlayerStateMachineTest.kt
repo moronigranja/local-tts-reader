@@ -61,6 +61,18 @@ class PlayerStateMachineTest {
     }
 
     @Test
+    fun `resume with a stale out-of-layout progress falls back to a fresh start`() = runTest {
+        // A stored point past the current layout (parse drift from an older
+        // import/device cycle) must not crash — the caller restarts the book.
+        store.commitProgress(
+            PlayerProgress("b1", 5, 0, 0.0, 1.0, now), // no chapter index 5 in the book
+            null,
+        )
+        assertNull(machine.resume(), "stale progress yields no resume point")
+        assertEquals(PlayerPhase.IDLE, machine.state.value.phase)
+    }
+
+    @Test
     fun `playFrom a different position pushes the stored resume point`() = runTest {
         store.commitProgress(PlayerProgress("b1", 0, 0, 0.0, 1.0, now), null)
         machine.playFrom(passage(0, 2))
