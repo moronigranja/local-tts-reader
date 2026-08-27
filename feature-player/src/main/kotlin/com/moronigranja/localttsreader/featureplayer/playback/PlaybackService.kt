@@ -129,6 +129,10 @@ class PlaybackService : Service() {
             ACTION_PAUSE -> pausePlayer(PauseReason.USER)
             ACTION_SKIP_FORWARD -> navigate { it.skipForward() }
             ACTION_SKIP_BACKWARD -> navigate { it.skipBackward() }
+            ACTION_SEEK_FORWARD -> seekBy(SEEK_STEP_SECONDS)
+            ACTION_SEEK_BACKWARD -> seekBy(-SEEK_STEP_SECONDS)
+            ACTION_CHAPTER_FORWARD -> navigate { it.skipChapter(1) }
+            ACTION_CHAPTER_BACKWARD -> navigate { it.skipChapter(-1) }
             ACTION_UNDO -> navigateUndo()
             ACTION_STOP -> stopPlayer()
             ACTION_SLEEP -> cycleSleepTimer()
@@ -261,6 +265,32 @@ class PlaybackService : Service() {
         scope.launch {
             active.notePlaybackOffset(live)
             move(active)
+            ringHasEntries = store.readRing(active.bookId).isNotEmpty()
+            publish()
+            startLoop()
+        }
+    }
+
+    /**
+     * Rolling seek (decisions #53): converts the playhead to global book-time
+     * (chars/15 speech model), applies the delta, clamps to the book, and maps
+     * back to a spine position — seeks roll across passage boundaries. The
+     * machine's [PlayerStateMachine.seekTo] pushes the position being left for
+     * one undo.
+     */
+    private fun seekBy(deltaSeconds: Double) {
+        val active = machine ?: return
+        val live = liveOffsetSeconds()
+        stopEverything()
+        scope.launch {
+            active.notePlaybackOffset(live)
+            val activeBook = book ?: return@launch
+            val position = active.state.value.position ?: return@launch
+            val target = BookProgress.positionAt(
+                activeBook,
+                BookProgress.elapsedSeconds(activeBook, position) + deltaSeconds,
+            )
+            active.seekTo(target)
             ringHasEntries = store.readRing(active.bookId).isNotEmpty()
             publish()
             startLoop()
@@ -435,6 +465,7 @@ class PlaybackService : Service() {
             it.copy(
                 bookId = active.bookId,
                 bookTitle = book?.title ?: "",
+                authors = book?.authors ?: emptyList(),
                 chapterIndex = position?.chapterIndex ?: 0,
                 passageIndex = position?.passageIndex ?: 0,
                 passageText = position?.let { p -> book?.passageText(p.chapterIndex, p.passageIndex) } ?: "",
@@ -444,6 +475,7 @@ class PlaybackService : Service() {
                     book?.chapters?.firstOrNull { it.index == p.chapterIndex }?.passages?.map { it.text }
                 } ?: emptyList(),
                 readFraction = position?.let { p -> book?.let { BookProgress.fraction(it, p.chapterIndex, p.passageIndex) } } ?: 0f,
+                elapsedSeconds = position?.let { p -> book?.let { BookProgress.elapsedSeconds(it, p) } } ?: 0.0,
                 timeLeftSeconds = position?.let { p ->
                     book?.let { BookProgress.remainingSeconds(it, p.chapterIndex, p.passageIndex, liveOffsetSeconds(), state.speed) }
                 } ?: 0.0,
@@ -660,6 +692,7 @@ class PlaybackService : Service() {
         private const val CHANNEL_ID = "playback"
         private const val NOTIFICATION_ID = 42
         private const val TICK_MS = 1_000L
+        private const val SEEK_STEP_SECONDS = 30.0
         private const val FRAME_MARGIN = 240 // 10 ms at 24 kHz
         private const val DUCK_VOLUME = 0.2f
         private val SPEED_PRESETS = listOf(1.0, 1.25, 1.5, 2.0)
@@ -673,6 +706,10 @@ class PlaybackService : Service() {
         const val ACTION_PAUSE = "pause"
         const val ACTION_SKIP_FORWARD = "skip_forward"
         const val ACTION_SKIP_BACKWARD = "skip_backward"
+        const val ACTION_SEEK_FORWARD = "seek_forward"
+        const val ACTION_SEEK_BACKWARD = "seek_backward"
+        const val ACTION_CHAPTER_FORWARD = "chapter_forward"
+        const val ACTION_CHAPTER_BACKWARD = "chapter_backward"
         const val ACTION_UNDO = "undo"
         const val ACTION_STOP = "stop"
         const val ACTION_SLEEP = "sleep"

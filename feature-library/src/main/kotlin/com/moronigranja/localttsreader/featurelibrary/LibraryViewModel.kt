@@ -12,6 +12,9 @@ import com.moronigranja.localttsreader.ebook.EBookSource
 import com.moronigranja.localttsreader.ebook.ImportFailureReason
 import com.moronigranja.localttsreader.ebook.ImportOutcome
 import com.moronigranja.localttsreader.featureplayer.playback.PlaybackService
+import com.moronigranja.localttsreader.featureplayer.playback.PlaybackStateHolder
+import com.moronigranja.localttsreader.featureplayer.playback.PlaybackUiState
+import com.moronigranja.localttsreader.featureplayer.ui.PlayerCommands
 import com.moronigranja.localttsreader.featureplayer.playback.PregenManager
 import com.moronigranja.localttsreader.featureplayer.playback.PregenStorage
 import com.moronigranja.localttsreader.featurelibrary.CoverStore
@@ -60,7 +63,7 @@ class LibraryViewModel @Inject constructor(
     private val progressDao: ProgressDao? = null,
     // Default null: unit tests drop the index; Hilt provides the shared one.
     private val index: TextIndex? = null,
-) : ViewModel() {
+) : ViewModel(), PlayerCommands {
     /** Books the user has covers for (extracted at import; sidecar files). */
     fun cover(bookId: String): ByteArray? = context?.let { CoverStore(File(it.filesDir, "covers")).load(bookId) }
 
@@ -68,6 +71,9 @@ class LibraryViewModel @Inject constructor(
     fun consumeImportResult() {
         _importState.value = ImportUiState.Idle
     }
+    /** The service-published player state — docks the shared player card. */
+    val playerState: StateFlow<PlaybackUiState> = PlaybackStateHolder.state
+
     /** Quick play from a library row: resumes the book's audio (decisions #52). */
     fun playBook(bookId: String) {
         val ctx = context ?: return
@@ -76,6 +82,25 @@ class LibraryViewModel @Inject constructor(
             .putExtra(PlaybackService.EXTRA_BOOK_ID, bookId)
         runCatching { ctx.startForegroundService(intent) }
     }
+
+    // Player-card command surface (decisions #53): the library docks the same
+    // docked-card commands as the reader.
+    private fun command(action: String) {
+        val ctx = context ?: return
+        runCatching {
+            ctx.startForegroundService(
+                Intent(ctx, PlaybackService::class.java).setAction(action),
+            )
+        }
+    }
+
+    override fun resume() = command(PlaybackService.ACTION_RESUME)
+    override fun pause() = command(PlaybackService.ACTION_PAUSE)
+    override fun seekForward() = command(PlaybackService.ACTION_SEEK_FORWARD)
+    override fun seekBackward() = command(PlaybackService.ACTION_SEEK_BACKWARD)
+    override fun chapterForward() = command(PlaybackService.ACTION_CHAPTER_FORWARD)
+    override fun chapterBackward() = command(PlaybackService.ACTION_CHAPTER_BACKWARD)
+    override fun cycleSpeed() = command(PlaybackService.ACTION_SPEED)
     /** Starts a manual pre-generation run for one book (#42); null budget = whole book. */
     fun pregenerate(bookId: String, budgetMinutes: Long? = null) =
         pregenManager?.pregenerate(bookId, budgetMinutes)

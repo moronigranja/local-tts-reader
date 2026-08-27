@@ -75,8 +75,9 @@ import com.moronigranja.localttsreader.player.TextPagination
  * highlighted from the engine's anchors (#31) and playback turns pages
  * (only when the spoken passage leaves the current one). Opening a book does
  * NOT auto-play (decisions #52); the transport or the library play button
- * start audio. Docked transport (play/pause, skip, speed cycle, sleep timer,
- * undo-skip), page gestures (horizontal swipe or side-zone taps turn pages;
+ * start audio. The shared player card docks below (play/pause, ±30s seek,
+ * chapter skip, speed pill); sleep timer + undo-skip stay in the top bar.
+ * Page gestures (horizontal swipe or side-zone taps turn pages;
  * a middle tap starts playback at the passage under the finger) and the
  * bookmark menu (add + jump) round it out.
  */

@@ -28,6 +28,8 @@ object PlaybackStateHolder {
 data class PlaybackUiState(
     val bookId: String? = null,
     val bookTitle: String = "",
+    /** The book's authors, spine order — the player card subtitle. */
+    val authors: List<String> = emptyList(),
     val chapterIndex: Int = 0,
     val passageIndex: Int = 0,
     val passageText: String = "",
@@ -44,6 +46,8 @@ data class PlaybackUiState(
     val offsetSeconds: Double = 0.0,
     /** [0..1] book position — completed passages over the book's total. */
     val readFraction: Float = 0f,
+    /** Book-time seconds elapsed at the playhead (1.0×) — the card's elapsed. */
+    val elapsedSeconds: Double = 0.0,
     /** Estimated listening time left in the book at the current speed. */
     val timeLeftSeconds: Double = 0.0,
     val speed: Double = 1.0,

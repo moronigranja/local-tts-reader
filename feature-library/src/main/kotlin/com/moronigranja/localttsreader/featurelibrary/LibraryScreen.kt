@@ -2,6 +2,9 @@ package com.moronigranja.localttsreader.featurelibrary
 
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -53,12 +56,17 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInWindow
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.work.WorkInfo
 import com.moronigranja.localttsreader.featureplayer.playback.PregenWorker
+import com.moronigranja.localttsreader.featureplayer.ui.PlayerCard
+import com.moronigranja.localttsreader.player.PlayerPhase
 import com.moronigranja.localttsreader.featureplayer.playback.formatBytes
 import kotlinx.coroutines.launch
 
@@ -89,6 +97,7 @@ fun LibraryScreen(
     val offline by viewModel.offline.collectAsState()
     val readProgress by viewModel.readProgress.collectAsState()
     val recent by viewModel.recent.collectAsState()
+    val playerState by viewModel.playerState.collectAsState()
 
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
@@ -103,6 +112,25 @@ fun LibraryScreen(
         if (uris.isNotEmpty()) {
             uris.forEach(context::takeReadPermission)
             context.toEBookSources(uris).let(viewModel::import)
+        }
+    }
+
+    // Docked player card (decisions #53): shown whenever a session is active;
+    // its first appearance animates up from the tapped row's bounds into the
+    // docked slot (falls back to a plain appear when the row was never on
+    // screen, e.g. a session started from the reader or share target).
+    val positioned = playerState.bookId != null &&
+        (playerState.phase != PlayerPhase.IDLE || playerState.canUndo || playerState.passageText.isNotBlank())
+    var rowCenters by remember { mutableStateOf<Map<String, Float>>(emptyMap()) }
+    var cardTop by remember { mutableStateOf(0f) }
+    val dockDelta = remember { Animatable(0f) }
+    LaunchedEffect(playerState.bookId, positioned) {
+        if (positioned) {
+            val from = (rowCenters[playerState.bookId] ?: cardTop) - cardTop
+            dockDelta.snapTo(from.coerceAtMost(0f))
+            dockDelta.animateTo(0f, tween(360, easing = FastOutSlowInEasing))
+        } else {
+            dockDelta.snapTo(0f)
         }
     }
 
@@ -135,6 +163,29 @@ fun LibraryScreen(
             )
         },
         snackbarHost = { SnackbarHost(snackbarHostState) },
+        bottomBar = {
+            if (positioned) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .onGloballyPositioned { cardTop = it.positionInWindow().y },
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .padding(horizontal = 12.dp, vertical = 6.dp)
+                            .fillMaxWidth()
+                            .graphicsLayer {
+                                val shrink = (dockDelta.value / (cardTop.coerceAtLeast(1f))).coerceIn(0f, 1f)
+                                translationY = dockDelta.value
+                                scaleX = 1f - 0.06f * shrink
+                                scaleY = 1f - 0.06f * shrink
+                            },
+                    ) {
+                        PlayerCard(playerState, viewModel)
+                    }
+                }
+            }
+        },
     ) { padding ->
         Column(
             modifier = Modifier
@@ -173,6 +224,14 @@ fun LibraryScreen(
                     if (recentIds.isNotEmpty()) {
                         item { SectionHeader("Continue listening") }
                         items(recent, key = { it.book.id }) { entry ->
+                            Box(
+                                Modifier
+                                    .fillMaxWidth()
+                                    .onGloballyPositioned {
+                                        rowCenters = rowCenters +
+                                            (entry.book.id to (it.positionInWindow().y + it.size.height / 2f))
+                                    },
+                            ) {
                             BookRow(
                                 bookId = entry.book.id,
                                 title = entry.book.title,
@@ -182,6 +241,7 @@ fun LibraryScreen(
                                 onOpenBook = onOpenBook,
                                 viewModel = viewModel,
                             )
+                            }
                         }
                         item { SectionHeader("Library") }
                     }
@@ -189,6 +249,14 @@ fun LibraryScreen(
                         library.filterNot { it.book.id in recentIds },
                         key = { it.book.id },
                     ) { entry ->
+                        Box(
+                            Modifier
+                                .fillMaxWidth()
+                                .onGloballyPositioned {
+                                    rowCenters = rowCenters +
+                                        (entry.book.id to (it.positionInWindow().y + it.size.height / 2f))
+                                },
+                        ) {
                         BookRow(
                             bookId = entry.book.id,
                             title = entry.book.title,
@@ -198,6 +266,7 @@ fun LibraryScreen(
                             onOpenBook = onOpenBook,
                             viewModel = viewModel,
                         )
+                        }
                     }
                 }
             }

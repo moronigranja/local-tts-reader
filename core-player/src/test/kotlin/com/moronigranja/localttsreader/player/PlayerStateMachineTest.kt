@@ -128,6 +128,71 @@ class PlayerStateMachineTest {
     }
 
     @Test
+    fun `skipChapter forward lands on the next chapter first passage`() = runTest {
+        machine.playFrom(passage(0, 1))
+        val events = machine.skipChapter(1)
+        assertEquals(listOf(PlayerEvent.PassageAdvanced(1, 0)), events)
+        assertEquals(passage(1, 0), machine.state.value.position)
+        assertEquals(PlayerPhase.LOADING, machine.state.value.phase)
+        // One ring entry — the intermediate passages collapse into it.
+        assertEquals(listOf(passage(0, 1)), store.readRing("b1"))
+    }
+
+    @Test
+    fun `skipChapter backward lands on the previous chapter first passage`() = runTest {
+        machine.playFrom(passage(1, 1))
+        machine.skipChapter(-1)
+        assertEquals(passage(0, 0), machine.state.value.position)
+        assertEquals(listOf(passage(1, 1)), store.readRing("b1"))
+    }
+
+    @Test
+    fun `skipChapter at book bounds is a no-op`() = runTest {
+        machine.playFrom(passage(0, 0))
+        assertTrue(machine.skipChapter(-1).isEmpty(), "no chapter before the first")
+        assertEquals(passage(0, 0), machine.state.value.position)
+        assertTrue(store.readRing("b1").isEmpty())
+
+        machine.playFrom(passage(1, 1))
+        assertTrue(machine.skipChapter(1).isEmpty(), "no chapter after the last")
+        assertEquals(passage(1, 1), machine.state.value.position)
+    }
+
+    @Test
+    fun `skipChapter crosses empty chapters`() = runTest {
+        val gapped = Book(
+            id = "gap",
+            title = "G",
+            chapters = listOf(
+                Chapter(0, "A", listOf(TextPassage("a"))),
+                Chapter(1, "Empty", emptyList()),
+                Chapter(2, "B", listOf(TextPassage("b"))),
+            ),
+        )
+        val gappedMachine = PlayerStateMachine(store, BookLayout(gapped)) { now }
+        gappedMachine.playFrom(PlayerPosition("gap", 0, 0))
+        gappedMachine.skipChapter(1)
+        assertEquals(PlayerPosition("gap", 2, 0), gappedMachine.state.value.position)
+
+        gappedMachine.playFrom(PlayerPosition("gap", 2, 0))
+        gappedMachine.skipChapter(-1)
+        assertEquals(PlayerPosition("gap", 0, 0), gappedMachine.state.value.position)
+    }
+
+    @Test
+    fun `undo after a chapter skip restores the exact playhead`() = runTest {
+        machine.playFrom(passage(0, 1))
+        machine.notePlaybackOffset(3.5) // playhead advances into the passage
+        machine.skipChapter(1)
+        assertEquals(passage(1, 0), machine.state.value.position)
+
+        val undone = machine.undoSkip()
+        assertEquals(passage(0, 1).copy(offsetSeconds = 3.5), undone)
+        assertEquals(passage(0, 1).copy(offsetSeconds = 3.5), machine.state.value.position)
+        assertTrue(store.readRing("b1").isEmpty(), "undo consumes the ring entry")
+    }
+
+    @Test
     fun `undoSkip returns to the pushed position`() = runTest {
         machine.playFrom(passage(0, 1))
         machine.skipForward()

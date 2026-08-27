@@ -59,4 +59,50 @@ class BookProgressTest {
         assertEquals(0f, BookProgress.fraction(empty, 0, 0))
         assertEquals(0.0, BookProgress.remainingSeconds(empty, 0, 0, 0.0, 1.0))
     }
+
+    // ------------------------------------------------------------------
+    // Elapsed / positionAt (book-time at 1.0× — prerequisite for ±30s seeks)
+
+    @Test
+    fun `elapsed seconds accumulate preceding passages plus the offset`() {
+        assertEquals(0.0, BookProgress.elapsedSeconds(book, 0, 0, 0.0), 1e-6)
+        assertEquals(10.0, BookProgress.elapsedSeconds(book, 0, 1, 0.0), 1e-6)
+        assertEquals(30.0, BookProgress.elapsedSeconds(book, 1, 0, 0.0), 1e-6)
+        assertEquals(15.0, BookProgress.elapsedSeconds(book, 0, 1, 5.0), 1e-6)
+    }
+
+    @Test
+    fun `elapsed clamps the offset into the current passage`() {
+        // 10 s into a 10 s passage is the passage end, never more.
+        assertEquals(10.0, BookProgress.elapsedSeconds(book, 0, 0, 99.0), 1e-6)
+        assertEquals(0.0, BookProgress.elapsedSeconds(book, 0, 0, -5.0), 1e-6)
+    }
+
+    @Test
+    fun `total seconds is the sum of all passage durations`() {
+        assertEquals(60.0, BookProgress.totalSeconds(book), 1e-6)
+    }
+
+    @Test
+    fun `positionAt walks durations and lands on the playhead`() {
+        assertEquals(PlayerPosition("b1", 0, 0, 0.0), BookProgress.positionAt(book, 0.0))
+        assertEquals(PlayerPosition("b1", 0, 1, 0.0), BookProgress.positionAt(book, 10.0))
+        assertEquals(PlayerPosition("b1", 1, 0, 0.0), BookProgress.positionAt(book, 30.0))
+        assertEquals(PlayerPosition("b1", 0, 1, 19.9), BookProgress.positionAt(book, 29.9))
+    }
+
+    @Test
+    fun `positionAt clamps to the book bounds`() {
+        assertEquals(PlayerPosition("b1", 0, 0, 0.0), BookProgress.positionAt(book, -5.0))
+        // Past the end: last passage, offset = its full duration.
+        assertEquals(PlayerPosition("b1", 1, 0, 30.0), BookProgress.positionAt(book, 999.0))
+    }
+
+    @Test
+    fun `elapsed and positionAt round-trip across the book`() {
+        for (seconds in listOf(0.0, 7.5, 10.0, 24.0, 42.0, 60.0)) {
+            val position = BookProgress.positionAt(book, seconds)
+            assertEquals(seconds, BookProgress.elapsedSeconds(book, position), 1e-6)
+        }
+    }
 }

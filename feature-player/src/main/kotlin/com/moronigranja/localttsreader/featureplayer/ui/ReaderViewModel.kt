@@ -18,7 +18,7 @@ import kotlinx.coroutines.flow.StateFlow
 @HiltViewModel
 class ReaderViewModel @Inject constructor(
     @ApplicationContext private val context: Context,
-) : ViewModel() {
+) : ViewModel(), PlayerCommands {
 
     val state: StateFlow<PlaybackUiState> = PlaybackStateHolder.state
 
@@ -27,15 +27,20 @@ class ReaderViewModel @Inject constructor(
     fun play(bookId: String) = command(PlaybackService.ACTION_PLAY, bookId)
     fun playPosition(bookId: String, chapter: Int, passage: Int) =
         command(PlaybackService.ACTION_PLAY_POSITION, bookId, chapter, passage)
-    fun resume() = command(PlaybackService.ACTION_RESUME)
-    fun pause() = command(PlaybackService.ACTION_PAUSE)
     fun skipForward() = command(PlaybackService.ACTION_SKIP_FORWARD)
     fun skipBackward() = command(PlaybackService.ACTION_SKIP_BACKWARD)
     fun undo() = command(PlaybackService.ACTION_UNDO)
     fun stop() = command(PlaybackService.ACTION_STOP)
-    fun cycleSpeed() = command(PlaybackService.ACTION_SPEED)
     fun cycleSleep() = command(PlaybackService.ACTION_SLEEP)
     fun bookmark() = command(PlaybackService.ACTION_BOOKMARK)
+
+    override fun resume() = command(PlaybackService.ACTION_RESUME)
+    override fun pause() = command(PlaybackService.ACTION_PAUSE)
+    override fun seekForward() = command(PlaybackService.ACTION_SEEK_FORWARD)
+    override fun seekBackward() = command(PlaybackService.ACTION_SEEK_BACKWARD)
+    override fun chapterForward() = command(PlaybackService.ACTION_CHAPTER_FORWARD)
+    override fun chapterBackward() = command(PlaybackService.ACTION_CHAPTER_BACKWARD)
+    override fun cycleSpeed() = command(PlaybackService.ACTION_SPEED)
 
     private fun command(action: String, bookId: String? = null, chapter: Int = 0, passage: Int = 0) {
         val intent = Intent(context, PlaybackService::class.java).setAction(action)

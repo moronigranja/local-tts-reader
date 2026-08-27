@@ -1,5 +1,38 @@
 # Decision log
 
+## 55. App-wide player card shipped (2026-08-27) — device pass pending
+
+Roadmap #53 built end-to-end; unit suite green; on-device verification
+PENDING (S22 not connected).
+
+- **Shared `PlayerCard`** (feature-player/ui/PlayerCard.kt) + `PlayerCommands`
+  interface: cover thumb (`files/covers/<bookId>`, decoded in-card), title,
+  subtitle (authors · Ch · P or **"Generating…"** while `LOADING`),
+  book-wide progress bar, times row (book-time elapsed · % · remaining at
+  current speed — `BookProgress.elapsedSeconds`/`totalSeconds`/`positionAt`
+  added, chars/15 model shared with `PregenSpaceEstimator`), transport row
+  (−30s · ◀ Ch · play/pause with spinner · Ch ▶ · +30s · speed pill).
+- **Both screens dock it**: reader `bottomBar` (DockedControls + footer
+  removed; sleep timer + undo stay in the top bar), library `bottomBar`
+  whenever a session is active, with an entrance animation from the tapped
+  row's bounds (`onGloballyPositioned` row-centers → graphicsLayer translate
+  + scale, `Animatable`, 360 ms fast-out-slow-in).
+- **Rolling ±30s seeks** (service `seekBy`): playhead → global book-time →
+  delta → clamp → `BookProgress.positionAt` → `machine.seekTo` (ring push).
+- **Chapter skip**: `BookLayout.nextChapter/previousChapter` (empty-chapter
+  gaps) + `machine.skipChapter(dir)` — one ring entry, undo restores the
+  exact playhead (`notePlaybackOffset` test).
+- **Service/state**: `PlaybackUiState.authors` + `elapsedSeconds`;
+  `ACTION_SEEK_FORWARD/BACKWARD`, `ACTION_CHAPTER_FORWARD/BACKWARD`;
+  `LibraryViewModel.playerState` + full command surface.
+- Tests: `BookProgressTest` (elapsed/total/positionAt round-trips + bound
+  clamps), `PlayerStateMachineTest` (skipChapter fwd/back/bounds/empty-gap/
+  undo-exact-playhead). All green.
+- Edit-tooling note: `PlayerCard.kt` first draft carried drafting garbage
+  (stray Box/Spacer, double-wrapped play button) — full-file rewrite fixed;
+  two python scripts failed to write because an assert died BEFORE the write
+  (partial-apply illusion) — scripts now write after ALL asserts.
+
 ## 54. CosyVoice as a pre-gen engine (2026-08-27) — designed, not started
 
 Plan on the roadmap (full detail there); grounded in the shipped seams.

@@ -55,6 +55,20 @@ class BookLayout(book: Book) {
         val chapter = passageCounts.indexOfFirst { it > 0 }
         return if (chapter >= 0) chapter to 0 else null
     }
+
+    /** The next chapter with passages, or null past the book's end. */
+    fun nextChapter(chapterIndex: Int): Int? {
+        var chapter = chapterIndex + 1
+        while (chapter < passageCounts.size && passageCounts[chapter] == 0) chapter++
+        return chapter.takeIf { it < passageCounts.size }
+    }
+
+    /** The previous chapter with passages, or null at the book's start. */
+    fun previousChapter(chapterIndex: Int): Int? {
+        var chapter = chapterIndex - 1
+        while (chapter >= 0 && passageCounts[chapter] == 0) chapter--
+        return chapter.takeIf { it >= 0 }
+    }
 }
 
 /** Passage text lookup from a [Book] by spine indexes (the player's audio unit). */
@@ -241,6 +255,19 @@ class PlayerStateMachine(
 
     /** Previous passage; pushes the current position. */
     suspend fun skipBackward(): List<PlayerEvent> = moveBy { chapter, passage -> layout.previous(chapter, passage) }
+
+    /** Jumps to the next (direction > 0) or previous chapter's first passage;
+     * the position being left is pushed as one ring entry — the "tail" of
+     * intermediate passages collapses into it — for a single undo. */
+    suspend fun skipChapter(direction: Int): List<PlayerEvent> {
+        val current = _state.value.position ?: return emptyList()
+        val targetChapter = if (direction > 0) layout.nextChapter(current.chapterIndex)
+        else layout.previousChapter(current.chapterIndex)
+        if (targetChapter == null) return emptyList()
+        val position = PlayerPosition(bookId, targetChapter, 0)
+        commitMove(position, ringPush = current)
+        return listOf(PlayerEvent.PassageAdvanced(position.chapterIndex, position.passageIndex))
+    }
 
     /** Explicit jump (reader "tap a passage", S3 "Listen from here");
      * pushes what is being left. */
