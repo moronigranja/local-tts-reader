@@ -1,5 +1,40 @@
 # Decision log
 
+## 55. App-wide player card shipped + device-verified (2026-08-27)
+
+#53 built end-to-end; unit suite green; S22 device pass DONE.
+
+- Verification captured live: card docks on the library (with the row-bounds
+  entrance animation) and on the reader (old transport row + footer gone;
+  sleep timer + undo stay in the top bar); spinner + "Generating…" shown
+  while the engine loads; elapsed / % / remaining track correctly
+  (1:52:16 → 2:14:43, 13%→17%, ≈8h 50m→8h 27m at 1×); play from the card
+  resumes the saved position; speed pill + chapter/seek buttons present.
+- **Instant-seek work (user-prompted "keep 30s ahead cached")**:
+  - **Buffer reuse**: the loop keeps the last rendered passage
+    (`lastAudio`, keyed by book/chapter/passage/voice/speed) and resolves it
+    FIRST — a seek within the same passage replays with zero synthesis. On
+    this book passages run ~6–24 s (< 30 s), so ±30s always crosses a
+    boundary; the buffer path is code-verified, long-passage books get it.
+  - **Deterministic disk**: first-listen persists are tracked and never
+    cancelled (a new first-listen used to cancel the previous write, dropping
+    passages from the tier); every seek path joins in-flight writes, so a
+    played passage is always on disk. Verified: −30s hit `source=pregen`
+    (instant, queue) on a recent passage.
+  - **Command serialization**: transport commands now take a `commandLock`
+    (state mutation inside, `startLoop` outside — the loop must never hold
+    the lock) and `stopEverything` cancels the tracked `loopJob` directly.
+    Rapid ±30s taps no longer race: an 8-tap burst previously produced
+    corrupted `PassageAdvanced` (stale loops finishing after the position
+    moved); now each seek is a clean serialized move.
+  - **Honest residual**: a cross-boundary ±30s to a passage in neither the
+    RAM queue (lookahead=2) nor the disk tier still synthesizes (~5–25 s on
+    the S22, RTF ≈ 0.5); the spinner holds through it. The real fix for
+    "±30s always instant" is the roadmap follow-up: time-bounded look-ahead
+    (~30 s of audio queued), and NOT cancelling `queue.ensure()` on seek so
+    the in-flight pre-generation survives the jump.
+- Evidence: /tmp/pc5-…/pc6/pc8/pc9 (library + reader card states).
+
 ## 55. App-wide player card shipped (2026-08-27) — device pass pending
 
 Roadmap #53 built end-to-end; unit suite green; on-device verification

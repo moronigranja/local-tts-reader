@@ -52,6 +52,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlin.coroutines.coroutineContext
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -82,6 +83,20 @@ class PlaybackService : Service() {
     private var tickerJob: Job? = null
     private var pregenJob: Job? = null
     private var queue: PregenQueue? = null
+    /** The last passage's rendered audio, keyed identically to the disk tier —
+     * a seek that stays in the passage replays it with zero synthesis (decisions
+     * #55 layer 1). Cleared on book switch. */
+    private var lastAudio: Pair<PregenKey, PregenAudio>? = null
+    /** In-flight first-listen persists; seek paths join them so a re-fetch of
+     * a just-listened passage always finds the disk entry. Never cancelled —
+     * a new first-listen must not drop the previous passage's write. */
+    private val pendingPersists = mutableListOf<Job>()
+    /** The active play loop coroutine; cancelled directly by [stopEverything]
+     * so a stale loop can never advance the machine after a newer command. */
+    private var loopJob: Job? = null
+    /** Serializes transport commands (seek/chapter/skip/speed): rapid taps
+     * queue instead of racing the machine's single-writer state. */
+    private val commandLock = kotlinx.coroutines.sync.Mutex()
     private var stopSignal = CompletableDeferred<Unit>()
     private var segments: List<SegmentAnchor> = emptyList()
     private var baselineOffset = 0.0
@@ -161,6 +176,7 @@ class PlaybackService : Service() {
                 ?.firstOrNull { it.id == id }?.toBook() ?: return@launch
             book = activeBook
             machine = PlayerStateMachine(store, BookLayout(activeBook))
+            lastAudio = null
             queue = buildQueue()
             val position = machine!!.openPosition() ?: machine!!.firstPosition()
             if (position != null) machine!!.present(position)
@@ -194,6 +210,7 @@ class PlaybackService : Service() {
                 ?.firstOrNull { it.id == id }?.toBook() ?: return@launch
             book = activeBook
             machine = PlayerStateMachine(store, BookLayout(activeBook))
+            lastAudio = null
             queue = buildQueue()
             refreshBookmarks()
             val position = if (explicit) {
@@ -263,10 +280,15 @@ class PlaybackService : Service() {
         val live = liveOffsetSeconds()
         stopEverything()
         scope.launch {
-            active.notePlaybackOffset(live)
-            move(active)
-            ringHasEntries = store.readRing(active.bookId).isNotEmpty()
-            publish()
+            commandLock.lock()
+            try {
+                active.notePlaybackOffset(live)
+                move(active)
+                ringHasEntries = store.readRing(active.bookId).isNotEmpty()
+                publish()
+            } finally {
+                commandLock.unlock()
+            }
             startLoop()
         }
     }
@@ -283,16 +305,21 @@ class PlaybackService : Service() {
         val live = liveOffsetSeconds()
         stopEverything()
         scope.launch {
-            active.notePlaybackOffset(live)
-            val activeBook = book ?: return@launch
-            val position = active.state.value.position ?: return@launch
-            val target = BookProgress.positionAt(
-                activeBook,
-                BookProgress.elapsedSeconds(activeBook, position) + deltaSeconds,
-            )
-            active.seekTo(target)
-            ringHasEntries = store.readRing(active.bookId).isNotEmpty()
-            publish()
+            commandLock.lock()
+            try {
+                active.notePlaybackOffset(live)
+                val activeBook = book ?: return@launch
+                val position = active.state.value.position ?: return@launch
+                val target = BookProgress.positionAt(
+                    activeBook,
+                    BookProgress.elapsedSeconds(activeBook, position) + deltaSeconds,
+                )
+                active.seekTo(target)
+                ringHasEntries = store.readRing(active.bookId).isNotEmpty()
+                publish()
+            } finally {
+                commandLock.unlock()
+            }
             startLoop()
         }
     }
@@ -301,9 +328,14 @@ class PlaybackService : Service() {
         val active = machine ?: return
         stopEverything()
         scope.launch {
-            active.undoSkip()
-            ringHasEntries = store.readRing(active.bookId).isNotEmpty()
-            publish()
+            commandLock.lock()
+            try {
+                active.undoSkip()
+                ringHasEntries = store.readRing(active.bookId).isNotEmpty()
+                publish()
+            } finally {
+                commandLock.unlock()
+            }
             startLoop()
         }
     }
@@ -315,12 +347,17 @@ class PlaybackService : Service() {
         val live = liveOffsetSeconds()
         stopEverything()
         scope.launch {
-            settings.reload() // speed change rebuilds the queue anyway; keep voice fresh
-            active.pause(live)
-            active.setSpeed(next)
-            queue = buildQueue()
-            active.resume()
-            publish()
+            commandLock.lock()
+            try {
+                settings.reload() // speed change rebuilds the queue anyway; keep voice fresh
+                active.pause(live)
+                active.setSpeed(next)
+                queue = buildQueue()
+                active.resume()
+                publish()
+            } finally {
+                commandLock.unlock()
+            }
             startLoop()
         }
     }
@@ -363,6 +400,7 @@ class PlaybackService : Service() {
     // Playback loop
 
     private suspend fun startLoop() {
+        loopJob = coroutineContext[Job]
         tickerJob = scope.launch { ticker() }
         while (true) {
             val active = machine ?: return
@@ -378,17 +416,26 @@ class PlaybackService : Service() {
             // back to a synchronous synthesize.
             val voice = activeVoice()
             val key = PregenKey(activeBook.id, position.chapterIndex, position.passageIndex, voice, current.speed)
-            val fromQueue = queue?.take(position.chapterIndex, position.passageIndex)
+            // Deterministic re-seek (layer 2): in-flight first-listen persists
+            // land before any re-fetch, so a played passage is always on disk.
+            pendingPersists.forEach { it.join() }
+            val fromLast = lastAudio?.takeIf { it.first == key }?.second
+            val fromQueue = fromLast
+                ?.let { null }
+                ?: queue?.take(position.chapterIndex, position.passageIndex)
             val fromDisk = fromQueue
                 ?.let { null }
                 ?: pregenCache.cache.get(key)
-            val outcome = fromQueue
+            val outcome = fromLast
                 ?.let { SynthesisOutcome.Audio(it.pcm, it.sampleRateHz, channelCount = 1, segments = it.segments) }
+                ?: fromQueue
+                    ?.let { SynthesisOutcome.Audio(it.pcm, it.sampleRateHz, channelCount = 1, segments = it.segments) }
                 ?: fromDisk
                     ?.let { SynthesisOutcome.Audio(it.pcm, it.sampleRateHz, channelCount = 1, segments = it.segments) }
                 ?: (runtime.engine()?.synthesize(SynthesisRequest(text, voice, speed = current.speed))
                     ?: SynthesisOutcome.Failed("engine unavailable"))
             android.util.Log.d("PlaybackService", "loop: source=" + when {
+                fromLast != null -> "buffer"
                 fromQueue != null -> "pregen"
                 fromDisk != null -> "disk"
                 else -> "synthesized"
@@ -398,13 +445,17 @@ class PlaybackService : Service() {
                 PlaybackStateHolder.update { it.copy(failure = "synthesis failed: $reason") }
                 return
             }
-            // First listen of this passage (neither tier had it): persist it so
+            // First listen of this passage (no source had it): persist it so
             // an offline run never redoes the work — normal use fills the cache.
-            if (fromQueue == null && fromDisk == null) {
-                scope.launch(Dispatchers.IO) {
-                    pregenCache.cache.put(key, PregenAudio(audio.pcm, audio.sampleRateHz, audio.segments))
+            // The write is tracked so seek paths join it (deterministic disk).
+            if (fromLast == null && fromQueue == null && fromDisk == null) {
+                val toCache = PregenAudio(audio.pcm, audio.sampleRateHz, audio.segments)
+                pendingPersists += scope.launch(Dispatchers.IO) {
+                    pregenCache.cache.put(key, toCache)
                 }
             }
+            // Keep the rendered passage for same-passage seek reuse (layer 1).
+            lastAudio = key to PregenAudio(audio.pcm, audio.sampleRateHz, audio.segments)
             segments = audio.segments ?: emptyList()
             baselineOffset = position.offsetSeconds
             active.onAudioStarted()
@@ -661,6 +712,8 @@ class PlaybackService : Service() {
     private fun activeVoice(): String = settings.state.value.voice
 
     private fun stopEverything() {
+        loopJob?.cancel()
+        loopJob = null
         playerJob?.cancel()
         playerJob = null
         tickerJob?.cancel()

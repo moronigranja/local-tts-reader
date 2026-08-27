@@ -243,8 +243,8 @@ Idea-pool graduates, deliberately outside v1's critical path (T4/T5/S/V):
   output-side only — matching/index untouched; NMT int8 ~30–80 MB, CC-BY-4.0 with
   attribution; transcription failure degrades to the original text).
 - **V1 settings shipped (2026-08-26, #36)**: SettingsScreen, AppSettings StateFlow mirror, AndroidHttpTransport. **pt-BR voices verified (#40)**: pf_dora/pm_alex end-to-end (host + S22). **V2 CI shipped (2026-08-26, #41)**: GitHub Actions — JVM suite every push/PR, docker Android build + unit tests, tag-gated assemble. **S-debug regressions fixed (#39)**: epub import (Android DOM factory UOE + container regex), voices-download crash (recursive map ops), theme radio (push-based settings state). **S1 core-ocr shipped (#36)**: OcrEngine seam, downscaler, legacy 3.04.00 traineddata, TessTwoOcrEngine + stager. **S2 share receiver shipped (#37)**: ACTION_SEND gateway, typed resolver, image OCR branch, cold-start gate. **S3 resume wiring shipped (2026-08-26, #38)**: found-card "Listen here" → MainActivity → reader starts at the matched passage; reader passage-tap "listen from here"; ACTION_PLAY_POSITION verified on device (lands mid-book, completes). The S-column is functionally complete.
-- **App-wide player card — SHIPPED code 2026-08-27 (decisions #55); device
-  pass pending (S22 not connected).**
+- **App-wide player card — SHIPPED + device-verified 2026-08-27 (decisions #55).**
+  Follow-up: time-bounded look-ahead + survive-seek ensure for instant ±30s.
   Docked mini-player replacing the reader's transport row, shared by the
   library screen; user-scoped decisions locked in discussion.
   Reference: `docs/prints/player-card-dock-mockup.webp` (gitignored;

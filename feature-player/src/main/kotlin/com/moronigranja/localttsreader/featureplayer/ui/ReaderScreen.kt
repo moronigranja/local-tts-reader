@@ -175,7 +175,10 @@ fun ReaderScreen(
                 ),
             )
         },
-        bottomBar = { DockedControls(state, viewModel) },
+        // The shared app-wide player card (decisions #53): cover, progress,
+        // times, −30s/◀Ch/play+spinner/Ch▶/+30s/speed. Sleep timer + undo
+        // stay in the top bar; the old transport row and footer are gone.
+        bottomBar = { PlayerCard(state, viewModel) },
     ) { padding ->
         Column(
             modifier = Modifier
@@ -199,17 +202,6 @@ fun ReaderScreen(
                 viewModel = viewModel,
                 modifier = Modifier.weight(1f),
             )
-            Text(
-                listOf(
-                    "Ch ${state.chapterIndex + 1}",
-                    "P ${state.passageIndex + 1}",
-                    progressLabel(state),
-                    timeLeftLabel(state),
-                ).joinToString(" · "),
-                style = MaterialTheme.typography.labelSmall,
-                color = Color.Gray,
-                modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp),
-            )
         }
     }
 }
@@ -223,63 +215,6 @@ private val PlaybackUiState.sleepLabel: String
         SleepTimer.EndOfChapter -> "Sleep: ch."
         is SleepTimer.Duration -> "Sleep: 30m"
     }
-
-@Composable
-private fun DockedControls(state: PlaybackUiState, viewModel: ReaderViewModel) {
-    val playing = state.phase == PlayerPhase.PLAYING || state.phase == PlayerPhase.LOADING
-    Column(modifier = Modifier.fillMaxWidth()) {
-        if (state.passageDurationSeconds > 0.0) {
-            val progress = (state.offsetSeconds / state.passageDurationSeconds).coerceIn(0.0, 1.0).toFloat()
-            LinearProgressIndicator(
-                progress = { progress },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 12.dp),
-            )
-        }
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 12.dp, vertical = 8.dp),
-            horizontalArrangement = Arrangement.SpaceEvenly,
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            TransportButton(
-                icon = Icons.Filled.SkipPrevious,
-                label = "Prev",
-                enabled = state.positioned,
-            ) { viewModel.skipBackward() }
-            TransportButton(
-                icon = if (playing) Icons.Filled.Pause else Icons.Filled.PlayArrow,
-                label = if (playing) "Pause" else "Play",
-                enabled = state.bookId != null,
-            ) { if (playing) viewModel.pause() else viewModel.resume() }
-            TransportButton(
-                icon = Icons.Filled.SkipNext,
-                label = "Next",
-                enabled = state.positioned,
-            ) { viewModel.skipForward() }
-            OutlinedButton(onClick = { viewModel.cycleSpeed() }, enabled = state.positioned) {
-                Text("${"%.2g".format(state.speed)}×")
-            }
-        }
-    }
-}
-
-@Composable
-private fun TransportButton(
-    icon: ImageVector,
-    label: String,
-    enabled: Boolean,
-    onClick: () -> Unit,
-) {
-    IconButton(onClick = onClick, enabled = enabled) {
-        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Icon(icon, contentDescription = label, modifier = Modifier.size(28.dp))
-            Text(label, style = MaterialTheme.typography.labelSmall)
-        }
-    }
-}
 
 /**
  * One real book page (decisions #52): the chapter's text flows and breaks
@@ -481,26 +416,6 @@ private fun sentenceSpans(text: String): List<SentenceSpan> {
     return spans
 }
 
-/** [0..1] position → "%" (sub-1% keeps a decimal so early listening shows motion). */
-private fun progressLabel(state: PlaybackUiState): String {
-    val percent = state.readFraction * 100
-    return if (percent < 1f) "%.1f%%".format(percent) else "${percent.toInt()}%"
-}
-
-/** Estimated remaining listening time at the current speed. */
-private fun timeLeftLabel(state: PlaybackUiState): String {
-    if (state.phase == PlayerPhase.COMPLETED) return "done"
-    val seconds = state.timeLeftSeconds
-    return if (seconds <= 0) "end" else "≈${formatClock(seconds)} left"
-}
-
-private fun formatClock(seconds: Double): String {
-    val total = seconds.toInt()
-    if (total < 60) return "${total}s"
-    val minutes = total / 60
-    if (minutes < 60) return "${minutes}m"
-    return "${minutes / 60}h ${"%02d".format(minutes % 60)}m"
-}
 
 /** Horizontal drag distance that turns a page. */
 private val SWIPE_PAGE_THRESHOLD = 64.dp
