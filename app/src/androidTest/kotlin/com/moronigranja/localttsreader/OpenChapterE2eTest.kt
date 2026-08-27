@@ -28,10 +28,11 @@ import org.junit.runner.RunWith
  * Device verification for the reader's chapter-boundary page turn (open-bugs:
  * "last-third tap does not advance past the chapter's last page"). The reader
  * gesture dispatches ACTION_OPEN_CHAPTER; the service must land the machine on
- * the neighbor chapter's first passage WITHOUT starting playback (decisions #52
- * open ≠ auto-play), skip empty spine slots, and no-op at both book edges while
- * leaving the present machine intact for the next turn. No engine/packs — a
- * pure position move.
+ * the neighbor chapter's first passage forward, its LAST passage backward —
+ * the reader's left-zone turn shows the previous chapter's ending — WITHOUT
+ * starting playback (decisions #52: open ≠ auto-play), skip empty spine slots,
+ * and no-op at both book edges while leaving the present machine intact for
+ * the next turn. No engine/packs — a pure position move.
  */
 @RunWith(AndroidJUnit4::class)
 class OpenChapterE2eTest {
@@ -45,7 +46,14 @@ class OpenChapterE2eTest {
         id = "open-chapter-e2e-book",
         title = "Open Chapter E2E",
         chapters = listOf(
-            Chapter(0, "One", listOf(TextPassage("First chapter passage."))),
+            Chapter(
+                0,
+                "One",
+                listOf(
+                    TextPassage("First chapter first passage."),
+                    TextPassage("First chapter last passage."),
+                ),
+            ),
             Chapter(1, "Empty", emptyList()), // BookLayout skips this spine slot
             Chapter(
                 2,
@@ -93,9 +101,9 @@ class OpenChapterE2eTest {
         Thread.sleep(2_000)
         assertEquals("book-end forward stays put", 2, PlaybackStateHolder.state.value.chapterIndex)
 
-        // Backward from chapter 2 skips the empty chapter 1 → chapter 0.
+        // Backward from chapter 2 skips the empty chapter 1 → chapter 0's END.
         openChapter(-1)
-        awaitState("backward lands on chapter 0") { it.chapterIndex == 0 && it.passageIndex == 0 }
+        awaitState("backward lands on chapter 0's last passage") { it.chapterIndex == 0 && it.passageIndex == 1 }
         assertEquals(PlayerPhase.IDLE, PlaybackStateHolder.state.value.phase)
 
         // Book start: a backward turn before the first chapter is a no-op.

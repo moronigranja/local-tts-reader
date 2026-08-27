@@ -299,4 +299,70 @@ class PlaybackServiceA57Test {
         Thread.sleep(100)
         assertEquals(PlayerPhase.IDLE, PlaybackStateHolder.state.value.phase)
     }
+
+    // ------------------------------------------------------------------
+    // Chapter-boundary turns — the reader's side zones
+    // ------------------------------------------------------------------
+
+    /** The reader's left-zone tap at a chapter's first page must land on the
+     * PREVIOUS chapter's LAST passage — its ending — the reverse of the
+     * forward turn's landing on the neighbor's FIRST passage (was: passage 0
+     * on both sides). Still IDLE (decisions #52: open ≠ auto-play), skipping
+     * empty spine slots. */
+    @Test
+    fun `backward openChapter lands on the previous chapter's last passage`() {
+        val turnBook = Book(
+            id = "open-chapter-book",
+            title = "Open Chapter",
+            chapters = listOf(
+                Chapter(
+                    0,
+                    "One",
+                    listOf(
+                        TextPassage("First chapter first passage."),
+                        TextPassage("First chapter last passage."),
+                    ),
+                ),
+                Chapter(1, "Empty", emptyList()), // skipped by BookLayout
+                Chapter(
+                    2,
+                    "Three",
+                    listOf(
+                        TextPassage("Third chapter first passage."),
+                        TextPassage("Third chapter last passage."),
+                    ),
+                ),
+            ),
+        )
+        runBlocking { RoomLibraryStore(database, scope).add(LibraryEntry(turnBook, importedAtEpochMillis = 1L)) }
+        val store = InMemoryPlayerStore()
+        val machine = PlayerStateMachine(store, BookLayout(turnBook)).apply {
+            present(PlayerPosition(turnBook.id, 2, 0))
+        }
+        val service = PlaybackService().apply {
+            this.store = store
+            this.machine = machine
+            this.book = turnBook
+            this.output = FakeOutput()
+            this.runtime = FakeRuntime(context, null)
+            this.libraryStore = RoomLibraryStore(database, scope)
+            this.settings = AppSettings(SettingsStore(database.settingsDao()))
+        }
+        PlaybackStateHolder.reset()
+
+        service.openChapter(turnBook.id, -1)
+
+        Thread.sleep(300)
+        assertEquals("backward lands on the previous chapter's LAST passage", 1, PlaybackStateHolder.state.value.passageIndex)
+        assertEquals(0, PlaybackStateHolder.state.value.chapterIndex)
+        assertEquals(PlayerPhase.IDLE, PlaybackStateHolder.state.value.phase)
+
+        // Forward returns to the neighbor's opening passage, skipping the
+        // empty spine slot — the unchanged half of the contract.
+        service.openChapter(turnBook.id, +1)
+        Thread.sleep(300)
+        assertEquals(2, PlaybackStateHolder.state.value.chapterIndex)
+        assertEquals("forward lands on the neighbor's FIRST passage", 0, PlaybackStateHolder.state.value.passageIndex)
+        assertEquals(PlayerPhase.IDLE, PlaybackStateHolder.state.value.phase)
+    }
 }

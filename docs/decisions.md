@@ -1672,3 +1672,29 @@ Nice Guy", authors [Robert A. Glover], 3 chapters / 1809 passages; full
 core-ebook JVM suite green (host) — and on the S22, the rebuilt APK +
 the new `RealEpubImportProbe.niceGuyEntityEpubImportsOnDevice` case
 (pp.epub + nmmng.epub staged) both pass: 2 tests OK.
+
+## 54. Backward chapter turn lands on the previous chapter's ending (2026-08-27)
+User-reported: tapping the reader's left zone (or swiping back) at a
+chapter's first page sent you to the PREVIOUS chapter's beginning — the
+reader shows the previous chapter's first page, not where it ended.
+
+The turn repositions without playback (decisions #52: open ≠ auto-play), so
+"beginning" was the landing passage *and* the displayed page. Both halves
+fixed:
+
+- **Service** — `PlaybackService.openChapter` presents the neighbor chapter
+  at its LAST passage index for `direction < 0` (was always passage 0). This
+  mirrors `PlayerStateMachine.previous()`, which already crossed a passage
+  start onto the previous chapter's last passage — the turn contract and the
+  navigation contract now agree. Forward turns unchanged (neighbor's first
+  passage); empty spine slots and book-edge no-ops unchanged.
+- **Reader** — a chapter opened WITHOUT playback (boundary turn, share-open,
+  resume row, bookmark jump) now pages to the presented passage's page
+  instead of always page one: a second `LaunchedEffect(state.chapterIndex)`
+  beside the playback-follow effect. This also fixes the same stale
+  page-one display for any idle position presentation at a non-first passage.
+
+Tests: `PlaybackServiceA57Test.backward openChapter lands on the previous
+chapter's last passage` (Robolectric, real service, multi-chapter book with
+an empty spine slot) and `OpenChapterE2eTest` — chapter 0 gained a second
+passage so the backward landing assert is passage 1, not vacuously 0.

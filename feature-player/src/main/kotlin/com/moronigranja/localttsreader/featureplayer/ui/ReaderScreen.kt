@@ -295,6 +295,18 @@ private fun PaginatedChapter(
                 if (target != page) page = target.coerceIn(0, totalPages - 1)
             }
         }
+        // A chapter opened WITHOUT playback (boundary turn, share-open, resume)
+        // shows the presented passage's page, not page one — the backward turn
+        // lands on the previous chapter's LAST passage, so its ending page is
+        // what the reader must open at. Chapter no-ops (book edges) change no
+        // key here, so the page stays put.
+        LaunchedEffect(state.chapterIndex) {
+            if (state.phase != PlayerPhase.PLAYING && state.phase != PlayerPhase.LOADING) {
+                val line = passageStartLines.getOrNull(state.passageIndex) ?: return@LaunchedEffect
+                val targetPage = TextPagination.pageOf(line.coerceAtMost(maxOf(0, totalLines - 1)), firstPageLines, fullPageLines)
+                if (targetPage != page) page = targetPage.coerceIn(0, totalPages - 1)
+            }
+        }
 
         val pageSlice = chapterText.substring(startChar.coerceIn(0, chapterText.length), endChar.coerceIn(startChar, chapterText.length))
         val pageText = remember(pageSlice, state, startChar, endChar, passageOffsets) {

@@ -219,16 +219,17 @@ class PlaybackService : Service() {
 
     /**
      * Turns the reader across a chapter boundary WITHOUT starting playback
-     * (decisions #52: open ≠ auto-play — same contract as [openBook], but at
-     * the neighbor chapter's first passage instead of the resume point).
-     * The machine is rebuilt over the book while the CURRENT chapter is
-     * captured first; the neighbor is the next/previous chapter with
-     * passages ([BookLayout.nextChapter]/[previousChapter]), so an empty
-     * spine slot is skipped and a boundary turn at the book's edge is a
-     * no-op. The reader's `remember(state.chapterIndex)` resets its local
-     * page to 0, so publishing the new chapter's text lands on page one.
+     * (decisions #52: open ≠ auto-play — same contract as [openBook]). A
+     * forward turn lands on the neighbor's FIRST passage, a backward turn
+     * on its LAST — the reader's left-zone turn shows the previous
+     * chapter's ending. The machine is rebuilt over the book while the
+     * CURRENT chapter is captured first; the neighbor is the next/previous
+     * chapter with passages ([BookLayout.nextChapter]/[previousChapter]),
+     * so an empty spine slot is skipped and a boundary turn at the book's
+     * edge is a no-op. Playback never starts; the reader pages to the
+     * presented passage itself.
      */
-    private fun openChapter(bookId: String?, direction: Int) {
+    internal fun openChapter(bookId: String?, direction: Int) {
         val id = bookId ?: return
         val activeBook = book ?: return
         val current = machine?.state?.value?.position?.chapterIndex ?: return
@@ -251,7 +252,8 @@ class PlaybackService : Service() {
             machine = PlayerStateMachine(store, BookLayout(reloaded))
             lastAudio = null
             queue = buildQueue()
-            machine!!.present(PlayerPosition(id, target, 0))
+            val passage = if (direction < 0) activeBook.chapters[target].passages.lastIndex else 0
+            machine!!.present(PlayerPosition(id, target, passage))
             refreshBookmarks()
             // CR-5: a stale load must never publish or drop the foreground.
             if (!active(generation)) return@launchCommand
