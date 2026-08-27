@@ -5,6 +5,8 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.app.Service
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
@@ -43,6 +45,7 @@ import com.moronigranja.localttsreader.tts.SynthesisOutcome
 import com.moronigranja.localttsreader.tts.SynthesisRequest
 import com.moronigranja.localttsreader.tts.kokoro.KokoroEngine
 import dagger.hilt.android.AndroidEntryPoint
+import java.io.File
 import javax.inject.Inject
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
@@ -83,6 +86,9 @@ class PlaybackService : Service() {
     private var segments: List<SegmentAnchor> = emptyList()
     private var baselineOffset = 0.0
     private var ringHasEntries = false
+    // Media-notification cover art, cached per book (files/covers/<bookId>).
+    private var coverArtBookId: String? = null
+    private var coverArt: Bitmap? = null
     private var resumeOnGain = false
     private var ducking = false
 
@@ -555,8 +561,9 @@ class PlaybackService : Service() {
         val active = machine?.state?.value
         val playing = active?.phase == PlayerPhase.PLAYING || active?.phase == PlayerPhase.LOADING
         return NotificationCompat.Builder(this, CHANNEL_ID)
-            .setContentTitle(book?.title ?: "local-tts-reader")
-            .setContentText("Chapter ${(active?.position?.chapterIndex ?: 0) + 1} · Passage ${(active?.position?.passageIndex ?: 0) + 1} · ${"%.2g".format(active?.speed ?: 1.0)}×")
+                        .setContentTitle(book?.title ?: "Ayvu")
+                        .setContentText("Chapter ${(active?.position?.chapterIndex ?: 0) + 1} · Passage ${(active?.position?.passageIndex ?: 0) + 1} · ${"%.2g".format(active?.speed ?: 1.0)}×")
+            .setLargeIcon(coverArt())
             .setSmallIcon(android.R.drawable.ic_media_play)
             .setOngoing(true)
             .setContentIntent(openApp)
@@ -573,12 +580,33 @@ class PlaybackService : Service() {
             .addAction(action(ACTION_STOP, android.R.drawable.ic_menu_close_clear_cancel, "Stop"))
             .setStyle(MediaStyle().setMediaSession(session.sessionToken).setShowActionsInCompactView(1))
             .build()
+        }
+
+    /** The book's cover bitmap for the media notification, cached per book
+     * and downsampled to ≤ ~512 px (album-art only — full res is overkill). */
+    private fun coverArt(): Bitmap? {
+        val id = book?.id ?: return null
+        if (coverArtBookId == id) return coverArt
+        coverArtBookId = id
+        val file = File(filesDir, "covers/$id")
+        coverArt = if (file.isFile) {
+            runCatching {
+                val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+                BitmapFactory.decodeFile(file.absolutePath, bounds)
+                var sample = 1
+                while (bounds.outWidth / (sample * 2) >= 512 && bounds.outHeight / (sample * 2) >= 512) sample *= 2
+                BitmapFactory.decodeFile(file.absolutePath, BitmapFactory.Options().apply { inSampleSize = sample })
+            }.getOrNull()
+        } else {
+            null
+        }
+        return coverArt
     }
 
     private fun createNotificationChannel() {
         val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         manager.createNotificationChannel(
-            NotificationChannel(CHANNEL_ID, "Playback", NotificationManager.IMPORTANCE_LOW),
+            NotificationChannel(CHANNEL_ID, "Ayvu playback", NotificationManager.IMPORTANCE_LOW),
         )
     }
 

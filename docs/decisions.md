@@ -1152,3 +1152,9 @@ User-review batch #2 — five items, all verified live on the S22:
   no scroll), open shows the resume position with Play not Pause, bookmark
   add/list/jump plays, speed label + rate, library play, continue-list
   (#51); 0 FATAL; full unit suites green.
+- **Notification branding (user review)**: the player notification now
+  shows the book cover (`files/covers/<bookId>` decoded, downsampled to
+  ≤512 px, cached per book) as MediaStyle album art, the app name is "Ayvu"
+  (fallback title + "Ayvu playback" channel; the launcher label was already
+  Ayvu), and the book title remains the content title. Verified on-device:
+  `largeIcon=Bitmap`, title=Impulse, MediaStyle template.
