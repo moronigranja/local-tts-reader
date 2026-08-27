@@ -150,10 +150,13 @@ Stage the OCR/import test data alongside the packs (S1/S-debug):
 adb push ~/.cache/local-tts-reader/tessdata/eng.traineddata /data/local/tmp/eng.traineddata
 # a real epub (e.g. Gutenberg pg1342-images.epub) for the import probe:
 adb push pp.epub /data/local/tmp/pp.epub
+# an entity-laden real epub (decisions #53: XML-valid &amp; in OPF metadata) for the second probe case:
+adb push nmmng.epub /data/local/tmp/nmmng.epub
 adb shell "run-as com.moronigranja.localttsreader sh -c \
   'mkdir -p files/tesseract/tessdata files/import-probe && \
    cp /data/local/tmp/eng.traineddata files/tesseract/tessdata/eng.traineddata && \
-   cp /data/local/tmp/pp.epub files/import-probe/pp.epub'"
+   cp /data/local/tmp/pp.epub files/import-probe/pp.epub && \
+   cp /data/local/tmp/nmmng.epub files/import-probe/nmmng.epub'"
 ```
 
 End-to-end checks (run each test CLASS in its own invocation — the harness
@@ -177,3 +180,10 @@ adb shell am instrument -w -e class com.moronigranja.localttsreader.PtVoiceE2eTe
 ```
 Note: the debug keystore is pinned at the repo root (decisions #45), so app +
 test APKs from any invocation share a signature — no pairing constraint.
+
+Device note (2026-08-27, Bigme B6): the playback E2E windows (90 s to first
+COMPLETED) assume an S22-class cold engine open. On the B6 e-ink SoC the cold
+open of the 325 MB Kokoro model alone can exceed the window (verified at
+`356a4ff` — pre-A1/A2/A5+A7 — with the identical "playback did not complete"
+at duration 0.0, i.e. no loop logs yet). Use the S22 for the playback/pregen
+E2E classes; the B6 suits import/share/OCR classes.
