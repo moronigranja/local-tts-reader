@@ -300,6 +300,33 @@ Idea-pool graduates, deliberately outside v1's critical path (T4/T5/S/V):
     positionAt round-trips (value mid-book, exact edges, clamp both ends);
     (feature-player, optional) service rolling-seek crossing a passage
     boundary on-device.
+- **Instant ±30s seek horizon — DESIGNED 2026-08-27 (decisions #55
+  measurements), not started.** The residual gap the player-card device pass
+  exposed: a cross-boundary ±30s to a passage in neither the RAM queue
+  (lookahead = 2) nor the disk tier synthesizes live — 5–25 s on the S22
+  (RTF ≈ 0.5), and with ~6–24 s passages almost every ±30s crosses a
+  boundary. Buffer reuse (shipped) only covers same-passage jumps. This
+  slice makes ±30s/chapter skips effectively never synthesize.
+  - **Time-bounded look-ahead**: `PregenQueue` horizon changes from a fixed
+    passage count to ≈30 s of audio (passage durations estimated with the
+    chars/15 model, or measured from the synthesized PCM when available),
+    still bounded by the same budget/saturation machinery and memory.
+  - **Survive-seek ensure**: seeks stop cancelling the in-flight
+    `queue.ensure` — the pre-generation already in flight keeps filling the
+    RAM queue while the seek lands, then re-ensures from the new playhead
+    (existing prune refills). Today `stopEverything` kills `pregenJob` at
+    exactly the moment the next passages were mid-synthesis.
+  - **Disk hotzone (durable layer)**: first-listen persist (deterministic,
+    shipped) already makes played passages replayable; optionally extend
+    normal playback to also persist the next-passage look-ahead to disk so a
+    seek-forward stays disk-cached even if the RAM queue was evicted by the
+    LRU budget.
+  - **Acceptance (S22)**: 10 random ±30s/chapter taps through a normal
+    listening session → `source=buffer|pregen|disk` on every one, zero
+    `source=synthesized`; queue memory bounded; overnight pre-gen untouched.
+  - **Tests (core-player)**: `PregenQueueTest` — time-horizon bound (synth
+    stops at ~30 s queued), prune-after-seek refill, single-flight still
+    holds; service verify via the logcat `source=` line.
 - **Pitch-adjusted speed controls — FUTURE (2026-08-27; extends decisions
   #52)**: speed today is `AudioTrack.setPlaybackRate(sampleRate × speed)`
   (decisions #52) — a chip-level sample-rate conversion that shifts pitch
