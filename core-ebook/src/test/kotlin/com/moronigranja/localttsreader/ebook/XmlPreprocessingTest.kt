@@ -72,4 +72,17 @@ class XmlPreprocessingTest {
         )
         assertEquals("package", doc.documentElement.nodeName)
     }
+
+    @Test
+    fun `xml-valid entities reach the parser intact`() {
+        // S-device bug 2026-08-27: decode-first turned a valid "Love &amp; Romance"
+        // into a bare '&' and the SAX parse died. Only HTML-named extras and bare
+        // '&' may be pre-processed; XML-valid entities stay for the parser.
+        val doc = OpfBookReader.parseXmlPublic(
+            """<package><title>Love &amp; Romance &mdash; R&amp;D</title><note>a & b</note></package>""".toByteArray(),
+            "content.opf",
+        )
+        assertEquals("Love & Romance — R&D", doc.getElementsByTagName("title").item(0).textContent)
+        assertEquals("a & b", doc.getElementsByTagName("note").item(0).textContent)
+    }
 }

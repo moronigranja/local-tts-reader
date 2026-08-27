@@ -138,8 +138,8 @@ tools/docker-build.sh :app:assembleDebug :app:assembleDebugAndroidTest
 - [docs/conventions.md](docs/conventions.md) — tech stack, do's and don'ts, definition of done
 - [docs/modules.md](docs/modules.md) — module layout (LIVE as of #41)
 - [docs/landscape.md](docs/landscape.md) — sherpa-onnx / candela boundary and validated patterns
-- [docs/decisions.md](docs/decisions.md) — the decision ledger (#1–#41)
-- [docs/roadmap.md](docs/roadmap.md) — work breakdown with estimates + progress markers
+- [docs/decisions.md](docs/decisions.md) — the decision ledger (#1–#59)
+- [docs/roadmap.md](docs/roadmap.md) — active stabilization and post-v1 sequencing
 - [docs/build.md](docs/build.md) — build/run/test, Docker toolchain, device staging
 - [docs/features/share-and-identify.md](docs/features/share-and-identify.md) — the share-and-identify feature plan
 

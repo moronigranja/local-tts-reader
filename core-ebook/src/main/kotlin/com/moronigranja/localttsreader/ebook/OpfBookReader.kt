@@ -207,11 +207,12 @@ private val FULL_PATH_RE = Regex("""full-path\s*=\s*["']([^"']+)["']""")
         // - a DOCTYPE is STRIPPED: host Xerces and Android's Expat disagree on
         //   doctype/feature handling, and removal also guarantees external DTDs
         //   are never fetched (the S22 is offline; a fetch killed the import);
-        // - a single-quoted XML declaration is normalized to double quotes
-        //   (legal XML, but Gutenberg publishes it and parser support varies);
-        // - HTML-style entities decode first (see NAMED_ENTITIES).
+        // - decode only the entities the XML parser cannot handle; XML-valid
+        //   &amp;/&lt;/&#160; … stay for the parser — decoding them first
+        //   corrupts the document ("Love &amp; Romance" became a bare '&'
+        //   and the SAX parse died, 2026-08-27).
         val prepared = normalizeDeclaration(stripDoctype(String(bytes, Charsets.UTF_8)))
-        val decoded = decodeEntities(prepared)
+        val decoded = decodeNonXmlEntities(prepared)
         try {
             return newDocumentBuilder().parse(ByteArrayInputStream(decoded.toByteArray(Charsets.UTF_8)))
         } catch (e: SAXException) {
@@ -346,6 +347,42 @@ private val FULL_PATH_RE = Regex("""full-path\s*=\s*["']([^"']+)["']""")
             body.startsWith("#") -> body.substring(1).toIntOrNull(10)?.let(::codepointString)
             else -> NAMED_ENTITIES[body]
         } ?: match.value
+    }
+
+    /** The five entities XML itself defines; the parser resolves these. */
+    private val XML_ENTITIES = setOf("amp", "lt", "gt", "quot", "apos")
+
+    /**
+     * Pre-parse entity pass for XML documents — decodes only what the XML parser
+     * cannot: HTML-named extras (&nbsp; &mdash; …) become their characters, and a
+     * bare '&' is escaped to &amp; so the document stays well-formed. XML-valid
+     * entities (&amp; &lt; &quot; &apos; &gt;, numeric refs) are left for the
+     * parser, which resolves them into textContent — decoding them first corrupts
+     * the markup (a valid &amp; becomes an illegal bare '&', S-device bug 2026-08-27).
+     */
+    internal fun decodeNonXmlEntities(s: String): String {
+        val sb = StringBuilder(s.length)
+        var i = 0
+        while (i < s.length) {
+            if (s[i] != '&') {
+                sb.append(s[i])
+                i++
+                continue
+            }
+            val match = ENTITY_RE.find(s, i)
+            if (match != null && match.range.first == i) {
+                val body = match.groupValues[1]
+                when {
+                    body.startsWith("#") || body in XML_ENTITIES -> sb.append(match.value)
+                    else -> sb.append(NAMED_ENTITIES[body] ?: match.value)
+                }
+                i = match.range.last + 1
+            } else {
+                sb.append("&amp;") // bare '&': escape so the document stays well-formed
+                i++
+            }
+        }
+        return sb.toString()
     }
 
     private fun codepointString(codepoint: Int): String? =
