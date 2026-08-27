@@ -65,27 +65,31 @@ Kokoro ships inside the app.
 ## Text-to-speech
 
 - **Expressive narration is a requirement, not a nice-to-have** (user review 2026-08).
-  Kokoro-82M is natural but flat in prosody; the primary engine target is now the
-  lightest genuinely expressive open model, with Kokoro demoted to the light fallback.
-- **Primary target: Fun-CosyVoice3-0.5B-2512** (Apache-2.0, `FunAudioLLM/Fun-CosyVoice3-0.5B-2512`,
-  Dec 2025). At 0.5B it is the lightest model with real emotion control: instruct support
-  for emotion, speed, volume and dialect; 9 languages (zh, en, fr, es, ja, ko, it, ru, de)
-  plus 18+ Chinese dialects; zero-shot and cross-lingual voice cloning; bi-streaming with
-  ~150 ms latency. ONNX (community exports) and GGUF (`cstr/cosyvoice3-0.5b-2512-GGUF`)
-  exist, so Android is feasible. **Gate: measured RTF + RAM on the reference device
-  before enabling by default** (see "Reference device" below).
+  Kokoro-82M is natural but flat in prosody; the expressive engine (CosyVoice3) is a
+  measured gate away from the primary slot.
+- **v1 primary: Kokoro-82M** (`hexgrad/kokoro-82M`) — decisions #21/#25/#28. ~82M
+  ONNX (~300 MB fp32, smaller quantized), 8 languages incl. pt-BR, Apache-2.0, fast
+  and light but flat. Verified on the S22 (RTF 0.66–0.76, engine open 1.5 s); pinned
+  fp32 packs (`model-files-v1.1`), pt-BR voices pf_dora/pm_alex/pm_santa.
+- **Gated fallback / pre-gen-only: Fun-CosyVoice3-0.5B** (Apache-2.0,
+  `FunAudioLLM/Fun-CosyVoice3-0.5B-2512`, Dec 2025). 0.5B — the lightest model with
+  real emotion control: instruct support for emotion, speed, volume and dialect; 9
+  languages (zh, en, fr, es, ja, ko, it, ru, de) + 18+ Chinese dialects; zero-shot and
+  cross-lingual voice cloning. ONNX (community exports) and GGUF
+  (`cstr/cosyvoice3-0.5b-2512-GGUF`) exist. **Gate measured (decisions #21/#49):
+  CPU-only RTF ≈13.4 (12.6–14.4) on the S22 — 13–22× over the ~1×-realtime bar — so
+  it stays out of live playback; viable only as a pre-generation engine behind the #42
+  overnight window (decisions #54), with zero-shot cloning in scope for that slice.**
 - **Non-realtime synthesis is acceptable.** This is an audiobook player, not a chatbot:
   the engine only has to stay ahead of playback by pre-generating upcoming passages in
   the background. Even ~0.5–1x realtime is fine if generation keeps up — this
-  de-risks a 0.5B engine on phone CPU.
-- **Fallback: Kokoro-82M** (`hexgrad/kokoro-82M`). ~82M ONNX (~300 MB fp32, smaller
-  quantized), 8 languages, Apache-2.0, fast and light but flat. Keep it behind
-  `TTSEngine` as the low-battery/speed path and the measured baseline.
+  de-risks a 0.5B engine on phone CPU, and is exactly why CosyVoice3 stays usable
+  despite the RTF gate.
 - **Engine tiers** (all behind `TTSEngine`; select per measured need):
   | Engine | Size | Expressiveness | Languages | Notes |
   |---|---|---|---|---|
-  | **Fun-CosyVoice3-0.5B** (primary target) | 0.5B; int8/GGUF ~0.4–0.6 GB | High: emotion/speed/volume instruct, zero-shot voices | 9 + 18 dialects | Apache 2.0. Gate: measured RTF on reference device. |
-  | **Kokoro-82M** (fallback) | 82M ONNX | Natural but flat | 9 groups incl. pt-BR | Apache 2.0. Light/fast path + baseline. |
+  | **Kokoro-82M** (v1 primary) | 82M ONNX | Natural but flat | 9 groups incl. pt-BR | Apache 2.0. Measured baseline; pinned fp32 packs (#28). |
+  | **Fun-CosyVoice3-0.5B** (gated fallback tier) | 0.5B; int8/GGUF ~0.4–0.6 GB | High: emotion/speed/volume instruct, zero-shot voices | 9 + 18 dialects | Apache 2.0. CPU RTF ≈13.4 on S22 — pre-gen only (#21/#54). |
   | **Piper** | VITS, tens of MB per voice | Mostly flat | many incl. pt | Cheapest per-language voice files. |
   | **KittenTTS** | 15–80M ONNX (25–80 MB) | Unproven; tiny | en only (dev preview) | Apache 2.0. Ultra-light watch item. |
   | **MeloTTS** | small | Moderate | 6 | MIT, CPU real-time. Watch item. |
@@ -113,8 +117,9 @@ Kokoro ships inside the app.
   surfaced in settings with a "download" action, never a silent failure. CosyVoice3
   covers its 9 languages in one pack; engines like Piper would add per-language packs.
 - **Reference device:** Galaxy S22 Ultra (Snapdragon 8 Gen 1) — the performance gate for
-  engine selection. Measure RTF, peak RAM, and thermal behavior for CosyVoice3-0.5B
-  (int8) before committing it as default.
+  engine selection. CosyVoice3-0.5B int4 measured there (decisions #49): RTF ≈13.4,
+  peak native VmHWM 2.27 GiB / PSS 336 MiB, no thermal trip — fails the live-realtime
+  bar, so it is not a default; pre-gen-only (decisions #21/#54).
 - **Android path:** ONNX Runtime Mobile. Kokoro has a working Kotlin reference
   (`thewh1teagle/kokoro-onnx`, its `SpeechPipeline`). CosyVoice3 needs a spike to port a
   community ONNX export (e.g. `Lourdle/Fun-CosyVoice3-0.5B-2512_ONNX`); all engines stay

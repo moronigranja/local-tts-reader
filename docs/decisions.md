@@ -717,9 +717,8 @@ Consequences/tuning found on the S22:
     invocation (test classes sharing one process tripped Room-reopen races in
     the harness — signature pairing across app/test APKs demands one build+run
     invocation anyway, decision #34).
-Open: S2 (share receiver) consumes OcrEngine + match threshold; the threshold's
-S3 "listen from here" usage; LSTM models via a maintained binding when
-accuracy demands it.
+Open: LSTM models via a maintained binding when accuracy demands it — the only
+remaining #36 item (S2/S3 shipped, #37/#38).
 
 ## 37. S2: the share receiver (2026-08-26)
 The share gate from the roadmap, exactly scoped: an ACTION_SEND receiver

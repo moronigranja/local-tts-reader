@@ -27,9 +27,9 @@ semantics) on a physical device, per-stage timing, RTF, VmHWM/RSS and thermal
 headroom, and writes `out_runN.wav` + `results.json` to external filesDir.
 
 ```bash
-tools/docker-build.sh :spike-tts:assembleDebug     # build (note: debug keystore
-                                                   # regenerates per docker run —
-                                                   # uninstall before install!)
+tools/docker-build.sh :spike-tts:assembleDebug     # build (debug keystore pinned at
+                                                   # repo root, decisions #45 —
+                                                   # installs update cleanly)
 adb install spike-tts/build/outputs/apk/debug/spike-tts-debug.apk
 # stage models (3.5 GB) into internal storage — Android 11+ FUSE hides
 # adb-pushed files under Android/data/<pkg>:
@@ -125,23 +125,21 @@ tools/docker-build.sh assembleDebug      # full APK
 
 The player's engine needs its packs + the espeak-ng bundle in the app's
 internal storage. V1's settings screen downloads kokoro model/voices/OCR
-languages on consent (decision #7 stays: no model data is ever bundled); the
-adb-staging path below is the offline/CI alternative — and the tessdata +
-sample-epub staging the OCR/share/import probes need.
+languages and the espeak-ng pack (decisions #50) on consent (decision #7
+stays: no model data is ever bundled); the adb-staging path below is the
+offline/CI alternative — and the tessdata + sample-epub staging the
+OCR/share/import probes need.
 
 ```bash
 tools/docker-build.sh :app:assembleDebug
 adb install app/build/outputs/apk/debug/app-debug.apk
-# stage model/voices + the espeak bundle (decisions #32) into the app:
+# stage the kokoro model/voices into the app (espeak-ng is a downloadable pack
+# since #50 — settings downloads + auto-stages it; the manual path is gone):
 adb push <cache>/packs/kokoro-82m/kokoro-model /data/local/tmp/kokoro-model
 adb push <cache>/packs/kokoro-82m/kokoro-voices /data/local/tmp/kokoro-voices
-adb push build/espeak-ng-152/lib/arm64-v8a/libespeak-ng.so /data/local/tmp/espeak-lib.so
-adb push build/espeak-ng-152/espeak-ng-data /data/local/tmp/espeak-data
 adb shell "run-as com.moronigranja.localttsreader sh -c \\
-  'mkdir -p files/packs/kokoro-82m files/espeak && cp /data/local/tmp/kokoro-model files/packs/kokoro-82m/ && \\
-   cp /data/local/tmp/kokoro-voices files/packs/kokoro-82m/ && \\
-   cp /data/local/tmp/espeak-lib.so files/espeak/libespeak-ng.so && \\
-   cp -r /data/local/tmp/espeak-data/. files/espeak/espeak-ng-data/'"
+  'mkdir -p files/packs/kokoro-82m && cp /data/local/tmp/kokoro-model files/packs/kokoro-82m/ && \\
+   cp /data/local/tmp/kokoro-voices files/packs/kokoro-82m/'"
 ```
 
 ### Instrumented verification set (locked-screen safe; keep media volume low)
@@ -177,6 +175,5 @@ adb shell am instrument -w -e class com.moronigranja.localttsreader.RealEpubImpo
 adb shell am instrument -w -e class com.moronigranja.localttsreader.PtVoiceE2eTest $R
 # each asserts its slice through the real service/engine/AudioTrack on the device.
 ```
-Note: app + test APK must come from the SAME `tools/docker-build.sh` invocation
-— the debug keystore regenerates per run, and mismatched signatures abort the
-instrumentation with a SecurityException.
+Note: the debug keystore is pinned at the repo root (decisions #45), so app +
+test APKs from any invocation share a signature — no pairing constraint.

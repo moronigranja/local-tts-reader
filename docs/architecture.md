@@ -22,7 +22,7 @@ core-model      canonical domain: Book(id, title, authors, chapters), Chapter, T
 core-ebook      EBookParser + EBookFormats + EpubParser/MobiParser → Book;
                 BookSegmentation (grain, front/back matter); BookImporter (parse→segment→index)
 core-locate     TextIndex, TextMatcher, TextNormalizer, MatchResult; IndexRebuilder (launch-time sync)
-core-ocr        (pending) tess-two OCR behind OCRService; language packs downloadable
+core-ocr        (live) tess-two behind OcrEngine/TessTwoOcrEngine + stager; six pinned legacy-traineddata packs (#36)
 core-tts        (live) TTSEngine interface + pack registry; model/language-pack download, verify + caching
 core-player     (live) v1 player state machine: transport, transactional writes, ring, sleep timer, bookmarks; PlayerStore contract
 core-persistence (live) Room v2: books, cached passages, progress (offset+speed), settings, bookmarks, position_history; LibraryStore + PlayerStore impls
@@ -88,8 +88,9 @@ shared snippet → normalize → word n-grams → recall vs every indexed passag
   cached parses by `IndexRebuilder` — never re-parses a source file; mirror-set
   semantics (ids absent from the cache are purged), idempotent under concurrent
   imports (P2).
-- OCR (pending, core-ocr): tess-two behind `OCRService`, languages downloadable
-  (`eng+spa+fra+deu+por+ita` start), screenshot downscale; feeds the same snippet path.
+- OCR (live, core-ocr): tess-two behind `OCRService`, languages downloadable
+  (`eng+spa+fra+deu+por+ita` start), screenshot downscale; feeds the same snippet path
+  (S1 shipped, #36).
 
 ## 5. Concurrency model
 
@@ -136,5 +137,7 @@ trim port, timing-aware pauses, PCM16 out; first pinned pack descriptors
 tests green** (core-locate 32 + core-ebook 50 + core-persistence 9 +
 feature-library 7 + core-tts 81). `app` scaffold (F1), `feature-library`
 (C5/C6), and the launch-time index rebuild (P2) are live in the Docker
-toolchain. Pending: core-ocr, the share receiver, the player, and the Android
-`DownloadTransport`/phonemizer adapters (V1/T4 wiring).
+toolchain. Since then (2026-08-25 → 08-27): core-ocr (S1, #36), the share
+receiver + resume wiring (S2/S3, #37/#38), the player (T4, #33/#34/#51/#52), and
+the Android adapters (`AndroidHttpTransport` #36, espeak-ng phonemizer bundle as
+a downloadable pack #32/#50) are all live — nothing pending in this paragraph.

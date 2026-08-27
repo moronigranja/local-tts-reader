@@ -7,9 +7,9 @@ commitments).
 
 | Feature | Doc | Status |
 |---|---|---|
-| Share-and-identify (resume-from-share) | [share-and-identify.md](share-and-identify.md) | Planned; match core + index + importer done; share receiver/OCR pending (roadmap S1/S2) |
+| Share-and-identify (resume-from-share) | [share-and-identify.md](share-and-identify.md) | Live: S1 OCR (#36), S2 share receiver + S3 resume wiring (#37/#38); design doc updated |
 | Content / import (library) | Roadmap C + [architecture.md](../architecture.md) §3; full UX doc pending | Done: parsers, segmentation, importer, SAF import + library UI (C1–C6, `feature-library`/`app`); 98 tests total |
-| Persistence (Room library store, index rebuild) | Roadmap P1/P2 | Done: Room v1 schema, LibraryStore contract (InMemory + Room impls), launch-time index rebuild from cached parses |
+| Persistence (Room library store, index rebuild) | Roadmap P1/P2 | Done: Room schema v2 (progress offset+speed, bookmarks, position_history, #33), LibraryStore + PlayerStore contracts, launch-time index rebuild |
 
 **Convention:** a feature's doc is the source of truth for its decisions and status;
 the roadmap stays the index of work items. Update a feature doc when a convention or

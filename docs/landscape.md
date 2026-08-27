@@ -87,10 +87,10 @@ MOBI/KF8 parsing, share-and-identify (Kindle workaround), no accounts, GPL-3.0.
 
 ## Open items / gates
 
-- **V3 device pass** (decisions #25): RTF on the S22 Ultra + APK-size/ABI cost for
-  the raw kokoro-onnx port (espeak-ng phonemization via JNA on the host; the Android
-  packaging of espeak-ng data/library is the open piece) — sherpa-onnx is the pivot
-  if it misses the bar.
+- **V3 device pass — DONE** (decisions #25 → #34/#49): the raw kokoro-onnx port
+  passes on the S22 (RTF 0.66–0.76, engine open 1.5 s, arm64 APK 21.1 MiB); the
+  espeak-ng Android packaging is closed — bundle built + pinned (#32), downloadable
+  pack that auto-stages (#50); sherpa-onnx pivot dropped (no word timestamps).
 - **int8 only if measured** (#26): re-test quantization when a real RTF gate demands
   it; prefer quantization-safe ops only.
 - **candela's 43 open issues** are a free bug list for player/perf work — review
