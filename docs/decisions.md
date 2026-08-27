@@ -973,3 +973,25 @@ Verified visually on the S22 (cover, overflow, reader chrome, settings panes)
 plus the JVM suites (core-ebook cover tests; feature-library). Playback
 progress/auto-advance require a book + packs on device; the service advance
 path is covered by `PregenE2eTest` (decisions #45).
+## 49. T3 device pass — CosyVoice3-0.5B int4 ONNX on the S22 (2026-08-27)
+First full on-device run of the `spike-tts` harness (14 graphs, jiangzhuo9357
+int4 export, `voices/sarah` prompt) on the S22 (SM-S908U1, SDK 36, 6 ORT
+threads; models 3.7 GB staged ad-hoc — the repo still carries no URL for the
+bundle, the snapshot uses HF `jiangzhuo9357/cosyvoice3-0.5b-onnx` + locally
+derived `sarah16/24.wav`):
+
+- **RTF**: 12.64 / 14.37 / 13.16 (mean ≈ **13.4**) for 10.1/8.9/13.1 s of
+  audio — inside decision #21's 14.7–17.5 gate estimate, so the CosyVoice3
+  fallback tier stays viable at the #42 overnight sizing (3 h wall ≈ **3.5+ ch
+  per night** at this RTF). Stage breakdown: flow 92–121 s dominates (68–72%),
+  llm 28–42 s, hift 6–10 s.
+- **Memory**: VmHWM **2.27 GiB** peak native, total PSS 336 MiB — the
+  per-stage session release keeps peak ~2.3 GiB on the 8 GiB device, well
+  inside lmkd limits; a production player using the tier would budget the
+  same way.
+- **Thermal**: peak status -1 (no throttling trip across the ~7 min run),
+  headroom 0. Prompt path 6324 ms; `spkNorm` 15.28 and mel mean −5.63 —
+  host-comparable sanity (sokuji-verified melodics) for the pipeline.
+- All runs finite, audio written (`out_run1–3.wav`); artifacts pulled to
+  `/tmp/t3/`. Bundle provenance: HF snapshot + ffmpeg-derived 16/24 k prompt
+  wavs; worth revisiting whether the repo should pin the exact URLs.
