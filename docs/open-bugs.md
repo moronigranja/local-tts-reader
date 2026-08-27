@@ -17,9 +17,6 @@ plan — slicing happens through decisions.md.
 | **Android Auto media controls unverified on device** | T4 acceptance lists "Auto verify" (MediaSession-based controls on Android Auto); no device-pass evidence is recorded yet. | Open — verification pending | `roadmap.md` T4 row, ideas.md |
 | **No progress feedback during book import** | A SAF import batch shows no in-flight progress or cancellation — the "Added N · Unchanged M" summary appears only after completion, so large/multi-file imports look hung. (Roadmap C5/C6 claim "batch import with progress"; the UI doesn't surface it.) | Open — user report 2026-08-27 | user report; `roadmap.md` C5/C6 |
 | **"Ms." read as "M S" (spelled out)** | TTS narrates the honorific as two letters instead of "miz". The segmentation layer is abbreviation-safe ("Dr."/"e.g.") for sentence boundaries, but phonemization still spells the title — a G2P/normalization gap on the synthesis path, not segmentation. Impact: titles/honorifics misread in narration. | Open — user report 2026-08-27 | user report; ideas.md "TTS pronunciation replacements" (Librera) |
-| **Chapter spacers (`* * *` scene breaks) read aloud** | Decorative scene-break markers in source text aren't stripped before synthesis — narration says "asterisk, asterisk, asterisk" between scenes. Front/back-matter stripping handles furniture, not inline spacers; needs a segmentation/passage-level cleanup of scene-break runs. | Open — user report 2026-08-27 | user report |
-| **Last-third tap does not advance past the chapter's last page** | At the final page of a chapter, tapping the right third (or swiping forward) does nothing — paging is clamped to the current chapter (`coerceAtMost(totalPages - 1)`, ReaderScreen.kt), so the reader only moves to the next chapter via the "Next" transport button or chapter menu. | Open — user report 2026-08-27 | user report; `ReaderScreen.kt` gesture handler |
-
 ## Test-harness limitations (worked around, not fixed)
 
 | Limitation | Workaround | Reported in |
@@ -33,5 +30,4 @@ For the record, items reported in docs that have since been fixed (kept out of
 the open list): sub-1% progress truncation to "0%" (fixed in #51/#52 — both
 surfaces format `%.1f%%` below 1%), remove-book-from-library (#51), the #50
 Dagger File-collision + FGS-timeout device findings, `INTERNET` permission +
-typed download failure (#47), the three S-debug regressions (#39), and the
-stale-resume crash (2026-08-27 `fix(player)` commit).
+typed download failure (#47), the three S-debug regressions (#39), and the stale-resume crash (2026-08-27 `fix(player)` commit), scene-break marker passages (2026-08-27 — `BookSegmentation.segment()` now drops letter-free passages, so `* * *` spacers are never read aloud), and chapter-boundary page turns (2026-08-27 — ReaderScreen side-taps/swipes now advance to the next chapter past the last page and back to the previous chapter before the first, repositioning silently via a new `ACTION_OPEN_CHAPTER`).
