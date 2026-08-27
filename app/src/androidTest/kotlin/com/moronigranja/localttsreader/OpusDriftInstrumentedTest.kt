@@ -1,6 +1,7 @@
 package com.moronigranja.localttsreader
 
 import android.media.MediaCodec
+import android.media.MediaCodecInfo
 import android.media.MediaCodecList
 import android.media.MediaFormat
 import android.util.Log
@@ -33,7 +34,7 @@ class OpusDriftInstrumentedTest {
 
     private val tag = "OpusDrift"
 
-    private fun encoderInfo(mime: String): MediaCodecList.CodecInfo? =
+    private fun encoderInfo(mime: String): MediaCodecInfo? =
         MediaCodecList(MediaCodecList.REGULAR_CODECS).codecInfos.firstOrNull {
             it.isEncoder && it.supportedTypes.any { t -> t.equals(mime, ignoreCase = true) }
         }
@@ -194,7 +195,7 @@ class OpusDriftInstrumentedTest {
         val enc = encoderInfo("audio/opus")
         assertTrue("opus encoder advertised on this device: $enc", enc != null)
         Log.i(tag, "encoder component: ${enc!!.name}")
-        val rates = enc.capabilitiesForType("audio/opus")
+        val rates = enc.getCapabilitiesForType("audio/opus")
             .audioCapabilities.supportedSampleRates?.toList()
         Log.i(tag, "encoder supported sample rates: $rates")
 
