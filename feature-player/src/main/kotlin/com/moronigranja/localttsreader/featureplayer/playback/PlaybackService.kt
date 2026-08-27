@@ -146,8 +146,6 @@ class PlaybackService : Service() {
             ACTION_SKIP_BACKWARD -> navigate { it.skipBackward() }
             ACTION_SEEK_FORWARD -> seekBy(SEEK_STEP_SECONDS)
             ACTION_SEEK_BACKWARD -> seekBy(-SEEK_STEP_SECONDS)
-            ACTION_CHAPTER_FORWARD -> navigate { it.skipChapter(1) }
-            ACTION_CHAPTER_BACKWARD -> navigate { it.skipChapter(-1) }
             ACTION_UNDO -> navigateUndo()
             ACTION_STOP -> stopPlayer()
             ACTION_SLEEP -> cycleSleepTimer()
@@ -761,8 +759,6 @@ class PlaybackService : Service() {
         const val ACTION_SKIP_BACKWARD = "skip_backward"
         const val ACTION_SEEK_FORWARD = "seek_forward"
         const val ACTION_SEEK_BACKWARD = "seek_backward"
-        const val ACTION_CHAPTER_FORWARD = "chapter_forward"
-        const val ACTION_CHAPTER_BACKWARD = "chapter_backward"
         const val ACTION_UNDO = "undo"
         const val ACTION_STOP = "stop"
         const val ACTION_SLEEP = "sleep"

@@ -57,8 +57,6 @@ interface PlayerCommands {
     fun pause()
     fun seekForward()
     fun seekBackward()
-    fun chapterForward()
-    fun chapterBackward()
     fun cycleSpeed()
 }
 
@@ -66,16 +64,24 @@ interface PlayerCommands {
  * The app-wide docked player card (decisions #53, mockup-matched): cover
  * thumb, title, subtitle (authors · chapter · passage, or "Generating…"
  * while the engine loads), book-wide progress with elapsed / % /
- * remaining-at-speed, and the transport row — −30s · ◀ Ch · play/pause
- * (spinner while synthesizing) · Ch ▶ · +30s · speed pill. Docked at the
- * bottom of BOTH the reader and the library; state comes from the
- * service-published [PlaybackUiState], commands go through [PlayerCommands].
+ * remaining-at-speed, and the transport row — −30s · play/pause (spinner
+ * while synthesizing) · +30s · speed pill. State comes from the
+ * service-published [PlaybackUiState], commands go through [PlayerCommands];
+ * [topRight]/[badge] let the library add its row actions + offline usage;
+ * [onOpen] makes the cover/title area open the book.
  */
 @Composable
 fun PlayerCard(
     state: PlaybackUiState,
     commands: PlayerCommands,
     modifier: Modifier = Modifier,
+    /** Library-only surface (decisions #56): overflow actions (pre-gen, delete,
+     * remove) drawn at the title row's right, and the offline disk badge drawn
+     * under the progress bar. The reader passes nothing. */
+    topRight: (@Composable () -> Unit)? = null,
+    badge: (@Composable () -> Unit)? = null,
+    /** Opens the book (library card: the replaced row was tappable). */
+    onOpen: (() -> Unit)? = null,
 ) {
     val context = LocalContext.current
     var cover by remember(state.bookId) { mutableStateOf(decodeCover(context, state.bookId)) }
@@ -94,7 +100,9 @@ fun PlayerCard(
         elevation = CardDefaults.cardElevation(defaultElevation = 8.dp),
     ) {
         Row(
-            modifier = Modifier.padding(12.dp),
+            modifier = Modifier
+                .padding(12.dp)
+                .then(if (onOpen != null) Modifier.clickable(onClick = onOpen!!) else Modifier),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Box(
@@ -113,13 +121,17 @@ fun PlayerCard(
             }
             Spacer(Modifier.width(12.dp))
             Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = state.bookTitle,
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        text = state.bookTitle,
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f),
+                    )
+                    if (topRight != null) topRight()
+                }
                 Text(
                     text = subtitle,
                     style = MaterialTheme.typography.bodySmall,
@@ -134,6 +146,7 @@ fun PlayerCard(
                     trackColor = MaterialTheme.colorScheme.surfaceVariant,
                 )
                 Spacer(Modifier.height(2.dp))
+                if (badge != null) badge()
                 Row(modifier = Modifier.fillMaxWidth()) {
                     Text(
                         text = formatClock(state.elapsedSeconds),
@@ -164,7 +177,6 @@ fun PlayerCard(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             PillButton("−30s", onClick = commands::seekBackward)
-            PillButton("◀ Ch", onClick = commands::chapterBackward)
             Box(
                 modifier = Modifier
                     .size(52.dp)
@@ -188,7 +200,6 @@ fun PlayerCard(
                     )
                 }
             }
-            PillButton("Ch ▶", onClick = commands::chapterForward)
             PillButton("+30s", onClick = commands::seekForward)
             PillButton("${formatSpeed(state.speed)}×", onClick = commands::cycleSpeed)
         }

@@ -98,8 +98,6 @@ class LibraryViewModel @Inject constructor(
     override fun pause() = command(PlaybackService.ACTION_PAUSE)
     override fun seekForward() = command(PlaybackService.ACTION_SEEK_FORWARD)
     override fun seekBackward() = command(PlaybackService.ACTION_SEEK_BACKWARD)
-    override fun chapterForward() = command(PlaybackService.ACTION_CHAPTER_FORWARD)
-    override fun chapterBackward() = command(PlaybackService.ACTION_CHAPTER_BACKWARD)
     override fun cycleSpeed() = command(PlaybackService.ACTION_SPEED)
     /** Starts a manual pre-generation run for one book (#42); null budget = whole book. */
     fun pregenerate(bookId: String, budgetMinutes: Long? = null) =

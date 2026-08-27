@@ -38,8 +38,6 @@ class ReaderViewModel @Inject constructor(
     override fun pause() = command(PlaybackService.ACTION_PAUSE)
     override fun seekForward() = command(PlaybackService.ACTION_SEEK_FORWARD)
     override fun seekBackward() = command(PlaybackService.ACTION_SEEK_BACKWARD)
-    override fun chapterForward() = command(PlaybackService.ACTION_CHAPTER_FORWARD)
-    override fun chapterBackward() = command(PlaybackService.ACTION_CHAPTER_BACKWARD)
     override fun cycleSpeed() = command(PlaybackService.ACTION_SPEED)
 
     private fun command(action: String, bookId: String? = null, chapter: Int = 0, passage: Int = 0) {

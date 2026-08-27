@@ -2,9 +2,10 @@ package com.moronigranja.localttsreader.featurelibrary
 
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.animation.core.Animatable
-import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -56,9 +57,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
-import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.layout.onGloballyPositioned
-import androidx.compose.ui.layout.positionInWindow
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
@@ -115,23 +113,54 @@ fun LibraryScreen(
         }
     }
 
-    // Docked player card (decisions #53): shown whenever a session is active;
-    // its first appearance animates up from the tapped row's bounds into the
-    // docked slot (falls back to a plain appear when the row was never on
-    // screen, e.g. a session started from the reader or share target).
+    // The active session's book card (decisions #55/#56): it REPLACES the
+    // top "Continue listening" row in place (no dock) and carries the row's
+    // actions — overflow menu (pre-gen, delete offline, remove) + offline disk
+    // usage — which the reader's docked card does not show.
     val positioned = playerState.bookId != null &&
         (playerState.phase != PlayerPhase.IDLE || playerState.canUndo || playerState.passageText.isNotBlank())
-    var rowCenters by remember { mutableStateOf<Map<String, Float>>(emptyMap()) }
-    var cardTop by remember { mutableStateOf(0f) }
-    val dockDelta = remember { Animatable(0f) }
-    LaunchedEffect(playerState.bookId, positioned) {
-        if (positioned) {
-            val from = (rowCenters[playerState.bookId] ?: cardTop) - cardTop
-            dockDelta.snapTo(from.coerceAtMost(0f))
-            dockDelta.animateTo(0f, tween(360, easing = FastOutSlowInEasing))
-        } else {
-            dockDelta.snapTo(0f)
-        }
+    val activeId = playerState.bookId
+    val activeOffline = activeId?.let { offline[it] }
+    val activeUsage = activeOffline?.usageBytes ?: 0L
+    val activeEstimate = activeOffline?.estimateBytes ?: 0L
+    val activeTitle = ((if (activeId != null) library.firstOrNull { it.book.id == activeId } else null)
+        ?: (if (activeId != null) recent.firstOrNull { it.book.id == activeId } else null))?.book?.title.orEmpty()
+    var cardMenuOpen by remember { mutableStateOf(false) }
+    var cardBudget by remember { mutableStateOf(false) }
+    var cardConfirmRemove by remember { mutableStateOf(false) }
+
+    if (cardBudget) {
+        PregenBudgetDialog(
+            estimate = activeEstimate,
+            onPick = { minutes ->
+                cardBudget = false
+                activeId?.let { viewModel.pregenerate(it, minutes) }
+            },
+            onDismiss = { cardBudget = false },
+        )
+    }
+    if (cardConfirmRemove) {
+        AlertDialog(
+            onDismissRequest = { cardConfirmRemove = false },
+            title = { Text("Remove from library?") },
+            text = {
+                Text(
+                    "Removes \"$activeTitle\" with its progress, bookmarks and offline " +
+                        "audio. You can re-import the file anytime.",
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        cardConfirmRemove = false
+                        activeId?.let(viewModel::removeBook)
+                    },
+                ) { Text("Remove") }
+            },
+            dismissButton = {
+                TextButton(onClick = { cardConfirmRemove = false }) { Text("Cancel") }
+            },
+        )
     }
 
     val doneState = importState as? ImportUiState.Done
@@ -163,29 +192,6 @@ fun LibraryScreen(
             )
         },
         snackbarHost = { SnackbarHost(snackbarHostState) },
-        bottomBar = {
-            if (positioned) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .onGloballyPositioned { cardTop = it.positionInWindow().y },
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .padding(horizontal = 12.dp, vertical = 6.dp)
-                            .fillMaxWidth()
-                            .graphicsLayer {
-                                val shrink = (dockDelta.value / (cardTop.coerceAtLeast(1f))).coerceIn(0f, 1f)
-                                translationY = dockDelta.value
-                                scaleX = 1f - 0.06f * shrink
-                                scaleY = 1f - 0.06f * shrink
-                            },
-                    ) {
-                        PlayerCard(playerState, viewModel)
-                    }
-                }
-            }
-        },
     ) { padding ->
         Column(
             modifier = Modifier
@@ -221,42 +227,81 @@ fun LibraryScreen(
                     contentPadding = PaddingValues(16.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
-                    if (recentIds.isNotEmpty()) {
+                    if (positioned || recentIds.isNotEmpty()) {
                         item { SectionHeader("Continue listening") }
-                        items(recent, key = { it.book.id }) { entry ->
-                            Box(
-                                Modifier
-                                    .fillMaxWidth()
-                                    .onGloballyPositioned {
-                                        rowCenters = rowCenters +
-                                            (entry.book.id to (it.positionInWindow().y + it.size.height / 2f))
-                                    },
+                    }
+                    if (positioned && activeId != null) {
+                        // The live player card replaces the top row and EXPANDS
+                        // in place when the session starts (decisions #56).
+                        item(key = "player-$activeId") {
+                            AnimatedVisibility(
+                                visible = true,
+                                enter = expandVertically(expandFrom = Alignment.Top, animationSpec = tween(300)) +
+                                    fadeIn(tween(300)),
                             ) {
-                            BookRow(
-                                bookId = entry.book.id,
-                                title = entry.book.title,
-                                authors = entry.book.authors,
-                                offline = offline[entry.book.id],
-                                readFraction = readProgress[entry.book.id] ?: 0f,
-                                onOpenBook = onOpenBook,
-                                viewModel = viewModel,
-                            )
+                                PlayerCard(
+                                    state = playerState,
+                                    commands = viewModel,
+                                    badge = {
+                                        if (activeUsage > 0L) {
+                                            Text(
+                                                "${formatBytes(activeUsage)} offline",
+                                                style = MaterialTheme.typography.labelSmall,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            )
+                                        }
+                                    },
+                                    onOpen = { activeId?.let(onOpenBook) },
+                                    topRight = {
+                                        Box {
+                                            IconButton(onClick = { cardMenuOpen = true }) {
+                                                Icon(Icons.Filled.MoreVert, contentDescription = "Book actions")
+                                            }
+                                            DropdownMenu(
+                                                expanded = cardMenuOpen,
+                                                onDismissRequest = { cardMenuOpen = false },
+                                            ) {
+                                                DropdownMenuItem(
+                                                    text = {
+                                                        Text(
+                                                            buildString {
+                                                                append("Pre-generate")
+                                                                if (activeEstimate > 0L) append(" (≈${formatBytes(activeEstimate)})")
+                                                            },
+                                                        )
+                                                    },
+                                                    onClick = {
+                                                        cardMenuOpen = false
+                                                        cardBudget = true
+                                                    },
+                                                )
+                                                if (activeUsage > 0L) {
+                                                    DropdownMenuItem(
+                                                        text = { Text("Delete offline audio") },
+                                                        onClick = {
+                                                            cardMenuOpen = false
+                                                            activeId.let(viewModel::deleteOffline)
+                                                        },
+                                                    )
+                                                }
+                                                DropdownMenuItem(
+                                                    text = { Text("Remove from library") },
+                                                    onClick = {
+                                                        cardMenuOpen = false
+                                                        cardConfirmRemove = true
+                                                    },
+                                                )
+                                            }
+                                        }
+                                    },
+                                )
                             }
                         }
-                        item { SectionHeader("Library") }
                     }
                     items(
-                        library.filterNot { it.book.id in recentIds },
+                        recent.filterNot { it.book.id == activeId },
                         key = { it.book.id },
                     ) { entry ->
-                        Box(
-                            Modifier
-                                .fillMaxWidth()
-                                .onGloballyPositioned {
-                                    rowCenters = rowCenters +
-                                        (entry.book.id to (it.positionInWindow().y + it.size.height / 2f))
-                                },
-                        ) {
                         BookRow(
                             bookId = entry.book.id,
                             title = entry.book.title,
@@ -266,7 +311,23 @@ fun LibraryScreen(
                             onOpenBook = onOpenBook,
                             viewModel = viewModel,
                         )
-                        }
+                    }
+                    if (recentIds.isNotEmpty()) {
+                        item { SectionHeader("Library") }
+                    }
+                    items(
+                        library.filterNot { it.book.id in recentIds || it.book.id == activeId },
+                        key = { it.book.id },
+                    ) { entry ->
+                        BookRow(
+                            bookId = entry.book.id,
+                            title = entry.book.title,
+                            authors = entry.book.authors,
+                            offline = offline[entry.book.id],
+                            readFraction = readProgress[entry.book.id] ?: 0f,
+                            onOpenBook = onOpenBook,
+                            viewModel = viewModel,
+                        )
                     }
                 }
             }

@@ -1,5 +1,32 @@
 # Decision log
 
+## 56. Player card refinement: in-list on the library, channel cuts (2026-08-27)
+
+User design review of #53 card placement + controls; shipped + verified.
+
+- **Library placement**: the card now REPLACES the top "Continue listening"
+  row in place (no bottom dock — the dock was my scope, the user's original
+  "modified library book card" was the brief) and expands in place when the
+  session starts (`AnimatedVisibility` expandVertically+fadeIn, 300 ms).
+- **Library-only extras** (the replaced row's info: `topRight`
+  overflow menu — pre-generate/delete-offline/remove-from-library — and the
+  `badge` offline disk usage) are parameters on the shared `PlayerCard`;
+  the reader passes nothing.
+- **Card→reader**: adding the extras removed the only tappable row for the
+  playing book — the card's cover/title area now opens the book (`onOpen`),
+  restoring navigation (verified: tap card → reader at the resume point).
+- **Chapter skip cut to core** (user: "just 30s skips for now"): card loses
+  ◀Ch/Ch▶, the 4 service actions + both VMs' overrides are deleted; the
+  tested core stays (`machine.skipChapter`, `BookLayout.nextChapter/
+  previousChapter` + tests) for future need.
+- **Verified on S22**: in-list card (Generating… spinner, elapsed/%/
+  remaining, −30s/+30s/1×), ⋮ menu ("Pre-generate (≈8532.3 MB)", "Remove
+  from library"; delete-offline shows only when usage>0), reader card
+  without extras, open-book via card tap, no bottom dock.
+- **Weak-device pass**: a second, weaker device is being plugged in; perf
+  findings are LOGGED, not fixed — docs/bugs.md created (2026-08-27),
+  entries (latest first), with the perf-vs-functional split.
+
 ## 55. App-wide player card shipped + device-verified (2026-08-27)
 
 #53 built end-to-end; unit suite green; S22 device pass DONE.
