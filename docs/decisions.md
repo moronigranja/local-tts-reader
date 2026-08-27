@@ -888,3 +888,20 @@ The S22 device pass for #42 surfaced three things worth logging:
   silently starves the worker in later tests of the same run — e2e tearDowns
   now keep the DB (PlaybackE2eTest + PregenE2eTest stop services and close
   their own instances only).
+
+**SHIPPED (2026-08-27, #44):** `PregenSpaceEstimator` in core-player (cached
+passages count exact on-disk bytes via the new `PcmPassageCache.sizeOf`;
+uncached passages estimate at ~150–180 wpm English, speed-scaled;
+`usageByBook()` sums the per-book subtrees). `PregenStorage` (feature-player)
+is the façade — one-pass `estimateAll()` over the cached parses at the active
+voice, per-book usage, and `deleteBook` = cancel the book's WorkManager work
+FIRST, then delete the subtree (the fast-path invariant: a running worker
+would re-write passages right after the delete; active playback is unaffected
+— a disk miss falls back to synthesis). UI: the library row states the
+footprint in the Pre-generate label (`Pre-generate (≈1.2 MB)`), shows live
+usage + one-tap Delete, and refreshes the disk facts when a run settles;
+settings gains an "Offline audio" section — per-book rows, total, one-tap
+delete (`formatBytes` shared from feature-player). New tests: estimator math
+(cached-exact vs formula, speed scaling, custom rates), `sizeOf`,
+`usageByBook`. Host suite green; Docker lane green; visual verification on
+the S22 pending reconnect (the rows are thin state + the tested core).

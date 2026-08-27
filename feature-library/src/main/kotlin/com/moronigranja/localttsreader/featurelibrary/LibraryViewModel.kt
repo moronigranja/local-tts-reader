@@ -10,6 +10,7 @@ import com.moronigranja.localttsreader.ebook.EBookSource
 import com.moronigranja.localttsreader.ebook.ImportFailureReason
 import com.moronigranja.localttsreader.ebook.ImportOutcome
 import com.moronigranja.localttsreader.featureplayer.playback.PregenManager
+import com.moronigranja.localttsreader.featureplayer.playback.PregenStorage
 import com.moronigranja.localttsreader.model.LibraryEntry
 import com.moronigranja.localttsreader.model.LibraryStore
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -38,6 +39,7 @@ class LibraryViewModel @Inject constructor(
     @IoDispatcher private val ioDispatcher: CoroutineDispatcher,
     // Default null: pure-JVM unit tests skip pre-generation (Hilt always supplies it).
     private val pregenManager: PregenManager? = null,
+    private val storage: PregenStorage? = null,
 ) : ViewModel() {
     /** Starts a manual offline pre-generation run for one book (#42). */
     fun pregenerate(bookId: String) = pregenManager?.pregenerate(bookId)
@@ -47,6 +49,37 @@ class LibraryViewModel @Inject constructor(
         pregenManager?.workInfo(bookId) ?: MutableLiveData(emptyList())
 
     val library: StateFlow<List<LibraryEntry>> = repository.books
+
+    /** bookId → offline-audio facts for the row (#44): usage + full-book estimate. */
+    data class OfflineBook(val usageBytes: Long, val estimateBytes: Long)
+
+    private val _offline = MutableStateFlow<Map<String, OfflineBook>>(emptyMap())
+    val offline: StateFlow<Map<String, OfflineBook>> = _offline.asStateFlow()
+
+    init {
+        refreshOffline()
+    }
+
+    /** Recomputes usage + estimates from the disk tier (IO). */
+    fun refreshOffline() {
+        val storage = storage ?: return
+        viewModelScope.launch {
+            val usage = withContext(ioDispatcher) { storage.usageByBook() }
+            val estimates = withContext(ioDispatcher) { storage.estimateAll() }
+            _offline.value = estimates.mapValues { (id, est) ->
+                OfflineBook(usageBytes = usage[id] ?: 0L, estimateBytes = est.totalBytes)
+            }
+        }
+    }
+
+    /** Reclaims one book's offline audio: cancel queued work, delete the subtree. */
+    fun deleteOffline(bookId: String) {
+        val storage = storage ?: return
+        viewModelScope.launch {
+            withContext(ioDispatcher) { storage.deleteBook(bookId) }
+            refreshOffline()
+        }
+    }
 
     private val _importState = MutableStateFlow<ImportUiState>(ImportUiState.Idle)
     val importState: StateFlow<ImportUiState> = _importState.asStateFlow()

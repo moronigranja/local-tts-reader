@@ -54,6 +54,21 @@ class PcmPassageCache(
     /** Free bytes under the cap; the planner stops at 0 (a put would only evict). */
     fun bytesRemaining(): Long = synchronized(lock) { (maxBytes - totalBytesLocked()).coerceAtLeast(0) }
 
+    /** Exact on-disk bytes for one passage (the .pcm file), or null when not cached. */
+    fun sizeOf(key: PregenKey): Long? = synchronized(lock) {
+        val file = pcmFile(key)
+        if (file.isFile) file.length() else null
+    }
+
+    /** Bytes on disk per book — pcm + sidecar files under each `bookId` subtree (decisions #44). */
+    fun usageByBook(): Map<String, Long> = synchronized(lock) {
+        root.listFiles()
+            ?.filter { it.isDirectory }
+            ?.associate { dir -> dir.name to dir.walkBottomUp().filter { it.isFile }.sumOf { it.length() } }
+            ?.filterValues { it > 0L }
+            ?: emptyMap()
+    }
+
     fun delete(key: PregenKey) = synchronized(lock) {
         val pcmFile = pcmFile(key)
         pcmFile.delete()

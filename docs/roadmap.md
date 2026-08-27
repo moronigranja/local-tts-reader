@@ -233,13 +233,12 @@ Idea-pool graduates, deliberately outside v1's critical path (T4/T5/S/V):
   overnight budget sizing matches its RTF). **S22 device pass DONE (2026-08-26)**:
   `PregenE2eTest` green — worker fills the tier, playback consumes it
   (`source=disk`/`source=pregen`, zero live synthesis); operating quirks in #45.
-- **Storage transparency on pre-generated audio (2026-08-27, decisions #44)** —
-  follow-ups to shipped pre-gen (#42) + settings (#36): (a) space estimate
-  before enqueuing — bytes = 24_000 × 2 × estimated duration (segmented text →
-  speaking time at the active voice/speed), exact for cached chapters, stated
-  in the library-row Pre-generate flow; (b) per-book generated-audio usage +
-  delete in settings (and the library row) — never evict queued/playing
-  passages (fast-path invariant), cancel the book's queued work first.
+- **Storage transparency on pre-generated audio — SHIPPED (2026-08-27,
+  decisions #44)**: `PregenSpaceEstimator` (cached-exact via `sizeOf`,
+  ~150–180 wpm estimate, speed-scaled) + `usageByBook()` in core-player;
+  `PregenStorage` façade (estimateAll, usage, delete = cancel-then-delete);
+  library row states `Pre-generate (≈X MB)`, live usage + Delete; settings
+  gains the Offline-audio section (per-book rows, total, delete).
 - **pt-BR translation decorator** — new `core-translate` (a `TTSEngine` decorator,
   output-side only — matching/index untouched; NMT int8 ~30–80 MB, CC-BY-4.0 with
   attribution; transcription failure degrades to the original text).

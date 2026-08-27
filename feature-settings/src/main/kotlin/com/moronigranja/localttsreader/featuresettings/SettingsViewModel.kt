@@ -3,6 +3,9 @@ package com.moronigranja.localttsreader.featuresettings
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.moronigranja.localttsreader.featureocr.TessDataStager
+import com.moronigranja.localttsreader.featureplayer.playback.PregenStorage
+import com.moronigranja.localttsreader.featureplayer.playback.formatBytes
+import com.moronigranja.localttsreader.model.LibraryStore
 import com.moronigranja.localttsreader.ocr.TrainedDataPacks
 import com.moronigranja.localttsreader.persistence.AppSettings
 import com.moronigranja.localttsreader.persistence.SettingsStore
@@ -15,12 +18,14 @@ import com.moronigranja.localttsreader.tts.PackStatus
 import dagger.hilt.android.lifecycle.HiltViewModel
 import java.io.File
 import javax.inject.Inject
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
  data class PackRow(
     val packId: String,
@@ -59,6 +64,9 @@ class SettingsViewModel @Inject constructor(
     private val voiceCatalog: VoiceCatalog,
     private val espeak: EspeakBundleStatus,
     private val filesDir: File,
+    // Default null: pure-JVM tests skip the offline-audio section (Hilt supplies it).
+    private val repository: LibraryStore? = null,
+    private val storage: PregenStorage? = null,
 ) : ViewModel() {
 
     private val progress = MutableStateFlow<Map<String, Double>>(emptyMap())
@@ -83,9 +91,42 @@ class SettingsViewModel @Inject constructor(
 
     val state: StateFlow<SettingsUiState> = core
 
+    /** One settings row: how much pre-generated audio a book holds (decisions #44). */
+    data class OfflineAudioRow(val bookId: String, val title: String, val bytes: Long)
+
+    private val usage = MutableStateFlow<Map<String, Long>>(emptyMap())
+
+    /** Books with offline audio + their bytes; reacts to library and usage changes. */
+    val offlineRows: StateFlow<List<OfflineAudioRow>> =
+        combine(repository?.books ?: MutableStateFlow(emptyList()), usage) { books, usage ->
+            books.mapNotNull { entry ->
+                usage[entry.book.id]?.takeIf { it > 0L }?.let {
+                    OfflineAudioRow(entry.book.id, entry.book.title, it)
+                }
+            }
+        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
     init {
         viewModelScope.launch {
             discoverVoices()
+            refreshOfflineUsage()
+        }
+    }
+
+    /** Re-reads the disk tier (IO) — called at open and after every delete. */
+    fun refreshOfflineUsage() {
+        val storage = storage ?: return
+        viewModelScope.launch {
+            usage.value = withContext(Dispatchers.IO) { storage.usageByBook() }
+        }
+    }
+
+    /** One-tap reclaim: cancels queued pre-gen work first, then deletes the subtree. */
+    fun deleteOffline(bookId: String) {
+        val storage = storage ?: return
+        viewModelScope.launch {
+            withContext(Dispatchers.IO) { storage.deleteBook(bookId) }
+            refreshOfflineUsage()
         }
     }
 

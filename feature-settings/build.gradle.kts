@@ -60,6 +60,7 @@ dependencies {
     implementation(project(":core-ocr"))
     implementation(project(":core-persistence"))
     implementation(project(":feature-ocr"))
+    implementation(project(":feature-player")) // PregenStorage for the Offline-audio section (#44)
 
     testImplementation(libs.junit.jupiter)
     testRuntimeOnly(libs.junit.platform.launcher)

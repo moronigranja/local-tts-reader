@@ -44,6 +44,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.work.WorkInfo
 import com.moronigranja.localttsreader.featureplayer.playback.PregenWorker
+import com.moronigranja.localttsreader.featureplayer.playback.formatBytes
 import kotlinx.coroutines.launch
 
 /**
@@ -70,6 +71,7 @@ fun LibraryScreen(
 ) {
     val library by viewModel.library.collectAsState()
     val importState by viewModel.importState.collectAsState()
+    val offline by viewModel.offline.collectAsState()
 
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
@@ -150,7 +152,14 @@ fun LibraryScreen(
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
                     items(library, key = { it.book.id }) { entry ->
-                        BookRow(entry.book.id, entry.book.title, entry.book.authors, onOpenBook, viewModel)
+                        BookRow(
+                            bookId = entry.book.id,
+                            title = entry.book.title,
+                            authors = entry.book.authors,
+                            offline = offline[entry.book.id],
+                            onOpenBook = onOpenBook,
+                            viewModel = viewModel,
+                        )
                     }
                 }
             }
@@ -181,15 +190,17 @@ fun LibraryScreen(
 }
 
 /**
- * One library card with the offline pre-generation action (decisions #42):
- * starts the manual worker (KEEP-deduplicated), shows its live progress from
- * WorkManager, and flips to a "again" affordance once a run succeeded.
+ * One library card with the offline pre-generation action (decisions #42) and
+ * storage transparency (decisions #44): the row shows what a full pre-gen
+ * costs (~estimate), how much is already on disk, and a one-tap delete that
+ * cancels queued work first. A run's settlement refreshes the disk facts.
  */
 @Composable
 private fun BookRow(
     bookId: String,
     title: String,
     authors: List<String>,
+    offline: LibraryViewModel.OfflineBook?,
     onOpenBook: (String) -> Unit,
     viewModel: LibraryViewModel,
 ) {
@@ -197,6 +208,17 @@ private fun BookRow(
     val running = workInfos.any { it.state == WorkInfo.State.ENQUEUED || it.state == WorkInfo.State.RUNNING }
     val percent = workInfos.maxOfOrNull { it.progress.getInt(PregenWorker.KEY_PROGRESS_PERCENT, 0) } ?: 0
     val ready = workInfos.any { it.state == WorkInfo.State.SUCCEEDED }
+    val usage = offline?.usageBytes ?: 0L
+    val estimate = offline?.estimateBytes ?: 0L
+
+    // A settled run changed the tier: re-read usage + estimate (the worker's
+    // own progress only carries percentages).
+    val settled = workInfos.lastOrNull {
+        it.state == WorkInfo.State.SUCCEEDED || it.state == WorkInfo.State.FAILED || it.state == WorkInfo.State.CANCELLED
+    }?.state
+    LaunchedEffect(settled) {
+        if (settled != null) viewModel.refreshOffline()
+    }
 
     Card(
         modifier = Modifier
@@ -235,8 +257,25 @@ private fun BookRow(
                         )
                         Text("$percent%", style = MaterialTheme.typography.labelSmall)
                     }
-                    else -> TextButton(onClick = { viewModel.pregenerate(bookId) }) {
-                        Text(if (ready) "Pre-gen again" else "Pre-generate")
+                    else -> {
+                        if (usage > 0L) {
+                            Text(
+                                "${formatBytes(usage)} offline",
+                                style = MaterialTheme.typography.labelSmall,
+                                modifier = Modifier.weight(1f),
+                            )
+                            TextButton(onClick = { viewModel.deleteOffline(bookId) }) {
+                                Text("Delete")
+                            }
+                        }
+                        TextButton(onClick = { viewModel.pregenerate(bookId) }) {
+                            Text(
+                                buildString {
+                                    append(if (ready) "Pre-gen again" else "Pre-generate")
+                                    if (estimate > 0L) append(" (≈${formatBytes(estimate)})")
+                                },
+                            )
+                        }
                     }
                 }
             }

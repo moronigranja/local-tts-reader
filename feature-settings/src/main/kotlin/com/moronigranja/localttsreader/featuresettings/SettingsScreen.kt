@@ -30,10 +30,12 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import com.moronigranja.localttsreader.featureplayer.playback.formatBytes
 import com.moronigranja.localttsreader.persistence.ThemeMode
 import com.moronigranja.localttsreader.tts.PackStatus
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 
 /**
  * V1 settings: engines + packs (download/status), voice picker + favorites,
@@ -47,6 +49,7 @@ fun SettingsScreen(
     viewModel: SettingsViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsState()
+    val offlineRows by viewModel.offlineRows.collectAsState()
     Scaffold(
         topBar = {
             TopAppBar(
@@ -124,6 +127,32 @@ fun SettingsScreen(
                 )
             }
 
+            item { SectionHeader("Offline audio") }
+            if (offlineRows.isEmpty()) {
+                item {
+                    Text(
+                        "No pre-generated audio — the library row's Pre-generate fills it.",
+                        style = MaterialTheme.typography.bodySmall,
+                        modifier = Modifier.padding(horizontal = 4.dp),
+                    )
+                }
+            } else {
+                item {
+                    Text(
+                        "Total: ${formatBytes(offlineRows.sumOf { it.bytes })} — one listened hour ≈ 170 MB",
+                        style = MaterialTheme.typography.bodyMedium,
+                        modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp),
+                    )
+                }
+                items(offlineRows, key = { it.bookId }) { row ->
+                    OfflineAudioRow(
+                        title = row.title,
+                        bytes = row.bytes,
+                        onDelete = { viewModel.deleteOffline(row.bookId) },
+                    )
+                }
+            }
+
             item { SectionHeader("Appearance") }
             item {
                 Column {
@@ -160,6 +189,22 @@ private fun SectionHeader(title: String) {
         color = MaterialTheme.colorScheme.primary,
         modifier = Modifier.padding(top = 16.dp, bottom = 4.dp),
     )
+}
+
+@Composable
+private fun OfflineAudioRow(title: String, bytes: Long, onDelete: () -> Unit) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text(title, style = MaterialTheme.typography.bodyMedium)
+            Text(formatBytes(bytes), style = MaterialTheme.typography.labelSmall)
+        }
+        androidx.compose.material3.TextButton(onClick = onDelete) {
+            Text("Delete")
+        }
+    }
 }
 
 @Composable
