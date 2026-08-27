@@ -26,6 +26,11 @@ local.properties
 *.keystore
 *.p12
 key*.pem
+# …with ONE exception: the pinned DEBUG keystore (decisions #45). Debug builds
+# must be signed identically across toolchains (docker images recreate AGP's
+# default keystore per container, breaking device re-installs); a debug key is
+# not a secret — release signing stays ignored.
+!debug.keystore
 
 # Native / CMake / NDK
 cmake-build-*/

@@ -125,7 +125,9 @@ class PregenE2eTest {
     fun tearDown() {
         context.stopService(Intent(context, PlaybackService::class.java))
         database.close()
-        context.deleteDatabase("local-tts-reader.db")
+        // No deleteDatabase: the app's Hilt Room singleton (worker + service)
+        // keeps a live connection to this file; unlinking it would silently
+        // starve the worker (see PlaybackE2eTest note, decisions #42 device pass).
         File(context.filesDir, "pregen").deleteRecursively()
     }
 

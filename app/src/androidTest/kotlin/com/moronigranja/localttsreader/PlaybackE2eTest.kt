@@ -82,7 +82,10 @@ class PlaybackE2eTest {
     fun tearDown() {
         context.stopService(Intent(context, PlaybackService::class.java))
         database.close()
-        context.deleteDatabase("local-tts-reader.db")
+        // No deleteDatabase: this file is the app's live DB — the app's Hilt
+        // Room singleton (used by PlaybackService/PregenWorker) keeps a
+        // connection to it; unlinking the file mid-process breaks every
+        // later test in the same instrumentation run (#42 device pass).
     }
 
     @Test

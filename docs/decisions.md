@@ -806,8 +806,12 @@ the #35 disk tier, plus its playback wiring:
 - Verification: 13 new core-player tests (49 total; order, resume, budgets,
   saturation, failure caps, cancellation, progress). Host JVM suite green;
   Docker lane green (both APKs + all Android unit tests incl.
-  feature-player/library). S22 device pass pending (reconnect schedule —
-  reads/writes are the same cache the e2e already exercises).
+  feature-player/library). **S22 device pass DONE (2026-08-26):** new
+  `PregenE2eTest` runs the real manual worker end-to-end — tier filled
+  (PCM + sample rate + anchors round-trip, all 4 keys), playback completes
+  over the warm cache, and logcat proves the fast paths: `source=disk` and
+  `source=pregen` served every passage, zero live synthesis. `PlaybackE2eTest`
+  re-verified over the new loop. Findings logged as decisions #43.
 
 ## 43. Brand icon: owner's leaf+arcs trace, ink palette, vector-only packaging (2026-08-27)
 The launcher icon pick: the owner's own SVG trace of the leaf + sound-arcs
@@ -851,3 +855,36 @@ pregen disk tier is real storage the user currently can't see or reclaim.
 - Consequences: estimates keep the user aware that one listened hour ≈ 170 MB
   (24 kHz 16-bit mono) on disk; per-book delete makes re-listen cache retention
   a user choice instead of an LRU-only policy.
+
+## 45. Pinned debug keystore + device pass findings (2026-08-26)
+The S22 device pass for #42 surfaced three things worth logging:
+
+- **Debug signing is now pinned (`debug.keystore`, repo root, gitignored-exempt).**
+  AGP's default `~/.android/debug.keystore` lives per-toolchain: every Docker
+  container on a fresh machine recreates it, so each docker-built APK carried a
+  new signature and `adb install -r` failed with
+  INSTALL_FAILED_UPDATE_INCOMPATIBLE. A committed debug key (password
+  android/android, debug-only, not a secret) makes debug builds signature-stable
+  across hosts. Release signing stays out of the repo.
+- **Hilt workers need explicit wiring — there is no auto-initializer.**
+  androidx.hilt:hilt-work 1.2.0 ships only `HiltWorkerFactory` (+ a Hilt module);
+  the app must implement `Configuration.Provider` (note: `workManagerConfiguration`
+  is a Kotlin *property*, not `getWorkManagerConfiguration()` — the method form
+  fails compilation on this metadata), and the default
+  `WorkManagerInitializer` must be removed from the startup graph or it wins the
+  once-only init with the reflection factory. `PregenManager` constructs its
+  `WorkManager` lazily — a constructor-time call reads the provider before Hilt
+  finishes injecting.
+- **FGS: manifest type alone is not enough on this API-34 device.** Even with
+  `android:foregroundServiceType="dataSync"` merged onto WorkManager's
+  `SystemForegroundService` (PM records type=1 correctly), `setForeground` died
+  with `InvalidForegroundServiceTypeException: type none` — implicit MANIFEST
+  resolution is rejected. The fix: pass
+  `ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC` explicitly in every
+  `ForegroundInfo` (#42 doWork). Also needed for targetSdk 34+: the manifest
+  merge of `SystemForegroundService` with the dataSync type.
+- **Device e2e basics:** instrumented tests share the app's live Room file; a
+  tearDown `deleteDatabase` unlinks it under the app's Hilt singleton and
+  silently starves the worker in later tests of the same run — e2e tearDowns
+  now keep the DB (PlaybackE2eTest + PregenE2eTest stop services and close
+  their own instances only).

@@ -230,7 +230,9 @@ Idea-pool graduates, deliberately outside v1's critical path (T4/T5/S/V):
   `PregenWorker` (manual 60-min run + 24h charging-gated overnight, 3h wall budget,
   foreground with progress, yields to playback), library-row action + app-start
   overnight scheduling. The CosyVoice3 fallback viability lever stays intact (the
-  overnight budget sizing matches its RTF); device pass pending on the S22.
+  overnight budget sizing matches its RTF). **S22 device pass DONE (2026-08-26)**:
+  `PregenE2eTest` green — worker fills the tier, playback consumes it
+  (`source=disk`/`source=pregen`, zero live synthesis); operating quirks in #45.
 - **Storage transparency on pre-generated audio (2026-08-27, decisions #44)** —
   follow-ups to shipped pre-gen (#42) + settings (#36): (a) space estimate
   before enqueuing — bytes = 24_000 × 2 × estimated duration (segmented text →
