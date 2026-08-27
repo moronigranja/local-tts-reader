@@ -19,6 +19,7 @@ import com.moronigranja.localttsreader.tts.PackStatus
 import dagger.hilt.android.lifecycle.HiltViewModel
 import java.io.File
 import javax.inject.Inject
+import javax.inject.Named
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -63,7 +64,7 @@ class SettingsViewModel @Inject constructor(
     private val cache: PackCache,
     private val settings: AppSettings,
     private val voiceCatalog: VoiceCatalog,
-    private val filesDir: File,
+    @Named("app_files_dir") private val filesDir: File,
     // Default null: pure-JVM tests skip the offline-audio section (Hilt supplies it).
     private val repository: LibraryStore? = null,
     private val storage: PregenStorage? = null,
@@ -110,7 +111,16 @@ class SettingsViewModel @Inject constructor(
         viewModelScope.launch {
             discoverVoices()
             refreshOfflineUsage()
+            autoStageEspeak()
         }
+    }
+
+    /** A verified-but-unstaged espeak-ng pack (reinstall after download, or a
+     * staging-failure retry) self-heals when the settings screen opens. */
+    private suspend fun autoStageEspeak() {
+        if (EspeakStager.isStaged(filesDir)) return
+        val pack = registry.packs.value.firstOrNull { it.pack.id == ESPEAK_PACK_ID }?.pack ?: return
+        if (cache.isVerified(pack)) stageEspeak(pack.id)
     }
 
     /** Re-reads the disk tier (IO) — called at open and after every delete. */

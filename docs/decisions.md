@@ -1046,7 +1046,35 @@ Seven small items from a live review pass on the S22 + the host:
   this device; any Opus cache would need bundled libopus for encode AND
   decode.
 - Verified: the JVM unit suites across modules (ebook/player/tts/
-  persistence/library/settings/app/share/ocr/locate/model) are green; the
-  instrumented encoder test runs green on the S22 and the new APK installs.
-  Visual spot-check is pending an unlocked device pass (the S22 sits behind
-  a PIN).
+  persistence/library/settings/app/share/ocr/locate/model) and the
+  instrumented encoder test are green; the new APK installs.
+- Verified on-device (S22, unlocked pass): the espeak-ng pack downloads,
+  verifies, and auto-stages into `files/espeak/`; settings flips to
+  "staged (lib + data)"; the engine opens and playback synthesizes
+  (`loop: source=synthesized`); 0 FATAL. Library shows the read-progress %
+  and "N MB offline"; the pre-generate dialog renders all five budget
+  options with byte estimates; the reader pages on swipe/tap-zone taps and
+  the system back returns to the library from settings and reader.
+- **Device-pass finding A — Dagger File type collision (pre-existing).**
+  `OcrModule.provideTessDataDir` returns an unqualified `File` (the
+  tess-two data dir), so Hilt bound ANY bare `File` request to
+  `files/tesseract`. `SettingsViewModel`'s injected `filesDir` silently
+  resolved there: OCR staging would nest `tesseract/tesseract`, and the new
+  espeak staging extracted into `files/tesseract/espeak/` (settings said
+  "ready"; the engine, which reads `context.filesDir`, never saw it).
+  Fixed by qualifying the app files dir (`@Named("app_files_dir")`
+  provider in SettingsModule; VM param qualified). Staging roots are now
+  absolute.
+- **Device-pass finding B — ForegroundServiceDidNotStartInTimeException.**
+  `startPlayback` returned early when the engine was unavailable
+  (packs/espeak missing) without calling `startForeground`, so opening a
+  book crashed ~10 s later. Fixed by entering the foreground FIRST in
+  `onStartCommand`; early returns can no longer trip the timeout.
+- **Self-heal**: a verified-but-unstaged espeak-ng pack (reinstall after
+  download, or a failed extract) auto-stages when the settings screen
+  opens — the pack can't be "already ready" and stuck behind a missing
+  extract.
+- Known follow-ups from the same pass: sub-1% read progress truncates to
+  "0%", and there is still no remove-book-from-library action (re-importing
+  an existing book hits "Unchanged" and keeps its old parse — the
+  front-matter fix reaches books on the next fresh import).

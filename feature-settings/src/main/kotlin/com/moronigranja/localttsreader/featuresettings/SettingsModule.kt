@@ -12,7 +12,9 @@ import dagger.Provides
 import dagger.hilt.InstallIn
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.components.SingletonComponent
+import java.io.File
 import javax.inject.Singleton
+import javax.inject.Named
 
 /**
  * V1 wiring: the pack machinery over the Android transport, shared by the
@@ -23,6 +25,13 @@ import javax.inject.Singleton
 @Module
 @InstallIn(SingletonComponent::class)
 object SettingsModule {
+    /** The app's internal files dir, QUALIFIED — OcrModule's TessDataDir
+     * provides a bare `File`, and an unqualified injection would resolve to
+     * it (all staging roots would land under `files/tesseract`; #50). */
+    @Provides
+    @Singleton
+    @Named("app_files_dir")
+    fun provideAppFilesDir(@ApplicationContext context: Context): File = context.filesDir
 
     @Provides
     @Singleton

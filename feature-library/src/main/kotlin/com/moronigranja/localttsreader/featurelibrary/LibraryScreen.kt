@@ -307,7 +307,11 @@ private fun BookRow(
                             .fillMaxWidth()
                             .padding(top = 8.dp),
                     )
-                    Text("${(readFraction * 100).toInt()}%", style = MaterialTheme.typography.labelSmall)
+                    val readPercent = readFraction * 100
+                    Text(
+                        if (readPercent < 1f) "%.1f%%".format(readPercent) else "${readPercent.toInt()}%",
+                        style = MaterialTheme.typography.labelSmall,
+                    )
                 }
                 when {
                     running -> {

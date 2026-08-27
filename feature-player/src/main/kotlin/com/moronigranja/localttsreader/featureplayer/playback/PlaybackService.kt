@@ -110,6 +110,10 @@ class PlaybackService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent == null) return START_NOT_STICKY
+        // Every command arrives via startForegroundService: enter the
+        // foreground FIRST so an early return (no engine/book/machine) can
+        // never trip ForegroundServiceDidNotStartInTimeException (#50).
+        startForeground(NOTIFICATION_ID, buildNotification())
         when (intent.action) {
             ACTION_PLAY -> startPlayback(intent.bookId(), explicit = false)
             ACTION_PLAY_POSITION -> startPlayback(intent.bookId(), explicit = true, intent = intent)

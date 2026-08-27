@@ -89,7 +89,7 @@ fun SettingsScreen(
             }
             item {
                 Text(
-                    "espeak-ng: ${if (state.espeakReady) "ready" else "not staged"} — ${state.espeakDetail}",
+                    "espeak-ng: ${state.espeakDetail}",
                     style = MaterialTheme.typography.bodySmall,
                     modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp),
                 )
