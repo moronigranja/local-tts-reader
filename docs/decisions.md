@@ -1,4 +1,38 @@
 # Decision log
+## 65. A3 — Room/index consistency (CR-3) (2026-08-27)
+
+Closed the CR-3 divergence family with one orchestration boundary:
+
+- **One `ImportCoordinator` (core-ebook).** `BookImporter` became a pure
+  parse core (no `TextIndex` — no `Unchanged`, no `importAll`): format
+  gate + content hash (`sourceId`) + parse/segment/cover. The coordinator
+  owns the full order — parse without publication → `store.add` (durable,
+  Room) → `indexLock.withExclusiveIndex { index.add }` — and the batch
+  loop with the F1 progress/cancel semantics moved with it.
+- **Room is the duplicate truth.** `LibraryStore.contains(bookId)` (new
+  contract member; `RoomLibraryStore` via `BookDao.byId`, in-memory
+  reference) gates re-imports BEFORE parsing. Failure A is closed: a failed
+  durable commit returns typed `ImportFailureReason.Storage` with the index
+  untouched, and a retry of the same bytes re-parses, re-commits and
+  indexes exactly once — the index can no longer hide an uncommitted id.
+- **Lock-serialized reconciliation.** New `IndexLock` (core-locate, Mutex)
+  is the single mutation serialization point. The launch-time rebuild in
+  `LocalTtsReaderApp` now reconciles INSIDE the lock, reading its Room
+  snapshot fresh, so no stale snapshot can purge a book committed during
+  its critical section (Failure B); delete runs durable-first with the
+  index removal only after the Room delete succeeds (Failure C — the
+  ViewModel guards the delete with `runCatching` so a failed removal
+  leaves Room and index both intact).
+
+Evidence: `ImportCoordinatorTest` (6 — durable-then-index, store-based
+duplicate gate, failed-commit retry, barrier-controlled stale-rebuild race,
+batch progress + cancellation), `LibraryViewModelTest` (9 — incl. a failed
+durable delete keeping the surviving book indexed), `BookImporterTest`
+(11 — parse-only contract; typed failures; `sourceId`), Room store/persistence
+suite green. Device regression (share resolves a snippet right after a
+cold-start import; import → force-stop → relaunch reattaches search) pending
+on the S22.
+
 ## 64. F1 — Import progress and cancellation (2026-08-27)
 
 Closed the user-reported "import looks hung" defect: `importAll`'s progress

@@ -7,10 +7,11 @@ import androidx.lifecycle.viewModelScope
 import androidx.work.WorkInfo
 import android.content.Intent
 import android.content.Context
-import com.moronigranja.localttsreader.ebook.BookImporter
 import com.moronigranja.localttsreader.ebook.EBookSource
+import com.moronigranja.localttsreader.ebook.ImportCoordinator
 import com.moronigranja.localttsreader.ebook.ImportFailureReason
 import com.moronigranja.localttsreader.ebook.ImportOutcome
+import com.moronigranja.localttsreader.locate.IndexLock
 import com.moronigranja.localttsreader.featureplayer.playback.PlaybackService
 import com.moronigranja.localttsreader.featureplayer.playback.PlaybackStateHolder
 import com.moronigranja.localttsreader.featureplayer.playback.PlaybackUiState
@@ -56,8 +57,11 @@ import javax.inject.Inject
 @HiltViewModel
 class LibraryViewModel @Inject constructor(
     private val repository: LibraryStore,
-    private val importer: BookImporter,
+    // CR-3/A3: the one import orchestration boundary (parse → durable → index).
+    private val coordinator: ImportCoordinator,
     @IoDispatcher private val ioDispatcher: CoroutineDispatcher,
+    // Default null: tests pass their own lock (Hilt supplies it).
+    private val indexLock: IndexLock? = null,
     // Default null: pure-JVM unit tests skip pre-generation (Hilt always supplies it).
     private val pregenManager: PregenManager? = null,
     private val storage: PregenStorage? = null,
@@ -191,9 +195,12 @@ class LibraryViewModel @Inject constructor(
                         )
                     }
                 }
-                index?.remove(bookId)
+                // CR-3/A3: durable delete FIRST — a failed durable removal must
+                // never leave a surviving Room book missing from the index.
+                                val deleted = runCatching { repository.delete(bookId) }
+                if (deleted.isFailure) return@withContext // durable truth unchanged — derived state untouched
+                indexLock?.withExclusiveIndex { index?.remove(bookId) }
                 storage?.deleteBook(bookId) // cancels queued pre-gen first
-                repository.delete(bookId)
                 context?.let { CoverStore(File(it.filesDir, "covers")).delete(bookId) }
             }
             refreshOffline()
@@ -222,8 +229,8 @@ class LibraryViewModel @Inject constructor(
         )
         importJob = viewModelScope.launch {
             try {
-                val outcomes = withContext(ioDispatcher) {
-                    importer.importAll(sources) { current, done, total ->
+                                val outcomes = withContext(ioDispatcher) {
+                    coordinator.importAll(sources) { current, done, total ->
                         _importState.value = ImportUiState.Importing(done, total, current.fileName)
                     }
                 }
@@ -252,7 +259,8 @@ class LibraryViewModel @Inject constructor(
             when (outcome) {
                 is ImportOutcome.Added -> {
                     added += 1
-                    repository.add(outcome.entry)
+                    // CR-3/A3: the durable commit + index publish already
+                    // happened in the coordinator — the VM only owns UI work.
                     outcome.coverBytes?.let { cover ->
                         context?.let { CoverStore(File(it.filesDir, "covers")).save(outcome.entry.book.id, cover) }
                     }
@@ -268,6 +276,7 @@ class LibraryViewModel @Inject constructor(
         ImportFailureReason.UnsupportedFormat -> "format not supported"
         ImportFailureReason.Unreadable -> "could not read file"
         is ImportFailureReason.ParseError -> reason.message
+        is ImportFailureReason.Storage -> "could not save the book: ${reason.message}"
     }
     private companion object {
         const val MAX_RECENT = 5

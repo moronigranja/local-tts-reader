@@ -9,14 +9,22 @@ import kotlinx.coroutines.flow.StateFlow
  * reads. [add] persists one import outcome; [delete] removes a book and
  * everything owned by it (cached passages, progress, bookmarks, undo ring).
  *
- * The store is not responsible for the search index: the importer indexes into
- * [com.moronigranja.localttsreader.locate.TextIndex] before a LibraryEntry ever
- * reaches [add]; the removal path drops the index entry separately.
+ * The store is not responsible for the search index: the import coordinator
+ * commits a LibraryEntry here FIRST and publishes it to the search index only
+ * after the durable write lands (CR-3/A3); the removal path drops the index
+ * entry only after the durable delete succeeds.
  */
 interface LibraryStore {
 
     /** Observable library contents, in import order. */
     val books: StateFlow<List<LibraryEntry>>
+
+    /**
+     * CR-3/A3: durable membership check — the duplicate gate for re-imports.
+     * Room (not the derived index) decides whether persistence work is
+     * necessary, so a failed commit can never poison the retry path.
+     */
+    suspend fun contains(bookId: String): Boolean
 
     /** Persists [entry]. Idempotent per book id: re-adding the same id replaces. */
     suspend fun add(entry: LibraryEntry)

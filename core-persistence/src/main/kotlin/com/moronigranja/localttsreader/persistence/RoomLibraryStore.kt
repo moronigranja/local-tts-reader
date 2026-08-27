@@ -31,6 +31,10 @@ class RoomLibraryStore(
         .map { rows -> rows.map { it.toLibraryEntry() } }
         .stateIn(scope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
+    /** CR-3/A3: durable membership — the re-import duplicate gate (Room is truth). */
+    override suspend fun contains(bookId: String): Boolean =
+        database.bookDao().byId(bookId) != null
+
     override suspend fun add(entry: LibraryEntry) {
         database.withTransaction {
             // Replace, not append: the passages cache must mirror this entry's
@@ -41,6 +45,7 @@ class RoomLibraryStore(
             database.passageDao().upsertAll(entry.book.cachedPassages())
         }
     }
+
     override suspend fun delete(bookId: String) {
         // One transaction: passages cascade from the book row, but progress,
         // bookmarks and the undo ring have no FK — delete them explicitly so

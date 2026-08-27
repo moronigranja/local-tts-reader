@@ -22,7 +22,8 @@ import org.junit.runner.RunWith
  * regex-based and parseXml pre-processes doctype/single-quoted-declaration;
  * this probe exercises the full import and prints the cause chain on failure.
  *
- * Requires `files/import-probe/pp.epub` staged via adb (build.md pattern).
+ * Requires `files/import-probe/pp.epub` staged via adb (build.md pattern);
+ * `files/import-probe/nmmng.epub` for the entity-in-metadata case (decisions #53).
  */
 @RunWith(AndroidJUnit4::class)
 class RealEpubImportProbe {
@@ -49,10 +50,28 @@ class RealEpubImportProbe {
         assertTrue("passages parsed", book.chapters.sumOf { it.passages.size } > 500)
 
         // The importer path (what SAF import runs) must land Added too.
-        val index = TextIndex()
-        val importer = BookImporter(index)
+        val importer = BookImporter()
         val outcome = importer.import(EBookSource(fileName = "pp.epub") { file.inputStream() })
         assertTrue("expected Added, was $outcome", outcome is ImportOutcome.Added)
-        assertEquals(1, index.bookCount())
+    }
+
+    @Test
+    fun niceGuyEntityEpubImportsOnDevice() {
+        // S-device entity bug (decisions #53): an epub whose OPF metadata carries
+        // XML-valid &amp; (e.g. <dc:subject>Love &amp; Romance</dc:subject>) failed
+        // the import — the pre-parse entity pass decoded it to a bare '&' and the
+        // Expat-backed DOM rejected the document. Requires nmmng.epub staged.
+        val file = File(context.filesDir, "import-probe/nmmng.epub")
+        assertTrue("stage nmmng.epub first: $file", file.isFile)
+
+        val book = EpubParser.parse(file.readBytes())
+        assertEquals("No More Mr Nice Guy", book.title)
+        assertEquals(listOf("Robert A. Glover"), book.authors)
+        assertTrue("chapters parsed ≥ 2, was ${book.chapters.size}", book.chapters.size >= 2)
+
+        val outcome = BookImporter().import(
+            EBookSource(fileName = "nmmng.epub") { file.inputStream() },
+        )
+        assertTrue("expected Added, was $outcome", outcome is ImportOutcome.Added)
     }
 }

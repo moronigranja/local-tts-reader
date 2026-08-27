@@ -1,7 +1,8 @@
 package com.moronigranja.localttsreader.featurelibrary
 
-import com.moronigranja.localttsreader.ebook.BookImporter
 import com.moronigranja.localttsreader.ebook.EBookSource
+import com.moronigranja.localttsreader.ebook.ImportCoordinator
+import com.moronigranja.localttsreader.ebook.BookImporter
 import com.moronigranja.localttsreader.ebook.EpubFixture.CONTAINER
 import com.moronigranja.localttsreader.ebook.EpubFixture.chapterHtml
 import com.moronigranja.localttsreader.ebook.EpubFixture.ncx
@@ -50,10 +51,17 @@ class LibraryViewModelTest {
     private fun source(name: String, bytes: ByteArray): EBookSource =
         EBookSource(name) { ByteArrayInputStream(bytes) }
 
-    private fun viewModel() = LibraryViewModel(
-        InMemoryLibraryStore(),
-        BookImporter(TextIndex()),
+    private fun viewModel(
+        store: com.moronigranja.localttsreader.model.LibraryStore = InMemoryLibraryStore(),
+        index: TextIndex = TextIndex(),
+        indexLock: com.moronigranja.localttsreader.locate.IndexLock =
+            com.moronigranja.localttsreader.locate.IndexLock(),
+    ) = LibraryViewModel(
+        repository = store,
+        coordinator = ImportCoordinator(BookImporter(), store, index, indexLock),
         mainDispatcherRule.testDispatcher,
+        indexLock = indexLock,
+        index = index,
     )
 
     // ------------------------------------------------------------------
@@ -128,12 +136,14 @@ class LibraryViewModelTest {
         // synchronously at the importer level — the same call the ViewModel
         // makes with its progress wiring. F1 adds a pre-parse event per file.
         val progress = mutableListOf<Triple<String, Int, Int>>()
-        BookImporter(TextIndex()).importAll(
-            listOf(
-                source("Novel.epub", epubBook("Novel", "Chapter 1", "Prose here.")),
-                source("book.txt", "nope".toByteArray()),
-            ),
-        ) { current, done, total -> progress += Triple(current.fileName, done, total) }
+        val store = InMemoryLibraryStore()
+        ImportCoordinator(BookImporter(), store, TextIndex(), com.moronigranja.localttsreader.locate.IndexLock())
+            .importAll(
+                listOf(
+                    source("Novel.epub", epubBook("Novel", "Chapter 1", "Prose here.")),
+                    source("book.txt", "nope".toByteArray()),
+                ),
+            ) { current, done, total -> progress += Triple(current.fileName, done, total) }
         assertEquals(
             listOf(
                 Triple("Novel.epub", 0, 2),
@@ -221,7 +231,7 @@ class LibraryViewModelTest {
     @Test
     fun `store add appends and dedupes by book id`() = runTest(mainDispatcherRule.testDispatcher) {
         val store = InMemoryLibraryStore()
-        val entry = BookImporter(TextIndex()).import(
+        val entry = BookImporter().import(
             source("Novel.epub", epubBook("Novel", "Chapter 1", "Prose here.")),
         ) as com.moronigranja.localttsreader.ebook.ImportOutcome.Added
 
@@ -230,5 +240,29 @@ class LibraryViewModelTest {
 
         assertEquals(1, store.books.value.size)
         assertEquals("Novel", store.books.value.first().book.title)
+    }
+
+    /** CR-3 Failure C: a failed durable DELETE must not leave a surviving
+     * Room book missing from the index — durable-first order. */
+    @Test
+    fun `failed durable delete leaves the surviving book still indexed`() = runTest(mainDispatcherRule.testDispatcher) {
+        val store = object : com.moronigranja.localttsreader.model.LibraryStore by InMemoryLibraryStore() {
+            override suspend fun delete(bookId: String) {
+                throw java.io.IOException("disk full")
+            }
+        }
+        val index = TextIndex()
+        val vm = viewModel(store = store, index = index)
+
+        vm.import(listOf(source("Novel.epub", epubBook("Novel", "Chapter 1", "Prose here."))))
+        testScheduler.advanceUntilIdle()
+        val bookId = vm.library.value.first().book.id
+        assertTrue(index.contains(bookId))
+
+        vm.removeBook(bookId)
+        testScheduler.advanceUntilIdle()
+
+        assertEquals(1, vm.library.value.size, "durable delete failed → the book survives")
+        assertTrue(index.contains(bookId), "the index must stay consistent with the surviving book")
     }
 }

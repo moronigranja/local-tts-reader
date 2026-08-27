@@ -19,6 +19,9 @@ class InMemoryLibraryStore : LibraryStore {
 
     override val books: StateFlow<List<LibraryEntry>> = _books.asStateFlow()
 
+    override suspend fun contains(bookId: String): Boolean =
+        _books.value.any { it.book.id == bookId }
+
     override suspend fun add(entry: LibraryEntry) {
         if (_books.value.any { it.book.id == entry.book.id }) return
         _books.value = _books.value + entry
