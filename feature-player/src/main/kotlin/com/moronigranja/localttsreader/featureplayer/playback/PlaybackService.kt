@@ -199,19 +199,24 @@ class PlaybackService : Service() {
      */
     private fun openChapter(bookId: String?, direction: Int) {
         val id = bookId ?: return
+        val activeBook = book ?: return
         val current = machine?.state?.value?.position?.chapterIndex ?: return
+        // Resolve the neighbor BEFORE touching the machine/audio: a book-edge
+        // turn is a pure no-op and must leave the present machine intact —
+        // rebuilding below before this null check would null the position and
+        // silently swallow the next turn.
+        val layout = BookLayout(activeBook)
+        val target = if (direction > 0) layout.nextChapter(current) else layout.previousChapter(current)
+        if (target == null) return
         stopEverything()
         scope.launch {
             settings.reload()
-            val activeBook = runCatching { libraryStore.cachedBooks() }.getOrNull()
+            val reloaded = runCatching { libraryStore.cachedBooks() }.getOrNull()
                 ?.firstOrNull { it.id == id }?.toBook() ?: return@launch
-            book = activeBook
-            machine = PlayerStateMachine(store, BookLayout(activeBook))
+            book = reloaded
+            machine = PlayerStateMachine(store, BookLayout(reloaded))
             lastAudio = null
             queue = buildQueue()
-            val layout = BookLayout(activeBook)
-            val target = if (direction > 0) layout.nextChapter(current) else layout.previousChapter(current)
-            if (target == null) return@launch // book edge: stay (the page turn clamps)
             machine!!.present(PlayerPosition(id, target, 0))
             refreshBookmarks()
             PlaybackStateHolder.update { it.copy(failure = null) }
