@@ -246,6 +246,8 @@ Idea-pool graduates, deliberately outside v1's critical path (T4/T5/S/V):
 - **App-wide player card — DESIGNED 2026-08-27 (decisions #53), not started.**
   Docked mini-player replacing the reader's transport row, shared by the
   library screen; user-scoped decisions locked in discussion.
+  Reference: `docs/prints/player-card-dock-mockup.webp` (gitignored;
+  audiobookify screenshots in the same folder).
   - **Placement**: one shared `PlayerCard` composable (feature-player) docked
     at the bottom of BOTH `ReaderScreen` and `LibraryScreen` (Scaffold
     `bottomBar`) whenever a session is active (`bookId != null && (phase !=
