@@ -1,5 +1,6 @@
 package com.moronigranja.localttsreader.featureplayer.playback
 
+import com.moronigranja.localttsreader.player.Bookmark
 import com.moronigranja.localttsreader.player.PlayerPhase
 import com.moronigranja.localttsreader.player.SleepTimer
 import com.moronigranja.localttsreader.tts.SegmentAnchor
@@ -49,6 +50,8 @@ data class PlaybackUiState(
     val phase: PlayerPhase = PlayerPhase.IDLE,
     val sleepTimer: SleepTimer = SleepTimer.Off,
     val canUndo: Boolean = false,
+    /** The book's bookmarks, newest first — the reader's bookmark menu. */
+    val bookmarks: List<Bookmark> = emptyList(),
     val failure: String? = null,
 ) {
     /** The read-along highlight index: the sentence the playhead is inside. */

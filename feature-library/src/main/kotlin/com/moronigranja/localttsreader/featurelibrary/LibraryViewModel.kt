@@ -68,6 +68,14 @@ class LibraryViewModel @Inject constructor(
     fun consumeImportResult() {
         _importState.value = ImportUiState.Idle
     }
+    /** Quick play from a library row: resumes the book's audio (decisions #52). */
+    fun playBook(bookId: String) {
+        val ctx = context ?: return
+        val intent = Intent(ctx, PlaybackService::class.java)
+            .setAction(PlaybackService.ACTION_PLAY)
+            .putExtra(PlaybackService.EXTRA_BOOK_ID, bookId)
+        runCatching { ctx.startForegroundService(intent) }
+    }
     /** Starts a manual pre-generation run for one book (#42); null budget = whole book. */
     fun pregenerate(bookId: String, budgetMinutes: Long? = null) =
         pregenManager?.pregenerate(bookId, budgetMinutes)

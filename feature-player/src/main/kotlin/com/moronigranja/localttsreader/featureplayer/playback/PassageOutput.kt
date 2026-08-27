@@ -10,9 +10,15 @@ import android.media.AudioTrack
  * [positionSamples] against the buffer's frame count (static tracks park the
  * head at the end without a reliable marker on some devices), and [stop]
  * cancels playback, after which [positionSamples] reads 0.
+ *
+ * [speed] is applied via [AudioTrack.setPlaybackRate] — the audio system's
+ * rate converter (no manual resampling, no interpolation artifacts). The
+ * buffer holds book-time frames, so [positionSamples] counts book-time
+ * frames regardless of [speed] (a 2× track reaches the same frame count in
+ * half the physical time — decisions #52).
  */
 interface PassageOutput {
-    fun play(pcm: ByteArray, sampleRate: Int)
+    fun play(pcm: ByteArray, sampleRate: Int, speed: Double)
     fun stop()
     val positionSamples: Int
     fun setVolume(multiplier: Float)
@@ -23,7 +29,7 @@ class AudioTrackPassageOutput : PassageOutput {
 
     private var track: AudioTrack? = null
 
-    override fun play(pcm: ByteArray, sampleRate: Int) {
+    override fun play(pcm: ByteArray, sampleRate: Int, speed: Double) {
         stop()
         val format = AudioFormat.Builder()
             .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
@@ -46,6 +52,9 @@ class AudioTrackPassageOutput : PassageOutput {
         // service); static tracks do not loop and hold the head at the end.
         built.write(pcm, 0, pcm.size, AudioTrack.WRITE_BLOCKING)
         track = built
+        // Playback rate = sample rate × speed: the buffer's frames stay
+        // book-time; the hardware/SoC converter consumes them at `speed`.
+        runCatching { built.setPlaybackRate((sampleRate * speed.coerceAtLeast(0.1)).toInt().coerceIn(4_000, 192_000)) }
         built.play()
     }
 

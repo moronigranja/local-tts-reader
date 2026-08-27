@@ -116,6 +116,7 @@ class PlaybackService : Service() {
         // never trip ForegroundServiceDidNotStartInTimeException (#50).
         startForeground(NOTIFICATION_ID, buildNotification())
         when (intent.action) {
+            ACTION_OPEN -> openBook(intent.bookId())
             ACTION_PLAY -> startPlayback(intent.bookId(), explicit = false)
             ACTION_PLAY_POSITION -> startPlayback(intent.bookId(), explicit = true, intent = intent)
             ACTION_RESUME -> resumePlayer()
@@ -134,6 +135,41 @@ class PlaybackService : Service() {
     // ------------------------------------------------------------------
     // Commands
 
+    /**
+     * Opens a book for READING without starting playback (decisions #52):
+     * stops whatever is playing, loads the book, positions the machine at the
+     * resume point (or the start), publishes the text state, and drops the
+     * foreground — the transport buttons or the library play button resume
+     * audio later. The service stays started to answer commands.
+     */
+    private fun openBook(bookId: String?) {
+        val id = bookId ?: return
+        stopEverything()
+        scope.launch {
+            settings.reload()
+            val activeBook = runCatching { libraryStore.cachedBooks() }.getOrNull()
+                ?.firstOrNull { it.id == id }?.toBook() ?: return@launch
+            book = activeBook
+            machine = PlayerStateMachine(store, BookLayout(activeBook))
+            queue = buildQueue()
+            val position = machine!!.openPosition() ?: machine!!.firstPosition()
+            if (position != null) machine!!.present(position)
+            refreshBookmarks()
+            PlaybackStateHolder.update { it.copy(failure = null) }
+            publish()
+            ServiceCompat.stopForeground(this@PlaybackService, ServiceCompat.STOP_FOREGROUND_REMOVE)
+        }
+    }
+
+    /** Enriches the UI state with the book's bookmarks for the reader menu. */
+    private fun refreshBookmarks() {
+        val id = machine?.bookId ?: return
+        scope.launch {
+            val bookmarks = store.bookmarks(id)
+            PlaybackStateHolder.update { it.copy(bookmarks = bookmarks) }
+        }
+    }
+
     private fun startPlayback(bookId: String?, explicit: Boolean, intent: Intent? = null) {
         val id = bookId ?: return
         if (runtime.engine() == null) {
@@ -149,6 +185,7 @@ class PlaybackService : Service() {
             book = activeBook
             machine = PlayerStateMachine(store, BookLayout(activeBook))
             queue = buildQueue()
+            refreshBookmarks()
             val position = if (explicit) {
                 PlayerPosition(id, intent?.getIntExtra(EXTRA_CHAPTER, 0) ?: 0, intent?.getIntExtra(EXTRA_PASSAGE, 0) ?: 0)
             } else {
@@ -187,8 +224,10 @@ class PlaybackService : Service() {
             settings.reload() // V1: voice/speed changes from settings apply on resume
             if (phase == PlayerPhase.COMPLETED) {
                 active.playFrom(PlayerPosition(active.bookId, 0, 0))
-            } else {
-                active.resume()
+            } else if (active.resume() == null) {
+                // A fresh book (or one opened without playing yet): start
+                // from the first passage instead of doing nothing.
+                active.playFrom(active.firstPosition() ?: return@launch)
             }
             queue = buildQueue()
             PlaybackActive.markStarted()
@@ -268,6 +307,7 @@ class PlaybackService : Service() {
         scope.launch {
             active.notePlaybackOffset(liveOffsetSeconds())
             active.addBookmark(label = label)
+            refreshBookmarks()
             publish()
         }
     }
@@ -335,7 +375,7 @@ class PlaybackService : Service() {
             android.util.Log.d("PlaybackService", "loop: playing ${position.chapterIndex}/${position.passageIndex} ${audio.pcm.size / 2} frames at ${current.speed}x voice=$voice")
 
             val sliced = sliceForSpeed(audio.pcm, baselineOffset, audio.sampleRateHz, current.speed)
-            output.play(sliced, audio.sampleRateHz)
+            output.play(sliced, audio.sampleRateHz, current.speed)
             // Pre-generate the passages ahead while this one plays.
             pregenJob?.cancel()
             pregenJob = scope.launch { queue?.ensure(position) }
@@ -401,6 +441,7 @@ class PlaybackService : Service() {
                 timeLeftSeconds = position?.let { p ->
                     book?.let { BookProgress.remainingSeconds(it, p.chapterIndex, p.passageIndex, liveOffsetSeconds(), state.speed) }
                 } ?: 0.0,
+                speed = state.speed,
                 phase = state.phase,
                 sleepTimer = state.sleepTimer,
                 canUndo = ringHasEntries,
@@ -438,8 +479,9 @@ class PlaybackService : Service() {
     /** Live playhead in book-time seconds within the passage. */
     private fun liveOffsetSeconds(): Double {
         val active = machine ?: return 0.0
-        val speed = active.state.value.speed.takeIf { it > 0 } ?: 1.0
-        return baselineOffset + output.positionSamples / (KokoroEngine.SAMPLE_RATE * speed)
+        // The buffer is book-time and sped by setPlaybackRate, so the head
+        // position counts book-time frames at ANY speed (decisions #52).
+        return baselineOffset + output.positionSamples / (KokoroEngine.SAMPLE_RATE.toDouble())
     }
 
     // ------------------------------------------------------------------
@@ -596,6 +638,7 @@ class PlaybackService : Service() {
         private val SETTLED_PHASES = setOf(PlayerPhase.PLAYING, PlayerPhase.PAUSED, PlayerPhase.LOADING)
         private var clock: () -> Long = System::currentTimeMillis
 
+        const val ACTION_OPEN = "open"
         const val ACTION_PLAY = "play"
         const val ACTION_PLAY_POSITION = "play_position"
         const val ACTION_RESUME = "resume"
@@ -611,11 +654,16 @@ class PlaybackService : Service() {
         const val EXTRA_CHAPTER = "chapter"
         const val EXTRA_PASSAGE = "passage"
 
-        /** Book-time slicing: a speed-`s` render occupies samples / speed per book-second. */
+        /**
+         * Book-time start slicing: trims the passage PCM to the playhead only.
+         * Speed is NOT applied here — [PassageOutput] tempo-changes the buffer
+         * via `AudioTrack.setPlaybackRate`, so frames stay book-time and a
+         * mid-passage resume skips exactly `offsetSeconds * sampleRate` frames
+         * at any speed (decisions #52).
+         */
         fun sliceForSpeed(pcm: ByteArray, offsetSeconds: Double, sampleRate: Int, speed: Double): ByteArray {
             if (offsetSeconds <= 0.0) return pcm
-            val skipSamples = (offsetSeconds * sampleRate * speed).toInt()
-            val skipBytes = (skipSamples * 2).coerceIn(0, maxOf(pcm.size - 2, 0))
+            val skipBytes = ((offsetSeconds * sampleRate).toInt() * 2).coerceIn(0, maxOf(pcm.size - 2, 0))
             return pcm.copyOfRange(skipBytes, pcm.size)
         }
     }

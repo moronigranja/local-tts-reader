@@ -22,6 +22,8 @@ class ReaderViewModel @Inject constructor(
 
     val state: StateFlow<PlaybackUiState> = PlaybackStateHolder.state
 
+    /** Opens a book in the reader WITHOUT starting playback (decisions #52). */
+    fun open(bookId: String) = command(PlaybackService.ACTION_OPEN, bookId)
     fun play(bookId: String) = command(PlaybackService.ACTION_PLAY, bookId)
     fun playPosition(bookId: String, chapter: Int, passage: Int) =
         command(PlaybackService.ACTION_PLAY_POSITION, bookId, chapter, passage)

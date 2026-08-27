@@ -1115,4 +1115,40 @@ follow-ups, chosen by review:
   return to the top. Verify note: Compose 1.12 removed
   `positionInParent()` — passage offsets now come from
   `localPositionOf(column, Offset.Zero)`. Verified live on the S22: six
-  prose passages visible in one scroll, footer intact, 0 FATAL.
+  prose passages visible in one scroll, footer intact, 0 FATAL — replaced by
+  real pagination in #52 (user review: page breaks at overflow, not scroll).
+## 52. Reader pagination, speed, open-without-play, library play, bookmarks (2026-08-27)
+User-review batch #2 — five items, all verified live on the S22:
+- **Real pagination, no scroll**: the chapter's text flows and breaks
+  exactly where it would overflow the viewport; a new chapter always starts
+  on a fresh page. Lines are fixed-height (30 sp); pagination is measured
+  with `TextMeasurer` over the joined chapter text, pages are contiguous
+  line ranges sliced at `multiParagraph.getLineStart/End` (greedy wrap
+  reproduces the slice identically). Playback turns the page only when the
+  spoken passage leaves it. `TextPagination` (core-player) holds the page
+  math, unit-tested.
+- **Speed actually works** (was a no-op). `sliceForSpeed` never resampled —
+  only offset-skipped with an inverted `× speed`. Speed is now
+  `AudioTrack.setPlaybackRate(sampleRate × speed)` (hardware rate
+  conversion; frames stay book-time), the offset skip is exactly
+  `offsetSeconds × sampleRate`, and `liveOffsetSeconds` no longer divides by
+  speed. Device pass also caught a regression: an earlier publish() edit had
+  eaten `speed = state.speed` — the UI label stuck at 1.0× while audio
+  cycled; restored (label now shows 1.5×, time-left ÷1.25/1.5).
+- **Opening a book no longer auto-plays**: new `ACTION_OPEN` →
+  `openBook()` — stops current audio, positions the machine at the resume
+  point or the start (`openPosition()`/`present()`, no commit, phase/ring
+  untouched), publishes the text, drops the foreground. `resumePlayer` gained
+  a fresh-book fallback; `positioned` is true whenever a passage is shown
+  (bookmark/skip were disabled at open until the fix).
+- **Library play button**: each row gets a Play icon → `ACTION_PLAY`
+  (resume audio without opening the reader). First layout stacked the icon
+  under the ⋮ (two IconButtons in a Box) — wrapped in a Row; verified: tap →
+  `loop: source=synthesized`.
+- **Bookmarks**: the top-bar bookmark opens a menu — add at playhead + list
+  all bookmarks (label or Ch·P) and jump via playPosition; `PlaybackUiState`
+  gains `bookmarks` (fetched after machine setup and after each add).
+- Verified live: pagination (page turns at overflow, chapter fresh page,
+  no scroll), open shows the resume position with Play not Pause, bookmark
+  add/list/jump plays, speed label + rate, library play, continue-list
+  (#51); 0 FATAL; full unit suites green.

@@ -118,6 +118,24 @@ class PlayerStateMachine(
         return position
     }
 
+    /** The stored resume point WITHOUT starting playback (open-book mode):
+     * like [resume] but leaves the phase alone and never commits. */
+    suspend fun openPosition(): PlayerPosition? {
+        val stored = storeOp { store.readProgress(bookId) } ?: return null
+        val position = stored.toPosition()
+        if (!layout.isValid(position.chapterIndex, position.passageIndex)) return null
+        _state.update { it.copy(position = position, failure = null) }
+        return position
+    }
+
+    /** Positions the machine for reading without starting playback: sets the
+     * position, no commit, no ring push, phase untouched (open-book mode). */
+    fun present(position: PlayerPosition) {
+        require(position.bookId == bookId) { "position for ${position.bookId}, machine bound to $bookId" }
+        require(layout.isValid(position.chapterIndex, position.passageIndex)) { "position outside layout: $position" }
+        _state.update { it.copy(position = position, failure = null) }
+    }
+
     /** The book's first playable passage — the fresh-start target when no
      * resume row exists (or the stored one is stale). */
     fun firstPosition(): PlayerPosition? =

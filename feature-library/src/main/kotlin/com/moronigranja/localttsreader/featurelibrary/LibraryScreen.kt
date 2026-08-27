@@ -27,6 +27,7 @@ import kotlinx.coroutines.withContext
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.ExperimentalMaterial3Api
 import android.graphics.BitmapFactory
 import androidx.compose.material3.Card
@@ -366,11 +367,15 @@ private fun BookRow(
                     }
                 }
             }
-            Box {
-                IconButton(onClick = { menuOpen = true }) {
-                    Icon(Icons.Filled.MoreVert, contentDescription = "Book actions")
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                IconButton(onClick = { viewModel.playBook(bookId) }) {
+                    Icon(Icons.Filled.PlayArrow, contentDescription = "Play")
                 }
-                DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                Box {
+                    IconButton(onClick = { menuOpen = true }) {
+                        Icon(Icons.Filled.MoreVert, contentDescription = "Book actions")
+                    }
+                    DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
                     DropdownMenuItem(
                         text = {
                             Text(
@@ -404,6 +409,7 @@ private fun BookRow(
                 }
             }
         }
+    }
     }
 
     if (confirmRemove) {
