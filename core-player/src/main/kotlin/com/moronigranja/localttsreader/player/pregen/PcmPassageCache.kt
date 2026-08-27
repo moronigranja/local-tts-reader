@@ -9,9 +9,15 @@ import java.io.File
  * [PregenKey] path, so book removal deletes a `bookId` subtree (content-hash
  * ids, decisions #11) and engine+voice+speed are part of the key (#31/#34).
  *
- * LRU eviction by a byte cap tracked in-process (walls off filesystem
- * timestamp quirks — an accelerator cache may lose entries freely). Writes
- * are atomic (tmp + rename); `get` re-validates the sidecar before returning.
+ * LRU eviction by a byte cap tracked in-process. Within one process, access
+ * order is exact ([get]/[put] refresh it); across a process restart, the
+ * on-disk entries are bootstrapped into the eviction order by pcm mtime
+ * (oldest first) — a deterministic approximation of true LRU (CR-4: a
+ * reopened cache must still be able to replace old audio near the cap).
+ * Writes are atomic (tmp + rename); `get` re-validates the sidecar before
+ * returning; the cap invariant holds after any successful [put] (and at
+ * construction for a pre-populated-over-cap cache), except for an entry
+ * that alone exceeds the cap — it cannot be retained and is evicted.
  */
 class PcmPassageCache(
     private val root: File,
@@ -22,6 +28,55 @@ class PcmPassageCache(
     // accessOrder=true: re-put/read moves the key to the end; first = LRU.
     private val recency = object : LinkedHashMap<PregenKey, Long>(16, 0.75f, true) {}
     private var now = 0L
+
+    init {
+        bootstrap()
+    }
+
+    /**
+     * CR-4: a reopened cache must not freeze replacement. Loads every valid
+     * on-disk entry into [recency] in on-disk age order (pcm mtime, oldest
+     * first — the head is the eviction candidate), then converges an
+     * over-cap cache below [maxBytes] so the pregen planner's
+     * [bytesRemaining] check and the next [put] start from a healthy cap.
+     *
+     * Artifacts that could never be valid entries are removed here — the
+     * natural place to delete them so [contains] can never report a
+     * permanent false hit: stale `.tmp` writes, PCM whose [PregenKey] path
+     * or `.meta` sidecar does not parse, and metadata without its PCM.
+     *
+     * Policy: an entry larger than [maxBytes] alone cannot be retained and
+     * is evicted like any other overflow (regenerable audio — safe to drop).
+     */
+    private fun bootstrap() {
+        if (!root.isDirectory) return
+        val aged = mutableListOf<Pair<PregenKey, Long>>() // key to pcm lastModified
+        root.walkTopDown().forEach { file ->
+            when {
+                file.name.endsWith(".tmp") -> file.delete()
+                file.name.endsWith(".pcm") -> {
+                    val key = PregenKey.parse(file.relativeTo(root).path.removeSuffix(".pcm"))
+                    val metaFile = File(file.parentFile, file.nameWithoutExtension + ".meta")
+                    if (key == null || !metaFile.isFile || parseMeta(metaFile.readText().trim()) == null) {
+                        file.delete()
+                        metaFile.delete()
+                    } else {
+                        aged += key to file.lastModified()
+                    }
+                }
+                file.name.endsWith(".meta") -> {
+                    // Metadata without its PCM cannot be served either; drop.
+                    val pcm = File(file.parentFile, file.nameWithoutExtension + ".pcm")
+                    if (!pcm.isFile) file.delete()
+                }
+            }
+        }
+        // Oldest first: insertion order of an access-ordered map is the
+        // eviction order, so the head is the least-recently-used entry.
+        aged.sortedWith(compareBy({ it.second }, { it.first.toString() }))
+            .forEach { (key, _) -> recency[key] = ++now }
+        if (totalBytesLocked() > maxBytes) evictLocked()
+    }
 
     fun put(key: PregenKey, audio: PregenAudio) = synchronized(lock) {
         val pcmFile = pcmFile(key)

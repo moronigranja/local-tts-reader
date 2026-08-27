@@ -4,6 +4,7 @@ import com.moronigranja.localttsreader.tts.SegmentAnchor
 import java.io.File
 import org.junit.jupiter.api.Assertions.assertArrayEquals
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
@@ -111,5 +112,98 @@ class PcmPassageCacheTest {
     fun `usageByBook is empty for an empty cache`() {
         val cache = PcmPassageCache(tempDir, maxBytes = Long.MAX_VALUE)
         assertTrue(cache.usageByBook().isEmpty())
+    }
+
+    // ------------------------------------------------------------------
+    // CR-4: a reopened cache must keep LRU replacement working
+    // ------------------------------------------------------------------
+
+    private fun pcmPath(key: PregenKey): File {
+        val slug = key.toString()
+        return File(
+            File(File(tempDir, slug.substringBefore('/')), slug.substringAfter('/').substringBeforeLast('/')),
+            slug.substringAfterLast('/') + ".pcm",
+        )
+    }
+
+    private fun age(key: PregenKey, epochMillis: Long) {
+        assertTrue(pcmPath(key).setLastModified(epochMillis), "test controls on-disk age")
+    }
+
+    /** CR-4 acceptance: instance A writes two entries, B opens the same root
+     * and writes a third over a two-entry cap — an OLD entry, not the new
+     * one, is evicted (fixes startup self-eviction freezing replacement). */
+    @Test
+    fun `reopen bootstraps eviction order so an old entry is evicted not the new one`() {
+        // Each entry ~2 KB (+ meta): a 6 KB cap holds two entries.
+        val a = PcmPassageCache(tempDir, maxBytes = 6_000)
+        a.put(key(0, 0), audio(0))
+        a.put(key(0, 1), audio(1))
+        age(key(0, 0), 1_000_000)
+        age(key(0, 1), 2_000_000)
+
+        val b = PcmPassageCache(tempDir, maxBytes = 6_000)
+        b.put(key(0, 2), audio(2)) // needs room: must evict the older entry
+
+        assertNull(b.get(key(0, 0)), "oldest on disk evicted")
+        assertTrue(b.get(key(0, 1)) != null, "kept")
+        assertTrue(b.get(key(0, 2)) != null, "the new entry must survive")
+        assertTrue(b.totalBytes() <= 6_000, "cap enforced after reopen")
+    }
+
+    /** CR-4: a cache opened over its cap converges below it at construction,
+     * so the pregen planner's bytesRemaining gate is never stuck at 0. */
+    @Test
+    fun `opening an over-cap cache converges below the cap`() {
+        val a = PcmPassageCache(tempDir, maxBytes = Long.MAX_VALUE)
+        a.put(key(0, 0), audio(0))
+        a.put(key(0, 1), audio(1))
+        a.put(key(0, 2), audio(2))
+        a.put(key(0, 3), audio(3))
+        (0..3).forEach { i -> age(key(0, i), 1_000L * (i + 1)) }
+
+        val b = PcmPassageCache(tempDir, maxBytes = 6_000) // ~8 KB on disk
+
+        assertTrue(b.totalBytes() <= 6_000, "bootstrap converged below the cap")
+        assertNull(b.get(key(0, 0)), "oldest evicted")
+        assertNull(b.get(key(0, 1)), "second-oldest evicted")
+        assertTrue(b.get(key(0, 2)) != null)
+        assertTrue(b.get(key(0, 3)) != null)
+    }
+
+    /** CR-4: stale .tmp, PCM-without-sidecar, sidecar-without-PCM and
+     * unparseable paths are removed on reopen — `contains` can never report
+     * a permanent false hit, and the passage is regenerable. */
+    @Test
+    fun `reopen removes invalid artifacts so passages can be regenerated`() {
+        val cacheA = PcmPassageCache(tempDir, maxBytes = Long.MAX_VALUE)
+        val valid = PregenKey("book-invalid", 0, 0, "af_heart", 1.0)
+        cacheA.put(valid, audio(1))
+        val speedDir = File(File(tempDir, "book-invalid"), "af_heart/1")
+        File(speedDir, "c0p1.pcm.tmp").writeText("stale")
+        File(speedDir, "c0p1.pcm").writeBytes(ByteArray(100)) // no sidecar
+        File(speedDir, "c0p2.meta").writeText("24000") // no pcm
+        File(tempDir, "junk.pcm").writeBytes(ByteArray(50)) // unparseable path
+
+        val reopened = PcmPassageCache(tempDir, maxBytes = Long.MAX_VALUE)
+
+        assertFalse(File(speedDir, "c0p1.pcm.tmp").exists(), "stale tmp removed")
+        assertFalse(File(speedDir, "c0p1.pcm").exists(), "meta-less pcm removed")
+        assertFalse(File(speedDir, "c0p2.meta").exists(), "pcm-less meta removed")
+        assertFalse(File(tempDir, "junk.pcm").exists(), "unparseable path removed")
+        assertFalse(reopened.contains(PregenKey("book-invalid", 0, 1, "af_heart", 1.0)))
+        reopened.put(PregenKey("book-invalid", 0, 1, "af_heart", 1.0), audio(2))
+        assertTrue(reopened.contains(PregenKey("book-invalid", 0, 1, "af_heart", 1.0)), "regenerable")
+        assertTrue(reopened.get(valid) != null, "valid entries survive reopen")
+    }
+
+    /** Explicit oversized policy: an entry alone larger than the cap cannot
+     * be retained; it is evicted like any other overflow. */
+    @Test
+    fun `an entry larger than the cap alone cannot be retained`() {
+        val cache = PcmPassageCache(tempDir, maxBytes = 1_000)
+        cache.put(key(0, 0), audio(9)) // pcm alone is ~2 KB > cap
+        assertNull(cache.get(key(0, 0)), "oversized entry evicted by the cap policy")
+        assertTrue(cache.totalBytes() <= 1_000)
     }
 }

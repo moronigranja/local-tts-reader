@@ -1,4 +1,36 @@
 # Decision log
+## 63. A4 — Cross-process PCM LRU bootstrap (CR-4) (2026-08-27)
+
+Closed the CR-4 frozen-cache failure: `PcmPassageCache` built its eviction
+map only from in-process `put`/`get`, so after a restart the old on-disk
+entries counted toward the byte cap but were never eviction candidates —
+near the 4 GiB cap every new passage evicted itself and replacement froze.
+
+- **Bootstrap on open.** Construction scans the tier, parses each `.pcm`'s
+  [PregenKey] path, validates the `.meta` sidecar, and loads valid entries
+  into the access-ordered map by pcm mtime, oldest first. Between restarts
+  the eviction order is a deterministic approximation of true LRU (the
+  repair record's accepted option; in-process reads still refresh exact
+  order). The persisted-logical-order alternative was rejected: a write per
+  `get` for the same approximate benefit.
+- **Converge at construction.** An over-cap cache (old entries alone above
+  the cap) is converged below it at open — not lazily on first mutation —
+  because the pregen planner gates on `bytesRemaining() == 0` BEFORE any
+  put; lazy convergence would have kept pre-generation frozen.
+- **Invalid-artifact cleanup.** Stale `.tmp` writes, PCM without a valid
+  sidecar, metadata without PCM, and paths that do not map to a key are
+  deleted at open — `contains` can no longer report a permanent false hit
+  that makes `OfflinePregen` skip a passage forever.
+- **Oversized policy (explicit).** An entry alone larger than the cap
+  cannot be retained; it is evicted like any other overflow (regenerable).
+
+Evidence: `PcmPassageCacheTest` now 12 tests — reopen evicts the OLD entry
+(not the new one), over-cap open converges at construction, invalid pairs
+are removed and the passage regenerates, oversized-entry policy, all
+pre-existing round-trip/LRU tests unchanged. Device acceptance (fill a
+small cap, force-stop, relaunch, play an uncached passage, confirm an old
+entry is reclaimed) pending on the S22.
+
 ## 62. A5+A7 — Single-writer player commands + state agreement (CR-5/CR-7) (2026-08-27)
 
 Closed the CR-5/CR-7 control-plane races: book loads ran in untracked
