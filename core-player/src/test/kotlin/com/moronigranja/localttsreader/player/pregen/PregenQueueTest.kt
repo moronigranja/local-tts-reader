@@ -45,6 +45,20 @@ class PregenQueueTest {
     private fun queue(lookahead: Int = 2) =
         PregenQueue(book, "af_heart", 1.0, ::fake, lookahead)
 
+    /** A queue whose fake passages are 1 s of audio each, so a small time bound caps fills. */
+    private fun timeQueue(lookaheadSeconds: Double) =
+        PregenQueue(
+            book,
+            "af_heart",
+            1.0,
+            { _ ->
+                callCount++
+                SynthesisOutcome.Audio(ByteArray(24_000) { 0 }, 24_000, 1, listOf(SegmentAnchor(0.0, 1.0)))
+            },
+            lookahead = 20,
+            lookaheadSeconds = lookaheadSeconds,
+        )
+
     @Test
     fun `pre-generates the next passages within the bound`() = runTest {
         val q = queue()
@@ -114,6 +128,16 @@ class PregenQueueTest {
         q.clear()
         assertEquals(0, q.size)
         assertNull(q.take(0, 1))
+    }
+
+    @Test
+    fun `the time bound caps buffered audio ahead of the playhead`() = runTest {
+        callCount = 0
+        val q = timeQueue(3.0) // 1 s passages -> fills ~3 s then stops
+        q.ensure(PlayerPosition("b1", 0, 0))
+        // 0/1, 0/2, 0/3 each 1 s: fills 3 s, at the time bound (lookahead=20 not the cap).
+        assertTrue(q.size in 2..4, "time-bound fill, got size=${q.size}")
+        assertTrue(q.take(0, 1) != null)
     }
 
     @Test

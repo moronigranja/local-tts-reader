@@ -55,8 +55,9 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlin.coroutines.coroutineContext
-import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 
@@ -209,6 +210,10 @@ class PlaybackService : Service() {
             val position = machine!!.openPosition() ?: machine!!.firstPosition()
             if (position != null) machine!!.present(position)
             refreshBookmarks()
+            // Front-load the opening (user request): a book opened while idle
+            // warms its first ~45 s of audio, so first play starts without the
+            // cold synthesize-then-play gap.
+            if (position != null) startPrefill(position)
             // CR-5: a stale load must never publish or drop the foreground.
             if (!active(generation)) return@launchCommand
             PlaybackStateHolder.update { it.copy(failure = null) }
@@ -255,6 +260,7 @@ class PlaybackService : Service() {
             val passage = if (direction < 0) activeBook.chapters[target].passages.lastIndex else 0
             machine!!.present(PlayerPosition(id, target, passage))
             refreshBookmarks()
+            startPrefill(PlayerPosition(id, target, passage))
             // CR-5: a stale load must never publish or drop the foreground.
             if (!active(generation)) return@launchCommand
             PlaybackStateHolder.update { it.copy(failure = null) }
@@ -312,6 +318,9 @@ class PlaybackService : Service() {
                 PlaybackStateHolder.update { it.copy(failure = "nothing to play") }
                 return@launchCommand
             }
+            // Keep a time-buffer filled while the loop runs (startPrefill owns
+            // the long-lived synthesis job; the loop no longer cancel-relaunches).
+            machine!!.state.value.position?.let { startPrefill(it) }
             // CR-5/CR-7: a superseded play must not enter the foreground or
             // start its loop after a newer command won.
             if (!active(generation)) return@launchCommand
@@ -340,6 +349,7 @@ class PlaybackService : Service() {
             }
             if (!active(generation)) return@launchCommand
             queue = buildQueue()
+            active.state.value.position?.let { startPrefill(it) }
             PlaybackActive.markStarted()
             startForeground(NOTIFICATION_ID, buildNotification())
             publish()
@@ -462,6 +472,7 @@ class PlaybackService : Service() {
                 active.setSpeed(next)
                 queue = buildQueue()
                 active.resume()
+                active.state.value.position?.let { startPrefill(it) }
                 if (active(generation)) publish()
             } finally {
                 commandLock.unlock()
@@ -583,13 +594,13 @@ class PlaybackService : Service() {
             segments = audio.segments ?: emptyList()
             baselineOffset = position.offsetSeconds
             active.onAudioStarted()
-            android.util.Log.d("PlaybackService", "loop: playing ${position.chapterIndex}/${position.passageIndex} ${audio.pcm.size / 2} frames at ${current.speed}x voice=$voice")
-
             val sliced = sliceForSpeed(audio.pcm, baselineOffset, audio.sampleRateHz, current.speed)
             output.play(sliced, audio.sampleRateHz, current.speed)
-            // Pre-generate the passages ahead while this one plays.
-            pregenJob?.cancel()
-            pregenJob = scope.launch { queue?.ensure(position) }
+
+            // Pre-generation is a background prefill job (startPrefill), not a
+            // per-boundary cancel-relaunch: a cancelled synthesis never finishes
+            // and every passage change paid a cold restart. The fill job only
+            // stops on stopEveryState/rebuild.
             val finished = awaitPlaybackOrStop(sliced.size / 2, active)
             android.util.Log.d("PlaybackService", "loop: await returned finished=$finished (pos=${output.positionSamples}/${sliced.size / 2})")
             if (!finished) return
@@ -843,7 +854,32 @@ class PlaybackService : Service() {
                 runtime.engine()?.synthesize(SynthesisRequest(text, activeVoice(), speed = speed))
                     ?: SynthesisOutcome.Failed("engine unavailable")
             },
+            lookahead = PREFILL_LOOKAHEAD_PASSAGES,
+            lookaheadSeconds = PREFILL_LOOKAHEAD_SECONDS,
         )
+    }
+
+    /**
+     * Front-loads and keeps a time-buffer of audio ahead of the playhead. Runs
+     * a single long-lived job that re-ensures the queue toward
+     * [PREFILL_LOOKAHEAD_SECONDS] so Kokoro (RTF <1) stays ahead of 1x playback
+     * and a book opened while idle warms its opening. Cancelled only on stop /
+     * queue rebuild (speed/voice/book change) — never at a passage boundary,
+     * which used to kill the in-flight synthesis cold (the 24 s gap).
+     */
+    private fun startPrefill(from: PlayerPosition) {
+        val q = queue ?: return
+        pregenJob?.cancel() // superseded queue (speed/voice/book) — safe to drop
+        pregenJob = scope.launch {
+            while (isActive) {
+                // Re-arm from the live playhead every tick so consumed passages
+                // stay pruned and the fill tracks the moving position; [from]
+                // is the start (a book opened idle front-loads its opening).
+                val playhead = machine?.state?.value?.position ?: from
+                q.ensure(playhead)
+                delay(PREFILL_TICK_MS)
+            }
+        }
     }
 
     /** The selected Kokoro voice (V1 settings); defaults to af_heart until chosen. */
@@ -933,6 +969,12 @@ class PlaybackService : Service() {
         private const val SEEK_STEP_SECONDS = 30.0
         private const val FRAME_MARGIN = 240 // 10 ms at 24 kHz
         private const val DUCK_VOLUME = 0.2f
+        /** Prefill: buffer this many seconds of audio ahead while playing. */
+        private const val PREFILL_LOOKAHEAD_SECONDS = 45.0
+        /** Prefill: hard passage ceiling (bulwark against tiny-passage books). */
+        private const val PREFILL_LOOKAHEAD_PASSAGES = 60
+        /** Prefill: re-check cadence; ensure() returns early once the target is met. */
+        private const val PREFILL_TICK_MS = 200L
         private val SPEED_PRESETS = listOf(1.0, 1.25, 1.5, 2.0)
         private val SETTLED_PHASES = setOf(PlayerPhase.PLAYING, PlayerPhase.PAUSED, PlayerPhase.LOADING)
         private var clock: () -> Long = System::currentTimeMillis
