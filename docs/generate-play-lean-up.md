@@ -50,6 +50,20 @@ prep mentions of it stay accurate.**
 **Execution order (per goals doc Sequencing note):** instrument → PR-0
 (QW1 + QW2 + QW5a/b) → yield-reversal slice → PR-1..5 with the adjustments above.
 
+**PR-0 landed (2026-08-28):** QW1, QW2 and QW5a/b shipped (decisions #72). QW1
+restored `chapters = book?.chapters?.map { it.title.orEmpty() } ?: emptyList()` in
+`publish()` — the line the CR-9 fix (`3bc2057`) replaced with the `chapterPassages`
+block — and added `PlaybackServicePublishGuardTest`, the durable field-set guard
+over the full historically collateral-dropped set (`segments`/`offsetSeconds`
+3e01cd3/CR-8, `chapterPassages` 26a3272/CR-9, `chapters` 3bc2057), which is the
+parity guard S3's publish split and goals G1/G3 lean on. QW2 ships `EXTRA_BOOK_ID`
+on every notification action intent and `mediaCallback.onPlay()` resumes via
+`PlaybackStateHolder.state.value.bookId`; the post-process-death resume is fixed
+and host-tested, but its device acceptance (kill process → notification Play
+resumes) is PENDING — no device this round. QW5a/b: `PregenQueue.clear()` (and its
+test) and `PlaybackService.playerJob` removed. QW3/QW4/QW5c-e and S1-S5 remain as
+proposed.
+
 ---
 
 ## 1. Executive summary

@@ -1,5 +1,46 @@
 # Decision log
 
+## 72. PR-0: chapters publish restore + notification book-id resume path + dead code (2026-08-28)
+
+First slice of the generate/play lean-up (`docs/generate-play-lean-up.md` §7, PR-0):
+QW1, QW2 and QW5a/b land together; QW3/QW4/QW5c-e and S1-S5 stay as proposed.
+
+**QW1 — `publish()` restores `chapters` (third copy-move dropout).** Commit
+`3bc2057` (the CR-9 fix) replaced the line `chapters = book?.chapters?.map { it.title.orEmpty() } ?: emptyList()`
+with the `chapterPassages` block — the same collateral-drop class that hit
+`segments`/`offsetSeconds` in `3e01cd3` (CR-8) and `chapterPassages` in `26a3272`
+(CR-9). `PlaybackUiState.chapters` stayed in the contract but no production path
+wrote it, so the reader's chapter selector (`enabled = state.bookId != null &&
+state.chapters.isNotEmpty()`, ReaderScreen.kt), the "Ch X/Y" label, the chapter
+menu and the top-bar chapter title were dead. New `PlaybackServicePublishGuardTest`
+(feature-player) runs a real publish against a positioned machine + book and
+asserts the full historically collateral-dropped field set — `chapters` (dead since
+3bc2057), `chapterPassages` (26a3272), `segments`/`offsetSeconds` (3e01cd3); it
+failed against the pre-fix publish and passes now — so any future copy-block edit
+that drops a field fails the suite.
+
+**QW2 — notification actions carry the book id (post-death resume).** Every
+notification action `PendingIntent` now carries `EXTRA_BOOK_ID` (the
+`buildNotification` `action()` helper), and `mediaCallback.onPlay()` resumes with
+`PlaybackStateHolder.state.value.bookId`. Pre-fix the intents had no id and onPlay
+called `resumePlayer()` bare, dead-ending at `val id = bookId ?: return` when the
+restarted service had `machine == null` (the service is `START_NOT_STICKY`). The
+holder survives in-process, and the existing machine-less rebuild
+(`startPlayback(id, explicit = false)`) carries the resume; the goals doc's L3
+(< 5 s notification resume after process death) depends on this path. Host tests
+cover the in-process halves (intents carry the id; onPlay rebuilds the machine
+from the holder id). The device acceptance — kill process → notification Play
+resumes — is **PENDING**: no device was available this round.
+
+**QW5a/b — dead code removed.** `PregenQueue.clear()` (no callers) and its test;
+`PlaybackService.playerJob` (never assigned by any production path) and its
+cancellation in the stop path.
+
+Evidence: `PlaybackServicePublishGuardTest` 3/3 (full field-set guard, action
+intents carry `EXTRA_BOOK_ID`, media-session play rebuilds from the holder id);
+`./tools/docker-build.sh :core-player:test :feature-player:testDebugUnitTest` →
+BUILD SUCCESSFUL (core-player 91, feature-player 20 incl. the 3 new guard tests).
+
 ## 71. Speed selector removed — playback pinned 1.0×, model kept for revisit (2026-08-28)
 
 The reading-speed selector UI and its command chain are removed; playback always

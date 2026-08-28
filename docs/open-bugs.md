@@ -25,6 +25,7 @@ plan — slicing happens through decisions.md.
 | ~~**CR-6: feature-module dependency rules are no longer enforced**~~ | ~~Feature modules depend directly on other feature modules and concrete Android/persistence implementations, while `feature-library` owns application-wide DI. `app` is not the effective composition root described by the architecture.~~ | Fixed — A6, 2026-08-27 (decisions #66; record below) | code review 2026-08-27; `architecture.md` §2 |
 | ~~**CR-8: read-along anchors + live playhead never published (`PlaybackUiState.segments`/`offsetSeconds` dead)**~~ | `3e01cd3` (decisions #51 gap pass) collaterally dropped `segments = segments,` and `offsetSeconds = liveOffsetSeconds(),` from `PlaybackService.publish()` while rewriting the reader footer. `activeSentenceIndex`/`offsetSeconds`/`segments` stayed in the state contract but no path ever set them — the read-along highlight and passage progress bar are unobservable. Surfaced by the E2E regression: `PlaybackE2eTest` "read-along anchors surfaced somewhere" failed every run. | Fixed — on-device E2E run 2026-08-27 (both publishes restored + rerun-safe E2E; record below) | device E2E 2026-08-27; decisions #31/#34 |
 | ~~**CR-9: chapter text never published (`PlaybackUiState.chapterPassages` dead — reader body blank, touch nav dead)**~~ | The `26a3272` CR-8 fix collaterally dropped `chapterPassages = position?.let { p -> book?.chapters?.firstOrNull { it.index == p.chapterIndex }?.passages?.map { it.text } } ?: emptyList()` from `PlaybackService.publish()`'s `it.copy(...)` block while inserting the two restored publishes (same class of `copy-move` regression that hit `segments`/`offsetSeconds` in `3e01cd3`). `chapterPassages` stayed in the `PlaybackUiState` contract and `PaginatedChapter` reads it, but no path wrote it — the reader body went blank on every book, side-tap page turns and the empty-state guard stopped rendering. | Fixed — on-device repro 2026-08-27 (chapterPassages restore; record below) | device repro 2026-08-27; decisions #51 follow-up |
+| ~~**CR-8/CR-9 family: chapter titles never published (`PlaybackUiState.chapters` dead — chapter selector/title dead)**~~ | The CR-9 fix `3bc2057` replaced `chapters = book?.chapters?.map { it.title.orEmpty() } ?: emptyList()` in `PlaybackService.publish()`'s `it.copy(...)` with the `chapterPassages` block — same copy-move class of regression as CR-8/CR-9. `chapters` stayed in the contract but no path wrote it; the reader's chapter selector (`enabled = state.bookId != null && state.chapters.isNotEmpty()`), "Ch X/Y" label, chapter menu and top-bar chapter title were dead. | Fixed — PR-0, 2026-08-28 (decisions #72; guard test prevents recurrence; record below) | code trace 2026-08-28; `docs/generate-play-lean-up.md` QW1 |
 | **Reader bottom line cropped under the shared player card** | On the reader, the last text line is clipped at the boundary with the bottom transport card — the visible slice ends mid-line ("…He") with no way to scroll the remainder above the card. Evidence: `docs/prints/reader-bottom-crop.png`, `reader-bottom-crop-2.png`. | Open — reader/card inset fix (Phase B3 step 2) | user report + device run 2026-08-27 |
 | **Chapter menu doubles the ordinal ("1. 1. Millie…")** | `ReaderScreen` chapter dropdown prefixes `${index + 1}.` to chapter titles that already carry their own ordinal (Impulse navPoint labels "1. Millie: The Underlying Problem"), rendering "1. 1. Millie: …". Evidence: `docs/prints/reader-chapter-menu-doubled-ordinal.png`. | Open — cosmetic; fix in B3 reader chrome pass | code trace + device run 2026-08-27 |
 
@@ -712,6 +713,47 @@ page rendering and side-tap/swipe page turns work.
 - Device: every reader open renders the chapter body (not the empty-state
   sentence) and side-tap/swipe page turns land on subsequent pages; existing
   E2E classes (`PlaybackE2eTest` etc.) re-run green.
+
+### CR-8/CR-9 family — ~~Chapter titles never published (chapter selector/title dead)~~ (FIXED — PR-0, 2026-08-28)
+
+**Severity/status:** Major; regression from `3bc2057` (the CR-9 fix commit), the
+third instance of the `publish()` copy-move class; no separate CR number — filed
+with the CR-8/CR-9 family (code trace 2026-08-28, `docs/generate-play-lean-up.md`
+QW1).
+
+**Shipped contract:** `PlaybackUiState.chapters: List<String>` carries the book's
+chapter titles in spine order. `ReaderScreen`'s chapter selector gates on it
+(`enabled = state.bookId != null && state.chapters.isNotEmpty()`), the header
+label reads "Ch X/Y" from `state.chapters.size`, the chapter dropdown iterates
+`state.chapters`, and the top-bar chapter title is
+`state.chapters.getOrNull(state.chapterIndex)`.
+
+**Regression:** the CR-9 fix commit `3bc2057` replaced the line
+`chapters = book?.chapters?.map { it.title.orEmpty() } ?: emptyList()` with the
+restored `chapterPassages` block inside `publish()`'s `it.copy(...)` — the same
+`copy-move` class that originally hit `segments`/`offsetSeconds` in `3e01cd3`
+(CR-8) and `chapterPassages` in `26a3272` (CR-9). `chapters` stayed in the
+`PlaybackUiState` contract but no production path wrote it: the chapter selector
+was permanently disabled, the "Ch X/Y" label read "Ch 1/0", the dropdown was
+empty and the top-bar chapter title was blank.
+
+**Why existing verification missed it:** no host test read
+`PlaybackStateHolder.state.chapters`; the only consumers are the Compose reader
+surfaces, and the instrumented E2E classes don't drive the reader UI. The drop
+landed in the CR-9 fix commit itself (`3bc2057`), so it postdates the CR-8/CR-9
+repair records and predates this trace.
+
+**Repair (PR-0, decisions #72):**
+
+- `PlaybackService.publish()`: restore `chapters = book?.chapters?.map { it.title.orEmpty() } ?: emptyList()` in `PlaybackStateHolder.update` (between `passageDurationSeconds` and `chapterPassages`, matching `PlaybackUiState` field order).
+- New `PlaybackServicePublishGuardTest` (feature-player): runs a real publish against a positioned machine + book and asserts the full historically collateral-dropped field set — `chapters`, `chapterPassages`, `segments`, `offsetSeconds` — so any future copy-block edit that drops a field fails the suite (recurrence guard covering the whole CR-8/CR-9 family).
+
+**Regression coverage/acceptance:**
+
+- `PlaybackServicePublishGuardTest` — `publish populates the full historically-dropped field set` fails against the pre-PR-0 publish (`chapters` empty) and passes now; companion tests pin the QW2 action surface (`notification action intents carry the book id`, `media session play rebuilds the machine from the holder book id after death`).
+- `:core-player:test :feature-player:testDebugUnitTest` green via `./tools/docker-build.sh` (feature-player 20 incl. the 3 new guard tests).
+- Device visual acceptance (chapter selector enabled, "Ch X/Y" label, top-bar chapter title) not run this round — no device; host tests only.
+
 | Limitation | Workaround | Reported in |
 |---|---|---|
 | Instrumented test classes sharing one process trip Room-reopen races | Run each test CLASS in its own `am instrument` invocation | `build.md` (instrumented set), decisions #36/#45 |

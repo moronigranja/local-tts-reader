@@ -149,6 +149,11 @@ Instrumentation lands first (measurement), then lean-up PR-0 (QW1 `chapters` res
 yield reversal as its own decision-bearing slice. Goals doc is the acceptance
 reference for each.
 
+PR-0 shipped 2026-08-28 (decisions #72): QW1 `chapters` restore + field-set guard
+test, QW2 book-id in notification/MediaSession actions, QW5a/b dead code. QW2's
+device acceptance — kill process → notification Play resumes (L3) — is pending
+(no device this round).
+
 Goal-driven deltas to the proposal and the resulting execution order:
 `docs/generate-play-lean-up.md` → **Goals impact (2026-08-28)**.
 
