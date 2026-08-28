@@ -1,4 +1,53 @@
 # Decision log
+
+## 70. I2 — Smart chapter detection in monolithic books (2026-08-28)
+
+Shipped with I1 in one core-ebook commit: `BookSegmentation.splitChaptersByHeading` gives a
+book parsed to exactly one chapter — MOBI7 without an NCX, a one-entry EPUB spine, plain TXT
+(Markdown ATX already splits) — a fallback split on credible headings.
+
+- Runs only when parsing produced exactly one chapter: NCX/nav/ATX boundaries always take
+  precedence, and the split stays inside `BookSegmentation` (single segmentation path, no
+  second convention).
+- Detects headings from passage text: chapter/part keywords (`Chapter N` / `CHAPTER N`,
+  `Part/PART N`, plus the en/fr/es/pt/it/ja/zh/hi forms and CJK/Devanagari chapter words),
+  all-caps Latin title runs, and leading-numeric "N. Title" lines. Heading text becomes the
+  chapter title (TTS skips the title field); heading passages are removed from the bodies so
+  they are not read aloud twice; chapters renumber contiguously.
+- Evidence gates: at least two headings of one uniform kind for any split — a lone "Chapter 1"
+  amid prose or mixed heading kinds stays one chapter; a book of only headings never divides
+  into empty chapters. Deterministic and stable across re-parses (same stable-index contract
+  as `BookSegmentation`).
+
+Evidence: `BookSegmentationTest` — `monolith splits on Chapter N`, `roman and name-case
+headings split`, `numeric heading lines split when consistent`, `a book with one chapter
+heading and prose stays one chapter`, `mix of chapter-numeral and all-caps headings does not
+split`, `book of only headings does not divide into empty chapters`, `chapter indexes
+contiguous after split`, and the en/fr/es/pt/it/ja/zh-cmn/hi heading splits
+(`:core-ebook:test` green at commit).
+
+## 69. I1 — Book start detection (skip cover, TOC, index) (2026-08-28)
+
+Shipped with I2 in one core-ebook commit: `BookSegmentation.stripPassageMatter` extends
+furniture stripping from chapter-title granularity to passage level, so a single-chapter
+source — MOBI7 without an NCX, a one-entry EPUB spine, a plain TXT — starts the listener at
+the first story passage instead of the cover.
+
+- Drops a contiguous leading run of front-matter passages (cover, half title, title page,
+  copyright, contents, dedication, epigraph) on the first kept chapter and a contiguous
+  trailing run of back-matter passages (about the author, index, advertisements) on the last
+  kept chapter, by the same containment rules already used for chapter titles (cover and half
+  title are in `FRONT_MATTER`).
+- Invariants hold: a *middle* chapter named "Index" or "Copyright" is untouched
+  (containment, not position), and stripping never removes the whole book — a chapter emptied
+  by the strip restores its original passages, preserving deterministic re-parse stability.
+
+Evidence: `BookSegmentationTest` — `single chapter front matter passages are stripped`,
+`single chapter back matter is stripped`, `middle chapter mentioning index or copyright is
+NOT stripped`, `single chapter with only furniture stays unchanged`; the acceptance scenario
+(single-chapter EPUB resumes at the first story passage; re-import reproduces the identical
+kept set) is the tested behavior (`:core-ebook:test` green at commit).
+
 ## 68. B1+B2 — AyvuTheme tokens + shared component set (2026-08-28)
 
 Phase B's first two slices (roadmap B1/B2, planned as decision #58): the branded

@@ -36,7 +36,7 @@ product value. Open defects and their acceptance criteria are authoritative in
 | T1–T5 | Verified packs, Kokoro, player state machine, MediaSession, read-along, bookmarks, undo, sleep timer and pre-generation | decisions #23–#35, #42 |
 | S1–S3 | OCR, share receiver, match result and listen-from-here | decisions #36–#38 |
 | V1–V3 | Settings, CI, S22 performance/device passes | decisions #34, #36, #39–#41, #49 |
-| Post-v1 shipped | Offline chapter pre-generation, storage transparency, reader/library polish, shared player card, Phase B design tokens + shared components | decisions #42–#56, #68 |
+| Post-v1 shipped | Offline chapter pre-generation, storage transparency, reader/library polish, shared player card, Phase B design tokens + shared components, Phase I book start + chapter segmentation | decisions #42–#56, #68, #69/#70 |
 
 Historical estimates and completed implementation specifications were removed from this
 file. Git history and the decision ledger retain them.
@@ -337,6 +337,57 @@ wall-clock duration while the player is actually `PLAYING`.
 
 A full event/session timeline is not a prerequisite for the dashboard. Add it later only
 if a user-visible history view needs event-level data.
+
+## Phase I — book start and chapter segmentation
+
+Import segmentation so a listener starts at the story, not the cover, and a monolithic
+book is navigable by chapters. Both items shipped as pure core-ebook work
+(`BookSegmentation` + the parsers), host-tested like the existing eBook JVM suites —
+decisions #69/#70, one commit (2026-08-28).
+
+### I1 — Book start detection (skip cover, TOC, index)
+
+**Complete (2026-08-28, decisions #69):** `stripPassageMatter` extends front/back-matter
+stripping to the *passage* level inside the kept chapters — a contiguous leading run of
+furniture passages (cover, half title, title page, copyright, contents, dedication, epigraph)
+on the first kept chapter and a contiguous trailing run (index, about-the-author,
+advertisements) on the last kept chapter, by the same containment rules already used for
+chapter titles. Invariants hold: a *middle* run named "Index" or "Copyright" is untouched
+(containment, not position), and stripping never removes the whole book — a chapter emptied
+by the strip restores its original passages (deterministic re-parse stability).
+
+Evidence: `BookSegmentationTest` — `single chapter front matter passages are stripped`,
+`single chapter back matter is stripped`, `middle chapter mentioning index or copyright is
+NOT stripped`, `single chapter with only furniture stays unchanged`; the acceptance scenario
+(single-chapter EPUB resumes at the first story passage; re-import reproduces the identical
+kept set) is the tested behavior (`:core-ebook:test` green at commit).
+
+### I2 — Smart chapter detection in monolithic books
+
+**Complete (2026-08-28, decisions #70):** `splitChaptersByHeading` gives a book parsed to
+exactly one chapter — MOBI7 without an NCX, a one-entry EPUB spine, plain TXT (Markdown ATX
+already splits) — a fallback split on credible headings: chapter/part keywords (`Chapter N` /
+`CHAPTER N`, `Part/PART N`, plus the en/fr/es/pt/it/ja/zh/hi forms and CJK/Devanagari chapter
+words), all-caps Latin title runs, and leading-numeric "N. Title" lines. Heading text becomes
+the chapter title (TTS skips the title field); heading passages are removed from the bodies
+so they are not read aloud twice; chapters renumber contiguously.
+
+Heuristic gates as specified: it runs only when the book has a single chapter (NCX/nav/ATX
+boundaries always take precedence; single segmentation path inside `BookSegmentation`, no
+second convention); at least two headings of one uniform kind — a lone "Chapter 1" amid prose
+or mixed heading kinds stays one chapter; a book of only headings never divides into empty
+chapters; deterministic and stable across re-parses (same stable-index contract as
+`BookSegmentation`).
+
+Evidence: `BookSegmentationTest` — `monolith splits on Chapter N`, `roman and name-case
+headings split`, `numeric heading lines split when consistent`, `a book with one chapter
+heading and prose stays one chapter`, `mix of chapter-numeral and all-caps headings does not
+split`, `book of only headings does not divide into empty chapters`, `chapter indexes
+contiguous after split`, and the en/fr/es/pt/it/ja/zh-cmn/hi heading splits
+(`:core-ebook:test` green at commit).
+
+Ordering followed as planned: I1 landed first (I2's split trusts I1's kept-set stability); both
+shipped together in the same commit. Covered by the existing `BookSegmentationTest` suite.
 
 ## Later — strategic and dependency-gated work
 

@@ -87,7 +87,7 @@ Logged 2026-08-25. Sources:
   restrictions / Doze could kill long-running foreground playback — the player must
   use a proper foreground service and handle being re-killed gracefully (T4).
 
-## Decision status (decisions #29 snapshot 2026-08-25; updated 2026-08-27)
+## Decision status (decisions #29 snapshot 2026-08-25; updated 2026-08-28)
 
 | Idea | Disposition |
 |---|---|
@@ -108,6 +108,8 @@ Logged 2026-08-25. Sources:
 | TTS pronunciation replacements | **Promoted — roadmap G1** (decisions #57); the reported `Ms.` defect is the first general normalization regression |
 | Long-press paragraph menu — Play from here + Copy text | **Promoted — roadmap G2** (decisions #57) |
 | Hardware/listening gestures | **Promoted — roadmap G3** (decisions #57): narrow MediaSession + opt-in visible-reader volume-key scope; configurable tap-zone editor remains pooled |
+| Book start detection (skip cover/TOC/index) | **Added — roadmap I1** (decisions #69, shipped 2026-08-28): passage-level front/back-matter stripping in single-chapter books |
+| Smart chapter detection for monolithic single-chapter books | **Added — roadmap I2** (decisions #70, shipped 2026-08-28): fallback heading split when NCX/nav/ATX left a single chapter, never duplicated |
 | Auto-delete read passages, habit-driven pre-gen, translate language coverage | Stays in the pool |
 ## Brand & identity
 
