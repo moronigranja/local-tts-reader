@@ -91,6 +91,10 @@ class PlaybackE2eTest {
     @Test
     fun playsThroughTheBookAndCompletes() {
         PlaybackStateHolder.reset()
+        // Rerun hygiene: a previous run's resume row parks the playhead at the
+        // book's ending, so ACTION_PLAY would slice ~0 frames and "complete"
+        // instantly. Delete it so every run starts at 0/0 with real audio.
+        runBlocking { database.progressDao().delete(book.id) }
         context.startForegroundService(
             Intent(context, PlaybackService::class.java)
                 .setAction(PlaybackService.ACTION_PLAY)

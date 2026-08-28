@@ -24,6 +24,7 @@ plan — slicing happens through decisions.md.
 | ~~**CR-5: asynchronous book commands can overwrite newer player state**~~ | ~~`ACTION_OPEN`/`ACTION_PLAY` load books in untracked coroutines. `stopEverything()` cannot cancel them; an older load may publish after a newer command or remove its foreground notification.~~ | Fixed — A5, 2026-08-27 (decisions #62; record below) | code review 2026-08-27; T4 single-writer contract |
 | ~~**CR-6: feature-module dependency rules are no longer enforced**~~ | ~~Feature modules depend directly on other feature modules and concrete Android/persistence implementations, while `feature-library` owns application-wide DI. `app` is not the effective composition root described by the architecture.~~ | Fixed — A6, 2026-08-27 (decisions #66; record below) | code review 2026-08-27; `architecture.md` §2 |
 | ~~**CR-7: pause/navigation during first-audio generation does not settle the session**~~ | While first-play synthesis is in flight ("Generating…"), pressing pause (reader center control and media-session dispatch) left `dumpsys media_session` reporting `PLAYING(3)` with the notification still advertising "Pause"; ±30s presses re-synthesized instead of repositioning a stopped playhead. No transport action stopped the session mid-generation; only process teardown ended it. Evidence: `docs/prints/player-generating-after-play.png`, `player-generating-after-seek.png`, `player-pause-unsettled.png`, `notification-state-desync.png`. | Fixed — A7, 2026-08-27 (decisions #62; record below) | device run 2026-08-27; CR-5 single-writer contract |
+| ~~**CR-8: read-along anchors + live playhead never published (`PlaybackUiState.segments`/`offsetSeconds` dead)**~~ | `3e01cd3` (decisions #51 gap pass) collaterally dropped `segments = segments,` and `offsetSeconds = liveOffsetSeconds(),` from `PlaybackService.publish()` while rewriting the reader footer. `activeSentenceIndex`/`offsetSeconds`/`segments` stayed in the state contract but no path ever set them — the read-along highlight and passage progress bar are unobservable. Surfaced by the E2E regression: `PlaybackE2eTest` "read-along anchors surfaced somewhere" failed every run. | Fixed — on-device E2E run 2026-08-27 (both publishes restored + rerun-safe E2E; record below) | device E2E 2026-08-27; decisions #31/#34 |
 | **Cold-launch main-thread block and first-audio latency on device** | At cold launch Choreographer skipped 124 frames (≈2 s main-thread block, 16:02:15 log). First play then stayed in "Generating…" with time-left static ("10:41:20 left") across a 12 s+ observation; every −30/+30 press re-ran synchronous synthesis. Memory while idle after the session: 1.69 GB PSS / 1.4 GB native heap (1.80 GB RSS). Evidence: `docs/prints/player-generating-after-play.png`, `player-generating-after-seek.png`. | Open — verify against D1/D2 baselines; fix under Phase D | device run 2026-08-27; decisions #53 |
 | **Reader bottom line cropped under the shared player card** | On the reader, the last text line is clipped at the boundary with the bottom transport card — the visible slice ends mid-line ("…He") with no way to scroll the remainder above the card. Evidence: `docs/prints/reader-bottom-crop.png`, `reader-bottom-crop-2.png`. | Open — reader/card inset fix (Phase B3 step 2) | user report + device run 2026-08-27 |
 | **Chapter menu doubles the ordinal ("1. 1. Millie…")** | `ReaderScreen` chapter dropdown prefixes `${index + 1}.` to chapter titles that already carry their own ordinal (Impulse navPoint labels "1. Millie: The Underlying Problem"), rendering "1. 1. Millie: …". Evidence: `docs/prints/reader-chapter-menu-doubled-ordinal.png`. | Open — cosmetic; fix in B3 reader chrome pass | code trace + device run 2026-08-27 |
@@ -603,6 +604,53 @@ pause).
 - Device: press play on a cold engine, press pause during "Generating…"; within 2 s
   the notification shows "Play", `dumpsys media_session` reports `PAUSED`, and no
   further synthesis work is observable.
+
+### CR-8 — ~~Read-along anchors + live playhead never published~~ (FIXED — device E2E run, 2026-08-27)
+
+**Severity/status:** Major; regression from `3e01cd3` (decisions #51, library gap
+pass); caught by the outstanding device E2E batch on the S22.
+
+**Shipped contract:** `PlaybackStateHolder`/`PlaybackUiState` is the single
+observable player surface (T4-2, decisions #34). `segments` (sentence spans of
+the current passage's audio, #31) and `offsetSeconds` (live playhead, book-time
+seconds within the passage) are published on every `publish()`; the reader's
+read-along highlight (`activeSentenceIndex`) and the passage progress bar
+(`offsetSeconds / passageDurationSeconds`) consume them.
+
+**Regression:** `PlaybackService.publish()` dropped both lines while rewriting
+the reader footer (same edit `speed = state.speed` lost, later restored
+separately). The fields stayed in `PlaybackUiState` but no code ever wrote
+them — `state.segments`/`offsetSeconds` pinned at defaults, highlight dead.
+
+**Why existing verification missed it:** no host test reads the published
+`PlaybackUiState.segments`; the only consumer is `PlaybackE2eTest`
+("read-along anchors surfaced somewhere"), which needs a device + staged
+packs + a real run — and additionally was not rerun-safe: a previous run's
+resume row parked the playhead at the book's ending, so later ACTION_PLAY
+slices ~0 frames, completes instantly, and the 250 ms poll misses the
+anchor-bearing PLAYING window.
+
+**Device evidence (S22, 2026-08-27):**
+```
+PlaybackService: loop: playing 1/0 88832 frames … await returned finished=true (pos=1/1)
+```
+— started at the ending, slice=1 frame; the assertion "read-along anchors
+surfaced somewhere" failed at `PlaybackE2eTest.kt:114` in both batch runs.
+Cleared progress → a real two-passage run (0/0 444880 frames → 1/0 88832
+frames, sources disk → pregen), COMPLETED, "OK (1 test)".
+
+**Repair:**
+- `PlaybackService.publish()`: restore `segments = segments,` and
+  `offsetSeconds = liveOffsetSeconds(),` in `PlaybackStateHolder.update`
+  (matching `PlaybackUiState` field order, decisions #31/#34).
+- `PlaybackE2eTest.playsThroughTheBookAndCompletes()`: delete the book's
+  `progress` row before `ACTION_PLAY` so every run starts at 0/0 with real
+  audio (replaces the doomed "resume at ending" path).
+
+**Regression coverage/acceptance:**
+- Device: `PlaybackE2eTest` passes with a real two-passage AudioTrack run
+  (full-frame drains, anchors published); `PlayPositionE2eTest`,
+  `PregenE2eTest`, `VoiceSelectionE2eTest`, `PtVoiceE2eTest` re-run green.
 
 ## Test-harness limitations (worked around, not fixed)
 
