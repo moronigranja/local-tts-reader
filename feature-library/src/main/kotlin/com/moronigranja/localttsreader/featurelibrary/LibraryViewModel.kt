@@ -97,7 +97,6 @@ class LibraryViewModel @Inject constructor(
     fun stop() = commands.stop()
     fun seekForward() = commands.seekForward()
     fun seekBackward() = commands.seekBackward()
-    fun cycleSpeed() = commands.cycleSpeed()
     /** Starts a manual pre-generation run for one book (#42); null budget = whole book. */
     fun pregenerate(bookId: String, budgetMinutes: Long? = null) =
         pregenScheduler?.pregenerate(bookId, budgetMinutes)

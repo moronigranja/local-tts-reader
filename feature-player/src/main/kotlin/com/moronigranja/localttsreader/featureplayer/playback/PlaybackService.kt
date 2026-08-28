@@ -177,7 +177,6 @@ class PlaybackService : Service() {
             ACTION_UNDO -> navigateUndo()
             ACTION_STOP -> stopPlayer()
             ACTION_SLEEP -> cycleSleepTimer()
-            ACTION_SPEED -> cycleSpeed()
             ACTION_BOOKMARK -> addBookmarkAtPlayhead()
         }
         return START_NOT_STICKY
@@ -349,7 +348,7 @@ class PlaybackService : Service() {
         stopEverything()
         requestFocus()
         launchCommand { generation ->
-            settings.reload() // V1: voice/speed changes from settings apply on resume
+            settings.reload() // V1: voice changes from settings apply on resume
             if (phase == PlayerPhase.COMPLETED) {
                 active.playFrom(PlayerPosition(active.bookId, 0, 0))
             } else if (active.resume() == null) {
@@ -464,33 +463,6 @@ class PlaybackService : Service() {
             // machine another command won.
             if (!active(generation)) return@launchCommand
             if (!wasPaused) startLoop()
-        }
-    }
-
-    private fun cycleSpeed() {
-        val active = machine ?: return
-        val current = active.state.value.speed
-        val next = SPEED_PRESETS[(SPEED_PRESETS.indexOfFirst { kotlin.math.abs(it - current) < 1e-9 }.coerceAtLeast(0) + 1) % SPEED_PRESETS.size]
-        val live = liveOffsetSeconds()
-        stopEverything()
-        launchCommand { generation ->
-            commandLock.lock()
-            try {
-                if (!active(generation)) return@launchCommand
-                settings.reload() // speed change rebuilds the queue anyway; keep voice fresh
-                active.pause(live)
-                active.setSpeed(next)
-                queue = buildQueue()
-                active.resume()
-                active.state.value.position?.let { startPrefill(it) }
-                if (active(generation)) publish()
-            } finally {
-                commandLock.unlock()
-            }
-            // CR-5: a stale command never restarts the loop against the
-            // machine another command won.
-            if (!active(generation)) return@launchCommand
-            startLoop()
         }
     }
 
@@ -812,7 +784,7 @@ class PlaybackService : Service() {
         val playing = active?.phase == PlayerPhase.PLAYING || active?.phase == PlayerPhase.LOADING
         return NotificationCompat.Builder(this, CHANNEL_ID)
                         .setContentTitle(book?.title ?: "Ayvu")
-                        .setContentText("Chapter ${(active?.position?.chapterIndex ?: 0) + 1} · Passage ${(active?.position?.passageIndex ?: 0) + 1} · ${"%.2g".format(active?.speed ?: 1.0)}×")
+                        .setContentText("Chapter ${(active?.position?.chapterIndex ?: 0) + 1} · Passage ${(active?.position?.passageIndex ?: 0) + 1}")
             .setLargeIcon(coverArt())
             .setSmallIcon(android.R.drawable.ic_media_play)
             .setOngoing(true)
@@ -1066,7 +1038,6 @@ class PlaybackService : Service() {
         private const val PLAY_BUFFER_TIMEOUT_MS = 60_000L
         /** Post-STOP fill: keep filling for at most this long before tearing down. */
         private const val POST_STOP_MAX_MS = 120_000L
-        private val SPEED_PRESETS = listOf(1.0, 1.25, 1.5, 2.0)
         private val SETTLED_PHASES = setOf(PlayerPhase.PLAYING, PlayerPhase.PAUSED, PlayerPhase.LOADING)
         private var clock: () -> Long = System::currentTimeMillis
 
@@ -1083,7 +1054,6 @@ class PlaybackService : Service() {
         const val ACTION_UNDO = "undo"
         const val ACTION_STOP = "stop"
         const val ACTION_SLEEP = "sleep"
-        const val ACTION_SPEED = "speed"
         const val ACTION_BOOKMARK = "bookmark"
         const val EXTRA_BOOK_ID = "bookId"
         const val EXTRA_CHAPTER = "chapter"

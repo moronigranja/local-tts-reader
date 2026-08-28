@@ -63,7 +63,6 @@ class ReaderViewModel @Inject constructor(
     override fun pause() = command(PlaybackService.ACTION_PAUSE)
     override fun seekForward() = command(PlaybackService.ACTION_SEEK_FORWARD)
     override fun seekBackward() = command(PlaybackService.ACTION_SEEK_BACKWARD)
-    override fun cycleSpeed() = command(PlaybackService.ACTION_SPEED)
     private fun command(action: String, bookId: String? = null, chapter: Int = 0, passage: Int = 0, direction: Int = 0) {
         val intent = Intent(context, PlaybackService::class.java).setAction(action)
         if (bookId != null) intent.putExtra(PlaybackService.EXTRA_BOOK_ID, bookId)

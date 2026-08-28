@@ -21,7 +21,6 @@ interface PlayerCommands {
     fun stop()
     fun seekForward()
     fun seekBackward()
-    fun cycleSpeed()
 }
 
 /** One manual pre-generation job's observable state (the library row's

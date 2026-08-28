@@ -54,7 +54,6 @@ class PlaybackCommandSender @Inject constructor(
     override fun stop() = command(PlaybackService.ACTION_STOP)
     override fun seekForward() = command(PlaybackService.ACTION_SEEK_FORWARD)
     override fun seekBackward() = command(PlaybackService.ACTION_SEEK_BACKWARD)
-    override fun cycleSpeed() = command(PlaybackService.ACTION_SPEED)
 }
 
 /** WorkManager surface behind [PregenScheduler] (A6). */

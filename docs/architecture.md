@@ -115,6 +115,13 @@ shared snippet → normalize → word n-grams → recall vs every indexed passag
 
 ## 7. Status
 
+2026-08-28: the reading-speed selector is removed — playback pinned 1.0×,
+stored per-book speeds ignored on resume (decisions #71). The speed model is
+retained unchanged: progress `speed` column, `PregenKey` speed + path layout,
+`SynthesisRequest.speed`, `PlayerStateMachine.setSpeed`, and
+`PassageOutput.play` tempo (setPlaybackRate, decisions #52) — "per-request
+engine speed" (below) remains the engine contract. Revisit planned.
+
 2026-08-26 (later): T4-2 lands — feature-player PlaybackService (MediaSession,
 audio focus/ducking, becoming-noisy, media notification, 1 s sleep tick),
 per-request engine speed, machine-advance LOADING fix, head-polling AudioTrack

@@ -76,9 +76,11 @@ PlayPositionE2e, SharePipeline (text + image OCR), OCR smoke, RealEpubImportProb
    `.txt`, `.md`) and parse them into chapters and passages, indexing each book so it
    can be identified later. Cached parses never re-read a source file on launch.
 2. **Speech** — expressive on-device Kokoro-82M TTS with sentence-grain read-along
-   highlighting (engine-returned anchors), speed presets, sleep timer, bookmarks and
+   highlighting (engine-returned anchors), sleep timer, bookmarks and
    undo-skip; pre-generation hides the inter-passage gap. Pre-generation also
-   prepares the post-v1 disk PCM cache (same keying).
+   prepares the post-v1 disk PCM cache (same keying). Playback runs at 1.0×:
+   the speed selector was removed 2026-08-28 (decisions #71) — the speed model
+   is retained for a planned revisit.
 3. **Share-and-identify** — share text or a screenshot from your Kindle app; the app
    finds which book and passage it comes from (text directly, screenshots via on-device
    OCR) and offers "Listen here" — opening the book at that passage and starting

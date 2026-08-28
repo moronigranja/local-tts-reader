@@ -77,7 +77,8 @@ fun Book.passageText(chapterIndex: Int, passageIndex: Int): String? =
 
 /**
  * The v1 player state machine (decisions #29/#33) — the single writer of
- * [PlayerStore]: transport transitions, sleep timer, per-book speed, and the
+ * [PlayerStore]: transport transitions, sleep timer, speed (API retained —
+ * resume pins 1.0× while the selector is removed, decisions #71), and the
  * undo-skip position ring. Pure JVM, fully unit-testable; the Android edge
  * (feature-player) drives it and reacts to [PlayerEvent]s.
  *
@@ -124,7 +125,10 @@ class PlayerStateMachine(
             it.copy(
                 phase = PlayerPhase.LOADING,
                 position = position,
-                speed = stored.speed,
+                // Stored per-book speed is ignored while the selector is
+                // removed (2026-08-28, decisions #71); rows normalize to 1.0
+                // on the next write (the machine commits _state.value.speed).
+                speed = 1.0,
                 sleepTimer = SleepTimer.Off,
                 failure = null,
             )

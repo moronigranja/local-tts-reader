@@ -49,14 +49,14 @@ class PlayerStateMachineTest {
     }
 
     @Test
-    fun `resume loads the stored position and per-book speed`() = runTest {
+    fun `resume loads the stored position and pins speed to one point zero`() = runTest {
         store.commitProgress(
             PlayerProgress("b1", 0, 2, 1.5, 1.25, now),
             null,
         )
         val position = machine.resume()
         assertEquals(passage(0, 2, ).copy(offsetSeconds = 1.5), position)
-        assertEquals(1.25, machine.state.value.speed, "per-book speed restore")
+        assertEquals(1.0, machine.state.value.speed, "stored per-book speed ignored (decisions #71)")
         assertEquals(PlayerPhase.LOADING, machine.state.value.phase)
     }
 

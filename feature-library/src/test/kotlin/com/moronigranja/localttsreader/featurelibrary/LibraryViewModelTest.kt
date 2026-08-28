@@ -61,7 +61,6 @@ class LibraryViewModelTest {
         override fun stop() = Unit
         override fun seekForward() = Unit
         override fun seekBackward() = Unit
-        override fun cycleSpeed() = Unit
     }
 
     private fun viewModel(

@@ -79,7 +79,7 @@ import com.moronigranja.localttsreader.player.TextPagination
  * (only when the spoken passage leaves the current one). Opening a book does
  * NOT auto-play (decisions #52); the transport or the library play button
  * start audio. The shared player card docks below (play/pause, ±30s seek,
- * chapter skip, speed pill); sleep timer + undo-skip stay in the top bar.
+ * chapter skip); sleep timer + undo-skip stay in the top bar.
  * Page gestures (horizontal swipe or side-zone taps turn pages;
  * a middle tap starts playback at the passage under the finger) and the
  * bookmark menu (add + jump) round it out.
@@ -193,7 +193,7 @@ fun ReaderScreen(
             }
         },
         // The shared app-wide player card (decisions #53): cover, progress,
-        // times, −30s/◀Ch/play+spinner/Ch▶/+30s/speed. Sleep timer + undo
+        // times, −30s/◀Ch/play+spinner/Ch▶/+30s. Sleep timer + undo
         // stay in the top bar; the old transport row and footer are gone.
         bottomBar = { PlayerCard(state, viewModel) },
     ) { padding ->

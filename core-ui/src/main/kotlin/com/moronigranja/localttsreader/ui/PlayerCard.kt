@@ -51,7 +51,7 @@ import java.io.File
  * thumb, title, subtitle (authors · chapter · passage, or "Generating…"
  * while the engine loads), book-wide progress with elapsed / % /
  * remaining-at-speed, and the transport row — −30s · play/pause (spinner
- * while synthesizing) · +30s · speed pill. State comes from the
+ * while synthesizing) · +30s. State comes from the
  * service-published [PlaybackUiState], commands go through [PlayerCommands];
  * [topRight]/[badge] let the library add its row actions + offline usage;
  * [onOpen] makes the cover/title area open the book.
@@ -187,7 +187,6 @@ fun PlayerCard(
                 }
             }
             PillButton("+30s", onClick = commands::seekForward)
-            PillButton("${formatSpeed(state.speed)}×", onClick = commands::cycleSpeed)
         }
     }
 }
@@ -210,9 +209,6 @@ private fun formatClock(seconds: Double): String {
     val h = total / 3600
     return if (h > 0) "%d:%02d:%02d".format(h, m, s) else "%d:%02d".format(m, s)
 }
-
-private fun formatSpeed(speed: Double): String =
-    if (speed % 1.0 == 0.0) speed.toInt().toString() else speed.toString().trimEnd('0').trimEnd('.')
 
 /** [0..1] position → "%" (sub-1% keeps a decimal so early listening shows motion). */
 private fun progressLabel(state: PlaybackUiState): String {

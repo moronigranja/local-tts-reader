@@ -1,5 +1,46 @@
 # Decision log
 
+## 71. Speed selector removed — playback pinned 1.0×, model kept for revisit (2026-08-28)
+
+The reading-speed selector UI and its command chain are removed; playback always
+runs at 1.0×. This reverses the *live selector*, not the model: the speed machinery
+stays intact so the feature can be revisited cheaply (owner plans a future revisit).
+Link: goals doc (docs/generate-play-goals.md, G1.4 "Speed policy" — section rewritten
+for pinned 1.0× playback; SLOs were already 1.0×-only).
+
+**Removed:**
+- `PlayerCard` speed pill (`PillButton("${formatSpeed(state.speed)}×")` +
+  `commands::cycleSpeed`) and its `formatSpeed` helper (core-ui PlayerCard.kt).
+- `PlayerCommands.cycleSpeed()` (core-player PlaybackCommands.kt); callers dropped:
+  `PlaybackCommandSender` (app PlayerAdapters.kt), `LibraryViewModel.cycleSpeed`
+  (+ the no-op test patch), `ReaderViewModel.cycleSpeed` (feature-player).
+- `PlaybackService`: `ACTION_SPEED` dispatch, the `cycleSpeed()` body, the
+  `SPEED_PRESETS` constant, the `ACTION_SPEED` companion constant, and the
+  speed fragment in the notification content text (now `Chapter N · Passage M`).
+- `PlayerStateMachine.resume()` no longer restores `stored.speed` — pinned to 1.0.
+
+**Kept (revisit without migration / cache invalidation / engine-contract change):**
+- `PlayerProgress.speed` column (core-persistence schema) and its math.
+- `PregenKey` speed dimension + cache path layout (`<bookId>/<voice>/<speed>/…`),
+  byte-identical toString/parse.
+- `SynthesisRequest.speed` engine input; `PassageOutput.play(pcm, sampleRate, speed)`
+  + setPlaybackRate logic; `PlayerStateMachine.setSpeed`/`MIN_SPEED`/`MAX_SPEED`.
+- `PregenWorker` `KEY_SPEED` input (default 1.0) and `OfflinePregen` speed param.
+
+**Stored rows:** per-book speeds are IGNORED on resume (rows left untouched); they
+normalize to 1.0 on the next progress write since the machine commits
+`_state.value.speed = 1.0`.
+
+**Suspension:** decisions #29's "per-book speed preset restore" acceptance is
+SUSPENDED (not deleted) until the revisit; decisions #33 (book-time semantics) and
+#52 (setPlaybackRate) stay correct — the speed argument never leaves 1.0 in
+production.
+
+Evidence: `PlayerStateMachineTest` — `resume loads the stored position and pins
+speed to 1.0` (stored 1.25 resumes at 1.0); the other machine speed tests
+(setSpeed preserves point / clamps) keep guarding the retained contract; targeted
+test runs for core-player, core-persistence, feature-library, feature-player green.
+
 ## 70. I2 — Smart chapter detection in monolithic books (2026-08-28)
 
 Shipped with I1 in one core-ebook commit: `BookSegmentation.splitChaptersByHeading` gives a
