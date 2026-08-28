@@ -1,5 +1,110 @@
 # Decision log
 
+## 75. S1/O3 — shared PregenPlanner (2026-08-28)
+
+S1/O3 lands a single spine-order passage walk in core-player: `PregenPlanner`
+(pure — no cache, no engine, no launch/cancel) owns the walk and the `PregenKey`
+construction that both pre-generation executors previously re-implemented
+(`OfflinePregen` with nested chapter/passage loops over `BookLayout`,
+`PregenQueue` with its own cursor).
+
+- `plan()` (non-suspend) serves the queue's look-ahead: built inside `ensure`'s
+  critical section with the exact prior stop decisions — stop at the first
+  in-flight key (contiguous prefix; never plan past an unsynthesized near gap),
+  plus the `lookahead` count and `lookaheadSeconds` bounds; the queue's
+  callbacks never suspend.
+- `walk()` (suspend) serves the whole-book run: chapter hooks + suspendable
+  `onCandidate`, halting on a `false` return; the stopping reason is captured
+  and stamped on the final `PregenTerminal` progress.
+- Both executors are kept — their lifecycles are Android-mandated (the service
+  coroutine dies with the service and `START_NOT_STICKY` self-stop; WorkManager's
+  persistence + KEEP-dedup is the library UI's backstop; lean-up O1/O2 remain
+  rejected). Public executor contracts and behavior are unchanged: existing
+  OfflinePregen/PregenQueue tests pass as-is.
+- NOT included: the G2 admission rule (offline pregen suspends while playback is
+  active — goals doc decided it, decisions #42 reversal), which stays its own
+  entry when implemented.
+
+Evidence: `PregenPlannerTest` (10 tests — spine order, strictly-after start,
+stop/shouldVisit hooks, chapter hooks, key construction);
+`./tools/docker-build.sh :core-player:test :feature-player:testDebugUnitTest` →
+BUILD SUCCESSFUL (core-player 100 incl. the 10 new planner tests and the
+refactored offline/queue suites; feature-player incl. the 3 new batch test files).
+
+## 74. QW3/QW5c/QW5d — engine retry seam, close() docs, overnight leftover cancel (2026-08-28)
+
+Second lean-up batch (docs/generate-play-lean-up.md §3); none of the three
+touches CR-1/CR-2/CR-5/CR-7.
+
+**QW3 — `KokoroRuntime.engine()` stops latching a failed open for the process.**
+Previously the `failure?.let` fast-path (before and inside the lock) froze
+"engine unavailable" until process restart — a first play before the async pack
+staging lands (SettingsViewModel auto-stage) permanently failed. Now:
+- prerequisite-missing failures (the `missingPrerequisites()` model/voices/
+  espeak-file guards) re-check on every call and open once the files exist —
+  no cap burn, no latch.
+- genuine open failures (files present, open threw — corrupt model, bad espeak
+  lib) count against `MAX_FAILED_OPEN_ATTEMPTS = 3` per process, so play taps
+  cannot hot-loop the 325 MB graph open; a successful open clears the failure
+  and resets the counter.
+- `missingPrerequisites()`/`openEngine()` become protected seams for the retry
+  test.
+- Relaxes the decisions #25/#32 "opened exactly once" wording: opening stays
+  lazy and one-engine-per-process, but prerequisite-missing opens retry and
+  genuine failures are capped — the once-wording is now retry-qualified.
+
+**QW5c — close() doc notes.** `KokoroEngine.close()`/`OrtKokoroSession.close()`:
+"process-scoped, never closed in production; kept for tests/benchmarks" — the
+engine is process-lifetime by design (decisions #25/#32); only tests/benchmarks
+close.
+
+**QW5d — overnight leftover cancel at startup.** The app-start scheduling hook
+is gone, but a previously-enqueued overnight `PeriodicWorkRequest` survives in
+WorkManager's DB and can still fire once after an upgrade —
+`LocalTtsReaderApp.onCreate` now calls `PregenManager.cancelOvernight()`
+(`workManager.cancelUniqueWork(PregenWorker.OVERNIGHT_NAME)`), the deterministic
+fix for a recurring CPU spike; fresh installs no-op. `ensureOvernightScheduled()`
+itself stays until the S1b decision removes the arm.
+
+Link: goals doc — the QW5d cancel keeps GAP1 (G2) measurements clean and off the
+L3 resume path; the QW3 de-latch keeps L1/L2/L3 measurable without a process
+restart.
+
+Evidence: `KokoroRuntimeRetryTest` (prereq-missing → files staged → `engine()`
+non-null; corrupt model exhausts the cap; success clears failure; prereq misses
+do not burn the cap), `PregenManagerCancelTest` (startup cancel reaches
+`cancelUniqueWork(OVERNIGHT_NAME)`); `./tools/docker-build.sh :core-player:test
+:feature-player:testDebugUnitTest` → BUILD SUCCESSFUL.
+
+## 73. Instrumentation probes — goals §Measurement first slice (2026-08-28)
+
+First slice of "measure now" (docs/generate-play-goals.md §Measurement), landing
+before the remaining lean-up PRs: `PlaybackService` emits two debug-gated logcat
+probes, log-only by construction — they never block, publish, or reorder, so the
+50 ms poll loop and CR-2/CR-5/CR-7 ordering are untouched.
+
+- **AyvuTap** (tap-to-audio, L1/L2/L3): timestamp armed at command dispatch
+  (`probeTap` in `onStartCommand` and the media-session `onPlay` arm — covering
+  in-process AND post-death rebuild resumes) and consumed at the first frame
+  written to `AudioTrack`.
+- **AyvuGap** (boundary-gap, GAP1): consecutive same-loop plays only —
+  `computeGapMs` = play(N+1) dispatch minus (play(N) dispatch + rendered
+  frames/sample-rate), an approximation of the true passage end (no AudioTrack
+  marker callback); resume/seek/stop deliberately break consecutiveness so the
+  next play is a fresh start, never a gap.
+- Gates: `probesActive` = app debuggable runtime flag AND the companion
+  `gapProbeActive` master toggle (feature-player has no BuildConfig); one
+  `probe()` emit point; `clock()` seam for deterministic host tests. Logcat
+  tags consumed by a dev script; no UI.
+- Device collection of the L1/L2/L3/GAP1 numbers is **PENDING** — no device this
+  round; the probes are the harness the SLO acceptance runs on.
+
+Evidence: `PlaybackServiceProbesTest` (tap arming survives to the first play and
+logs AyvuTap with the dispatch action; same-loop consecutive plays log AyvuGap;
+resume/seek/stop reset the baseline; `probesActive` false → no probe logs);
+`./tools/docker-build.sh :core-player:test :feature-player:testDebugUnitTest` →
+BUILD SUCCESSFUL.
+
 ## 72. PR-0: chapters publish restore + notification book-id resume path + dead code (2026-08-28)
 
 First slice of the generate/play lean-up (`docs/generate-play-lean-up.md` §7, PR-0):

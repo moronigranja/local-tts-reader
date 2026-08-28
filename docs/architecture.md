@@ -113,7 +113,16 @@ shared snippet → normalize → word n-grams → recall vs every indexed passag
 7. **Share result = location** — MatchResult carries (bookId, chapter, passage);
    the player resumes there.
 
-## 7. Status
+2026-08-28 (lean-up batch 2, decisions #73/#74/#75): measurement probes —
+`AyvuTap`/`AyvuGap` debug-gated logcat in PlaybackService (goals §Measurement,
+non-blocking, CR-ordering untouched); `KokoroRuntime.engine()` retry seam
+(prerequisite-missing re-checks, genuine open failures capped at
+`MAX_FAILED_OPEN_ATTEMPTS`, failure cleared on success — QW3, relaxes #25/#32
+once-wording); process-scoped `close()` doc notes on
+`KokoroEngine`/`OrtKokoroSession` (QW5c); startup overnight leftover cancel via
+`PregenManager.cancelOvernight()` (`cancelUniqueWork(OVERNIGHT_NAME)`, QW5d);
+shared `PregenPlanner` in core-player (pure spine walk, `plan()`/`walk()`)
+consumed by `OfflinePregen.run` and `PregenQueue.ensure` (S1/O3; executors kept).
 
 2026-08-28: the reading-speed selector is removed — playback pinned 1.0×,
 stored per-book speeds ignored on resume (decisions #71). The speed model is

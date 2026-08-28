@@ -63,6 +63,18 @@ and host-tested, but its device acceptance (kill process → notification Play
 resumes) is PENDING — no device this round. QW5a/b: `PregenQueue.clear()` (and its
 test) and `PlaybackService.playerJob` removed. QW3/QW4/QW5c-e and S1-S5 remain as
 proposed.
+**Batch 2 landed (2026-08-28, decisions #73/#74/#75):** the measurement probes
+(goals §Measurement — `AyvuTap`/`AyvuGap` debug-gated logcat in PlaybackService,
+decisions #73), QW3 (`KokoroRuntime.engine()` retry seam: prerequisite-missing
+no longer latches, genuine open failures capped at `MAX_FAILED_OPEN_ATTEMPTS`,
+failure cleared on success; relaxes the decisions #25/#32 once-wording), QW5c
+(process-scoped `close()` doc notes on `KokoroEngine`/`OrtKokoroSession`), QW5d
+(startup `cancelUniqueWork(OVERNIGHT_NAME)` via `PregenManager.cancelOvernight`
+— `ensureOvernightScheduled` itself stays until S1b), and S1/O3 (shared
+`PregenPlanner` in core-player consumed by `OfflinePregen.run` + `PregenQueue.ensure`;
+executors kept, behavior-identical, existing tests green). QW4, S1b, S3, S4
+micro-lean, S5 and the G2 admission rule (offline pregen yields while playing,
+goals-doc decided) remain proposed/pending in this doc's sections below.
 
 ---
 
