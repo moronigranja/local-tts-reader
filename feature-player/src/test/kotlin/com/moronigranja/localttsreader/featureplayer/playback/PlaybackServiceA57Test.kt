@@ -277,8 +277,9 @@ class PlaybackServiceA57Test {
     }
 
     /** The launcher itself: commands are tracked so stopEverything can cancel
-     * them (regression: open/openChapter/play launched UNTRACKED coroutines;
-     * the declared playerJob was never assigned by any production path). */
+     * them (regression: open/openChapter/play launched UNTRACKED coroutines —
+     * a later stopEverything had no handle on them; the unused declared load
+     * job was removed in PR-0). */
     @Test
     fun `launched commands are cancelled by stopEverything`() {
         val store = InMemoryPlayerStore()

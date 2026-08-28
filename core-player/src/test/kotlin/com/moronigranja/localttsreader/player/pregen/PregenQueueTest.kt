@@ -125,15 +125,6 @@ class PregenQueueTest {
     }
 
     @Test
-    fun `clear drops everything`() = runTest {
-        val q = queue()
-        q.ensure(PlayerPosition("b1", 0, 0))
-        q.clear()
-        assertEquals(0, q.size)
-        assertNull(q.take(0, 1))
-    }
-
-    @Test
     fun `the time bound caps buffered audio ahead of the playhead`() = runTest {
         callCount = 0
         val q = timeQueue(3.0) // 1 s passages -> fills ~3 s then stops

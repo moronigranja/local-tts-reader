@@ -85,7 +85,6 @@ class PlaybackService : Service() {
     internal var book: Book? = null
     /** CR-2 host-test seam: the passage output (tests inject a fake). */
     internal var output: PassageOutput = AudioTrackPassageOutput()
-    private var playerJob: Job? = null
     private var tickerJob: Job? = null
     private var pregenJob: Job? = null
     private var queue: PregenQueue? = null
@@ -659,6 +658,7 @@ class PlaybackService : Service() {
                 passageIndex = position?.passageIndex ?: 0,
                 passageText = position?.let { p -> book?.passageText(p.chapterIndex, p.passageIndex) } ?: "",
                 passageDurationSeconds = segments.lastOrNull()?.endSeconds ?: 0.0,
+                chapters = book?.chapters?.map { it.title.orEmpty() } ?: emptyList(),
                 chapterPassages = position?.let { p ->
                     book?.chapters?.firstOrNull { it.index == p.chapterIndex }?.passages?.map { it.text }
                 } ?: emptyList(),
@@ -716,7 +716,7 @@ class PlaybackService : Service() {
     // Media session / focus / noisy / notification
 
     private val mediaCallback = object : MediaSessionCompat.Callback() {
-        override fun onPlay() = resumePlayer()
+        override fun onPlay() = resumePlayer(PlaybackStateHolder.state.value.bookId)
         override fun onPause() = pausePlayer(PauseReason.USER)
         override fun onStop() = stopPlayer()
         override fun onSkipToNext() = navigate { it.skipForward() }
@@ -776,7 +776,7 @@ class PlaybackService : Service() {
             icon, label,
             PendingIntent.getService(
                 this, intentAction.hashCode(),
-                Intent(this, PlaybackService::class.java).setAction(intentAction),
+                Intent(this, PlaybackService::class.java).setAction(intentAction).putExtra(EXTRA_BOOK_ID, book?.id),
                 PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
             ),
         )
@@ -952,8 +952,6 @@ class PlaybackService : Service() {
         commandJob = null
         loopJob?.cancel()
         loopJob = null
-        playerJob?.cancel()
-        playerJob = null
         tickerJob?.cancel()
         tickerJob = null
         pregenJob?.cancel()

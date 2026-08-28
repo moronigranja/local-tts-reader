@@ -117,8 +117,6 @@ class PregenQueue(
     fun take(chapterIndex: Int, passageIndex: Int): PregenAudio? =
         synchronized(lock) { entries.remove(PregenKey(book.id, chapterIndex, passageIndex, voice, speed)) }
 
-    fun clear() = synchronized(lock) { entries.clear() }
-
     val size: Int get() = synchronized(lock) { entries.size }
 
     private fun shrinkToBound() {
