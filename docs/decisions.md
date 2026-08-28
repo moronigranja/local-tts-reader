@@ -1,4 +1,61 @@
 # Decision log
+## 68. B1+B2 — AyvuTheme tokens + shared component set (2026-08-28)
+
+Phase B's first two slices (roadmap B1/B2, planned as decision #58): the branded
+visual system lands in `core-ui` with zero visual change — every stylable surface
+already rendered exclusively through `MaterialTheme.*`, so the token swap alone
+recolors the whole app.
+
+- **Tokens (`Theme.kt`, new).** `AyvuLightColors`/`AyvuDarkColors` override only
+  the brand roles; unlisted roles keep the M3 defaults. Light: dark-amber primary
+  `#7A5200` / dark-teal secondary+tertiary `#0B5F72` on warm-cream
+  `background`/`surface` `#F5EFE0` with ink `#1B2430` on it. Dark: bright amber
+  `#E8A33D` / light teal `#66C8E1` on ink, cream text. Palette committed as
+  written; verified pairs: ink/paper 13.6, white-on-#7A5200 6.9,
+  #7A5200-on-paper 6.0, #0B5F72-on-paper 6.3, #E8A33D-on-ink 7.3, ink-on-#FBE0B8
+  12.3. `AyvuTypography` (M3 defaults — the single future override point),
+  `AyvuShapes` (4/8/12/16/28 dp), `AyvuSpacing` (XS…XXL = 4…32 dp),
+  `AyvuMotion.STANDARD_MS = 300`, and the `AyvuTheme(darkTheme, content)`
+  wrapper. No `isSystemInDarkTheme()` default — the theme is dumb; both hosts
+  resolve `ThemeMode`.
+- **Both Compose hosts wrapped.** `MainActivity` replaced its direct
+  `MaterialTheme(colorScheme = if (dark) darkColorScheme() else lightColorScheme())`
+  with `AyvuTheme(darkTheme = dark)`; `ShareReceiverActivity` gained the same
+  ThemeMode resolution (`SYSTEM → isSystemInDarkTheme()`, LIGHT → false, DARK →
+  true) and wraps its share surface in `AyvuTheme` (feature-share now depends on
+  core-ui) — the share gateway is no longer an unbranded default scheme.
+- **Shared components (B2).** Five pure extractions of existing ad-hoc
+  composables in `core-ui`: `SectionHeader(title, modifier)` — padding stays at
+  call sites because the flows bake different paddings; `PillButton(label,
+  onClick, modifier)` — the private PlayerCard pill moved byte-for-byte,
+  `modifier` added; `ConfirmDialog(title, text, confirmLabel, onConfirm,
+  onDismiss, dismissLabel = "Cancel")`; `EmptyState(title, modifier)`;
+  `LoadingState(label, modifier)` — its internal `AyvuSpacing.LG` (16 dp) gap
+  reproduces the share screen's spinner→label spacing. No new runtime deps;
+  `material-icons` untouched.
+- **Call sites relocated, identical visuals.** LibraryScreen: both remove-confirm
+  AlertDialogs → `ConfirmDialog` with the exact strings ("Removes \"$activeTitle\"
+  with its progress…", "$title" twin), empty-state Box/Text →
+  `EmptyState("No books yet — import your first ebook")`, both `SectionHeader`
+  call sites gain `Modifier.padding(top = 8.dp, bottom = 4.dp)` (the deleted
+  private one's padding, now at the call sites), `tween(300)` →
+  `tween(AyvuMotion.STANDARD_MS)`, private SectionHeader deleted. SettingsScreen:
+  private SectionHeader deleted, all six call sites → the shared one with
+  `padding(top = 16.dp, bottom = 4.dp)`; feature-settings gains
+  core-ui. PlayerCard: private PillButton deleted (its three calls now resolve to
+  the public same-package one). ShareResultScreen: the Idle/Resolving
+  spinner+label branch → `LoadingState(…, Modifier.fillMaxWidth())`, unused
+  imports dropped.
+- **Verification.** New Robolectric `AyvuThemeTest` in core-ui (test config
+  mirrors core-persistence: junit4 + vintage-engine + robolectric +
+  platform-launcher) — 9/9 green: both schemes' primary/background/onBackground,
+  `AyvuShapes.large == 16.dp`, `AyvuSpacing.LG == 16.dp`,
+  `AyvuMotion.STANDARD_MS == 300`. Robolectric ran cleanly under AGP 9.0.1/
+  Kotlin 2.4.10 — the planned plain-JUnit fallback was unnecessary.
+  `:app:assembleDebug` green (197 tasks): both hosts wrap `AyvuTheme`, every
+  shared-component call site resolves, no private duplicates remain. Device
+  visual acceptance (light/dark S22 + low-motion HiBreak) is Phase B4 — not
+  performed in this slice (no device here).
 
 ## 67. D2 — ONNX execution-provider measurement: keep CPU default (2026-08-28)
 

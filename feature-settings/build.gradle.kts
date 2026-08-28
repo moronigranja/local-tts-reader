@@ -61,6 +61,7 @@ dependencies {
     implementation(project(":core-persistence"))
     // A6: EspeakStager/OfflineStorage/formatBytes contracts come from core-player.
     implementation(project(":core-player"))
+    implementation(project(":core-ui"))
 
     testImplementation(libs.junit.jupiter)
     testRuntimeOnly(libs.junit.platform.launcher)

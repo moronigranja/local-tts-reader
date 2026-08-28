@@ -5,10 +5,8 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
@@ -21,6 +19,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import com.moronigranja.localttsreader.ui.LoadingState
 
 /**
  * S2 result UX: "Found: book · chapter · passage" for a hit; a clear
@@ -42,10 +41,9 @@ fun ShareResultScreen(
         ) {
             when (val s = state) {
                 is ShareUiState.Idle, is ShareUiState.Resolving -> {
-                    CircularProgressIndicator(Modifier.size(48.dp))
-                    Text(
+                    LoadingState(
                         if (s is ShareUiState.Resolving) "Reading the library…" else "Preparing…",
-                        style = MaterialTheme.typography.bodyMedium,
+                        Modifier.fillMaxWidth(),
                     )
                 }
                 is ShareUiState.Verdict -> VerdictContent(s.resolution, onClose, onListen)

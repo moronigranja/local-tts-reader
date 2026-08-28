@@ -61,6 +61,7 @@ dependencies {
     // A6: the OcrEngine binding and the app-wide singletons move to the app
     // composition root; this feature depends only on the core seams.
     implementation(project(":core-tts")) { exclude(group = "net.java.dev.jna") }
+    implementation(project(":core-ui"))
 
     testImplementation(libs.junit.jupiter)
     testRuntimeOnly(libs.junit.platform.launcher)

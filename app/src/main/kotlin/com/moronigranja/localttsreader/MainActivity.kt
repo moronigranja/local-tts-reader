@@ -3,18 +3,16 @@ package com.moronigranja.localttsreader
 import android.content.Intent
 import android.os.Bundle
 import androidx.activity.ComponentActivity
-import androidx.activity.compose.setContent
 import androidx.compose.foundation.isSystemInDarkTheme
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.darkColorScheme
-import androidx.compose.material3.lightColorScheme
+import androidx.activity.compose.setContent
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.collectAsState
 import com.moronigranja.localttsreader.featurelibrary.LibraryScreen
+import com.moronigranja.localttsreader.ui.AyvuTheme
 import com.moronigranja.localttsreader.featureplayer.ui.ReaderScreen
 import com.moronigranja.localttsreader.featuresettings.SettingsScreen
 import com.moronigranja.localttsreader.featureshare.OpenTarget
@@ -42,8 +40,7 @@ class MainActivity : ComponentActivity() {
                 ThemeMode.LIGHT -> false
                 ThemeMode.DARK -> true
             }
-            LaunchedEffect(Unit) { appSettings.reload() }
-            MaterialTheme(colorScheme = if (dark) darkColorScheme() else lightColorScheme()) {
+            AyvuTheme(darkTheme = dark) {
                 var openBookId by rememberSaveable { mutableStateOf<String?>(null) }
                 var targetChapter by rememberSaveable { mutableStateOf(-1) }
                 var targetPassage by rememberSaveable { mutableStateOf(-1) }

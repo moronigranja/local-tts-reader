@@ -61,7 +61,11 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.moronigranja.localttsreader.player.PregenJobState
+import com.moronigranja.localttsreader.ui.AyvuMotion
+import com.moronigranja.localttsreader.ui.ConfirmDialog
+import com.moronigranja.localttsreader.ui.EmptyState
 import com.moronigranja.localttsreader.ui.PlayerCard
+import com.moronigranja.localttsreader.ui.SectionHeader
 import com.moronigranja.localttsreader.player.PlayerPhase
 import com.moronigranja.localttsreader.player.formatBytes
 import kotlinx.coroutines.launch
@@ -138,26 +142,16 @@ fun LibraryScreen(
         )
     }
     if (cardConfirmRemove) {
-        AlertDialog(
-            onDismissRequest = { cardConfirmRemove = false },
-            title = { Text("Remove from library?") },
-            text = {
-                Text(
-                    "Removes \"$activeTitle\" with its progress, bookmarks and offline " +
-                        "audio. You can re-import the file anytime.",
-                )
+        ConfirmDialog(
+            title = "Remove from library?",
+            text = "Removes \"$activeTitle\" with its progress, bookmarks and offline " +
+                "audio. You can re-import the file anytime.",
+            confirmLabel = "Remove",
+            onConfirm = {
+                cardConfirmRemove = false
+                activeId?.let(viewModel::removeBook)
             },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        cardConfirmRemove = false
-                        activeId?.let(viewModel::removeBook)
-                    },
-                ) { Text("Remove") }
-            },
-            dismissButton = {
-                TextButton(onClick = { cardConfirmRemove = false }) { Text("Cancel") }
-            },
+            onDismiss = { cardConfirmRemove = false },
         )
     }
 
@@ -224,15 +218,7 @@ fun LibraryScreen(
             }
 
             if (library.isEmpty()) {
-                Box(
-                    modifier = Modifier.fillMaxSize(),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Text(
-                        text = "No books yet — import your first ebook",
-                        style = MaterialTheme.typography.bodyLarge,
-                    )
-                }
+                EmptyState("No books yet — import your first ebook")
             } else {
                 val recentIds = recent.map { it.book.id }.toSet()
                 LazyColumn(
@@ -241,7 +227,7 @@ fun LibraryScreen(
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
                     if (positioned || recentIds.isNotEmpty()) {
-                        item { SectionHeader("Continue listening") }
+                        item { SectionHeader("Continue listening", Modifier.padding(top = 8.dp, bottom = 4.dp)) }
                     }
                     if (positioned && activeId != null) {
                         // The live player card replaces the top row and EXPANDS
@@ -249,8 +235,8 @@ fun LibraryScreen(
                         item(key = "player-$activeId") {
                             AnimatedVisibility(
                                 visible = true,
-                                enter = expandVertically(expandFrom = Alignment.Top, animationSpec = tween(300)) +
-                                    fadeIn(tween(300)),
+                                enter = expandVertically(expandFrom = Alignment.Top, animationSpec = tween(AyvuMotion.STANDARD_MS)) +
+                                    fadeIn(tween(AyvuMotion.STANDARD_MS)),
                             ) {
                                 PlayerCard(
                                     state = playerState,
@@ -326,7 +312,7 @@ fun LibraryScreen(
                         )
                     }
                     if (recentIds.isNotEmpty()) {
-                        item { SectionHeader("Library") }
+                        item { SectionHeader("Library", Modifier.padding(top = 8.dp, bottom = 4.dp)) }
                     }
                     items(
                         library.filterNot { it.book.id in recentIds || it.book.id == activeId },
@@ -368,17 +354,6 @@ fun LibraryScreen(
             },
         )
     }
-}
-
-/** Section label for the continue-list/library split (decisions #50 pass). */
-@Composable
-private fun SectionHeader(title: String) {
-    Text(
-        text = title,
-        style = MaterialTheme.typography.titleMedium,
-        color = MaterialTheme.colorScheme.primary,
-        modifier = Modifier.padding(top = 8.dp, bottom = 4.dp),
-    )
 }
 
 /**
@@ -566,26 +541,16 @@ private fun BookRow(
     }
 
     if (confirmRemove) {
-        AlertDialog(
-            onDismissRequest = { confirmRemove = false },
-            title = { Text("Remove from library?") },
-            text = {
-                Text(
-                    "Removes \"$title\" with its progress, bookmarks and offline " +
-                        "audio. You can re-import the file anytime.",
-                )
+        ConfirmDialog(
+            title = "Remove from library?",
+            text = "Removes \"$title\" with its progress, bookmarks and offline " +
+                "audio. You can re-import the file anytime.",
+            confirmLabel = "Remove",
+            onConfirm = {
+                confirmRemove = false
+                viewModel.removeBook(bookId)
             },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        confirmRemove = false
-                        viewModel.removeBook(bookId)
-                    },
-                ) { Text("Remove") }
-            },
-            dismissButton = {
-                TextButton(onClick = { confirmRemove = false }) { Text("Cancel") }
-            },
+            onDismiss = { confirmRemove = false },
         )
     }
 }

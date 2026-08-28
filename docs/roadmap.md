@@ -36,7 +36,7 @@ product value. Open defects and their acceptance criteria are authoritative in
 | T1–T5 | Verified packs, Kokoro, player state machine, MediaSession, read-along, bookmarks, undo, sleep timer and pre-generation | decisions #23–#35, #42 |
 | S1–S3 | OCR, share receiver, match result and listen-from-here | decisions #36–#38 |
 | V1–V3 | Settings, CI, S22 performance/device passes | decisions #34, #36, #39–#41, #49 |
-| Post-v1 shipped | Offline chapter pre-generation, storage transparency, reader/library polish and shared player card | decisions #42–#56 |
+| Post-v1 shipped | Offline chapter pre-generation, storage transparency, reader/library polish, shared player card, Phase B design tokens + shared components | decisions #42–#56, #68 |
 
 Historical estimates and completed implementation specifications were removed from this
 file. Git history and the decision ledger retain them.
@@ -84,6 +84,15 @@ current surfaces before more screens are added.
 - Record component states—enabled, pressed, focused, selected, loading, empty, error
   and disabled—rather than styling only the happy path.
 
+**Complete (2026-08-28, decisions #68):** `AyvuTheme` + tokens land in `core-ui`
+(`AyvuLightColors`/`AyvuDarkColors` brand roles with M3 defaults elsewhere,
+`AyvuTypography`/`AyvuShapes`/`AyvuSpacing`/`AyvuMotion`); both Compose hosts
+(`MainActivity`, `ShareReceiverActivity`) wrap content in `AyvuTheme` with their own
+`ThemeMode` resolution — no default scheme remains. Robolectric `AyvuThemeTest`
+locks the palette/spacing/motion contract (9/9 green); `:app:assembleDebug` green.
+The loading/empty/error state components are delivered with B2; on-device visual
+acceptance stays in B4.
+
 ### B2 — Shared components and boundaries
 
 Build the small reusable set the real screens need: app bars, book rows, player cards,
@@ -95,9 +104,13 @@ Settle the implementation home during A6. A small Android `core-ui` module is ju
 only if it is needed to share tokens/components without recreating feature-to-feature
 dependencies. Do not add a second design convention beside Material 3.
 
-Third-party Compose libraries may be adopted only for a named component that survives
-an accessibility, maintenance, license and APK-cost review. "Looks nicer" alone is not
-a dependency decision.
+**Complete (2026-08-28, decisions #68):** the small shared set — `SectionHeader`,
+`PillButton`, `ConfirmDialog`, `EmptyState`, `LoadingState`, plus the shared
+`PlayerCard` (from A6) — lives in `core-ui`; library/settings/share call sites were
+relocated with the private duplicates deleted, zero visual change.
+`core-ui` is consumed by feature-library/feature-settings/feature-share and
+feature-player without feature-to-feature edges (no component owns business logic
+or ViewModels). B3 surface redesign and B4 device acceptance remain.
 
 ### B3 — Surface redesign
 

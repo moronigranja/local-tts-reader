@@ -26,6 +26,16 @@ android {
     buildFeatures {
         compose = true
     }
+
+    testOptions {
+        unitTests {
+            isIncludeAndroidResources = true
+            all {
+                it.useJUnitPlatform()
+                it.testLogging { events("passed", "failed", "skipped") }
+            }
+        }
+    }
 }
 
 dependencies {
@@ -36,4 +46,9 @@ dependencies {
     implementation(libs.compose.material.icons.core)
     implementation(libs.compose.material.icons.extended)
     implementation(project(":core-player")) // PlaybackUiState / PlayerCommands / formatBytes
+
+    testImplementation(libs.junit4)
+    testImplementation(libs.vintage.engine)
+    testImplementation(libs.robolectric)
+    testRuntimeOnly(libs.junit.platform.launcher)
 }

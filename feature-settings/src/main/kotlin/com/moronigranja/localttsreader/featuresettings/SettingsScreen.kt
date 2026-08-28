@@ -38,6 +38,7 @@ import androidx.compose.ui.unit.dp
 import com.moronigranja.localttsreader.player.formatBytes
 import com.moronigranja.localttsreader.persistence.ThemeMode
 import com.moronigranja.localttsreader.tts.PackStatus
+import com.moronigranja.localttsreader.ui.SectionHeader
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -83,7 +84,7 @@ fun SettingsScreen(
             contentPadding = androidx.compose.foundation.layout.PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            item { SectionHeader("Engine") }
+            item { SectionHeader("Engine", Modifier.padding(top = 16.dp, bottom = 4.dp)) }
             items(state.packs.filter { it.packId == "kokoro-model" || it.packId == "kokoro-voices" || it.packId == "espeak-ng" }) { row ->
                 PackRow(row, onDownload = { viewModel.download(row.packId) })
             }
@@ -95,7 +96,7 @@ fun SettingsScreen(
                 )
             }
 
-            item { SectionHeader("Voice") }
+            item { SectionHeader("Voice", Modifier.padding(top = 16.dp, bottom = 4.dp)) }
             if (state.voices.isEmpty()) {
                 item {
                     Text(
@@ -116,7 +117,7 @@ fun SettingsScreen(
                 }
             }
 
-            item { SectionHeader("Share & reading") }
+            item { SectionHeader("Share & reading", Modifier.padding(top = 16.dp, bottom = 4.dp)) }
             item {
                 Column {
                     Text("Match threshold: ${"%.2f".format(state.matchThreshold)}", style = MaterialTheme.typography.bodyMedium)
@@ -149,7 +150,7 @@ fun SettingsScreen(
                 }
             }
 
-            item { SectionHeader("Offline audio") }
+            item { SectionHeader("Offline audio", Modifier.padding(top = 16.dp, bottom = 4.dp)) }
             if (offlineRows.isEmpty()) {
                 item {
                     Text(
@@ -175,7 +176,7 @@ fun SettingsScreen(
                 }
             }
 
-            item { SectionHeader("Appearance") }
+            item { SectionHeader("Appearance", Modifier.padding(top = 16.dp, bottom = 4.dp)) }
             item {
                 Column {
                     ThemeMode.entries.forEach { mode ->
@@ -204,7 +205,7 @@ fun SettingsScreen(
             LazyColumn(
                 modifier = Modifier.fillMaxSize().padding(padding),
             ) {
-                item { SectionHeader("OCR languages") }
+                item { SectionHeader("OCR languages", Modifier.padding(top = 16.dp, bottom = 4.dp)) }
                 items(state.packs.filter { it.packId in OCR_PACK_IDS }) { row ->
                     PackRow(row, onDownload = { viewModel.download(row.packId) })
                     OcrLanguageRow(
@@ -224,16 +225,6 @@ fun SettingsScreen(
             }
         }
     }
-}
-
-@Composable
-private fun SectionHeader(title: String) {
-    Text(
-        title,
-        style = MaterialTheme.typography.titleMedium,
-        color = MaterialTheme.colorScheme.primary,
-        modifier = Modifier.padding(top = 16.dp, bottom = 4.dp),
-    )
 }
 
 @Composable
