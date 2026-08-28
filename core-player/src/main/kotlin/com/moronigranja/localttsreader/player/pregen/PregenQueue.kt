@@ -5,6 +5,8 @@ import com.moronigranja.localttsreader.player.BookLayout
 import com.moronigranja.localttsreader.player.PlayerPosition
 import com.moronigranja.localttsreader.player.passageText
 import com.moronigranja.localttsreader.tts.SynthesisOutcome
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 
 /**
  * T5 pre-generation (decisions #35/#review): synthesizes the passages ahead of
@@ -25,6 +27,8 @@ import com.moronigranja.localttsreader.tts.SynthesisOutcome
  *   the missing passages up to both bounds. Single-flight: concurrent callers
  *   serialize on the internal lock; [take] runs lock-free against the map so
  *   the play loop never waits on synthesis.
+ * - Every freshly synthesized passage is handed to [onSynthesized] so the owner
+ *   can persist it to the disk tier (the service wires it to `PcmPassageCache`).
  * - Entries at/before the playhead are pruned on [ensure]; a jump forward
  *   prunes the now-stale look-ahead and refills.
  * - A failed synthesis stops the look-ahead: nothing is queued past the gap,
@@ -39,12 +43,21 @@ class PregenQueue(
     private val lookahead: Int = 5,
     /** Buffered audio target in seconds ahead of the playhead. */
     private val lookaheadSeconds: Double = 45.0,
+    /** Handed every freshly synthesized [PregenAudio] so the owner can persist
+     * it to the disk tier. The default no-ops for host tests. */
+    private val onSynthesized: suspend (key: PregenKey, audio: PregenAudio) -> Unit = { _, _ -> },
 ) {
     private val layout = BookLayout(book)
     private val lock = Object()
     private val entries = LinkedHashMap<PregenKey, PregenAudio>()
+    private val inFlight = mutableSetOf<PregenKey>()
 
-    /** Synthesizes the passages after [from] that fit within both bounds. */
+    /** Synthesizes the passages after [from] that fit within both bounds;
+     *  concurrent callers share in-flight work instead of duplicating synthesis:
+     *  the plan is a CONTIGUOUS prefix — the walk stops at the first passage
+     *  another coroutine is already synthesizing, so a second caller never
+     *  queues far-ahead audio past an unsynthesized near gap (a hole at the
+     *  playhead makes the ahead-seconds target lie and stalls playback). */
     suspend fun ensure(from: PlayerPosition) {
         val plan = synchronized(lock) {
             entries.keys.removeAll { key -> !isAfter(key, from) }
@@ -58,23 +71,41 @@ class PregenQueue(
                 val next = layout.next(chapter, passage) ?: break
                 val (c, p) = next
                 val key = PregenKey(book.id, c, p, voice, speed)
+                if (key in inFlight) break // contiguous: never plan past in-flight work
                 if (!entries.containsKey(key) && key !in missing) missing += key
                 chapter = c
                 passage = p
             }
+            inFlight.addAll(missing)
             missing
         }
-        for (key in plan) {
-            val text = book.passageText(key.chapterIndex, key.passageIndex) ?: break
-            val audio = convert(synthesize(text)) ?: break
-            synchronized(lock) {
-                if (!entries.containsKey(key)) {
-                    entries[key] = audio
-                    shrinkToBound()
+        try {
+            for (key in plan) {
+                // A cancelled fill must stop synthesizing: cancellation is
+                // cooperative and synthesize blocks in the engine, so without
+                // this check a cancelled caller finishes its whole plan.
+                currentCoroutineContext().ensureActive()
+                val text = book.passageText(key.chapterIndex, key.passageIndex) ?: break
+                val audio = convert(synthesize(text)) ?: break
+                onSynthesized(key, audio)
+                synchronized(lock) {
+                    if (!entries.containsKey(key)) {
+                        entries[key] = audio
+                        shrinkToBound()
+                    }
                 }
+                // Stop early once the time buffer is filled so callers (post-stop
+                // fill, buffer-before-start) get enough audio promptly instead of
+                // synthesizing the whole lookahead (long passages run minutes).
+                if (aheadSeconds(from) >= lookaheadSeconds) break
             }
+        } finally {
+            synchronized(lock) { plan.forEach { inFlight.remove(it) } }
         }
     }
+    /** Seconds of audio currently queued strictly after [from]. */
+    fun aheadSeconds(from: PlayerPosition): Double =
+        synchronized(lock) { queuedSecondsLocked(from) }
 
     /** Seconds of audio currently queued strictly after [from]. */
     private fun queuedSecondsLocked(from: PlayerPosition): Double =

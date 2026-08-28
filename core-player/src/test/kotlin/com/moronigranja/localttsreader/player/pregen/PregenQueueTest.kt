@@ -6,6 +6,9 @@ import com.moronigranja.localttsreader.model.TextPassage
 import com.moronigranja.localttsreader.player.PlayerPosition
 import com.moronigranja.localttsreader.tts.SegmentAnchor
 import com.moronigranja.localttsreader.tts.SynthesisOutcome
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNull
@@ -147,5 +150,74 @@ class PregenQueueTest {
         val intSpeed = PregenKey("abc123", 0, 0, "pf_dora", 1.0)
         assertEquals(intSpeed, PregenKey.parse(intSpeed.toString()))
         assertTrue(PregenKey.parse("") == null)
+    }
+
+    @Test
+    fun `concurrent ensures share in-flight work`() = runTest {
+        callCount = 0
+        val synthesized = mutableListOf<String>()
+        val gate = CompletableDeferred<Unit>()
+        val q = PregenQueue(
+            book, "af_heart", 1.0,
+            { text ->
+                callCount++
+                synthesized += text
+                if (!gate.isCompleted) gate.await()
+                SynthesisOutcome.Audio(ByteArray(24_000) { 0 }, 24_000, 1, listOf(SegmentAnchor(0.0, 1.0)))
+            },
+            lookahead = 20,
+            lookaheadSeconds = 5.0,
+        )
+        val a = launch { q.ensure(PlayerPosition("b1", 0, 0)) }
+        runCurrent() // A enters synthesis and parks on the gate
+        val b = launch { q.ensure(PlayerPosition("b1", 0, 0)) }
+        runCurrent() // B plans: everything is in-flight -> synthesizes nothing
+        assertTrue(b.isCompleted, "second ensure returns without synthesizing")
+        assertEquals(1, callCount, "0/1 synthesized once, not twice")
+        gate.complete(Unit)
+        a.join()
+        assertEquals(4, callCount, "after release, A synthesizes each passage after 0/0 once (5 s target, 1 s passages, book end)")
+        assertEquals(synthesized.size, synthesized.distinct().size, "no passage synthesized twice")
+    }
+
+    @Test
+    fun `concurrent ensures plan a contiguous prefix - no far-ahead hole`() = runTest {
+        callCount = 0
+        val gate = CompletableDeferred<Unit>()
+        val q = PregenQueue(
+            book, "af_heart", 1.0,
+            { _ ->
+                callCount++
+                if (!gate.isCompleted) gate.await()
+                SynthesisOutcome.Audio(ByteArray(24_000) { 0 }, 24_000, 1, listOf(SegmentAnchor(0.0, 1.0)))
+            },
+            lookahead = 2, // A's plan covers only (0,1) and (0,2)
+            lookaheadSeconds = 45.0,
+        )
+        val from = PlayerPosition("b1", 0, 0)
+        val a = launch { q.ensure(from) }
+        runCurrent() // A parks synthesizing (0,1); (0,2) registered in-flight too
+        val b = launch { q.ensure(from) }
+        runCurrent() // B must plan NOTHING: the walk breaks at the in-flight (0,1)
+        assertTrue(b.isCompleted, "second ensure returns without synthesizing")
+        assertEquals(1, callCount, "B synthesizes nothing while A owns the near gap")
+        assertEquals(0.0, q.aheadSeconds(from), 0.0, "no far-ahead audio queued past the in-flight gap")
+        gate.complete(Unit)
+        a.join()
+        assertEquals(2, callCount, "A alone fills its contiguous plan: 0/1 then 0/2")
+        assertTrue(q.take(0, 1) != null, "nearest successor is queued (contiguity)")
+        assertTrue(q.take(0, 2) != null)
+        assertNull(q.take(1, 0), "far passages are never planned around the in-flight gap")
+    }
+
+    @Test
+    fun `onSynthesized fires once per queued passage`() = runTest {
+        val seen = mutableListOf<String>()
+        val q = PregenQueue(
+            book, "af_heart", 1.0, ::fake, 2,
+            onSynthesized = { key, _ -> seen += "${key.chapterIndex}/${key.passageIndex}" },
+        )
+        q.ensure(PlayerPosition("b1", 0, 0))
+        assertEquals(listOf("0/1", "0/2"), seen)
     }
 }

@@ -509,9 +509,18 @@ class PlaybackService : Service() {
 
     private fun stopPlayer() {
         PlaybackActive.markStopped()
+        // Capture the playhead BEFORE captureAndStop resets the machine — the
+        // post-stop fill resumes from where listening stopped.
+        val stopPos = machine?.state?.value?.position
         captureAndStop()
         ServiceCompat.stopForeground(this, ServiceCompat.STOP_FOREGROUND_REMOVE)
-        stopSelf()
+        // Keep filling the next buffer after STOP so the next open reads it from
+        // disk (no cold gap), then self-stop when full or the budget elapses.
+        if (stopPos != null) {
+            startPostStopPrefill(stopPos)
+        } else {
+            stopSelf()
+        }
     }
 
     /**
@@ -567,8 +576,7 @@ class PlaybackService : Service() {
                     ?.let { SynthesisOutcome.Audio(it.pcm, it.sampleRateHz, channelCount = 1, segments = it.segments) }
                 ?: fromDisk
                     ?.let { SynthesisOutcome.Audio(it.pcm, it.sampleRateHz, channelCount = 1, segments = it.segments) }
-                ?: (runtime.engine()?.synthesize(SynthesisRequest(text, voice, speed = current.speed))
-                    ?: SynthesisOutcome.Failed("engine unavailable"))
+                ?: bufferForPlayback(position, voice, current.speed, text)
             android.util.Log.d("PlaybackService", "loop: source=" + when {
                 fromLast != null -> "buffer"
                 fromQueue != null -> "pregen"
@@ -856,6 +864,13 @@ class PlaybackService : Service() {
             },
             lookahead = PREFILL_LOOKAHEAD_PASSAGES,
             lookaheadSeconds = PREFILL_LOOKAHEAD_SECONDS,
+            onSynthesized = { key, audio ->
+                // Persist every pre-generated passage so a later open reads it
+                // from disk (`source=disk`) — the "ready next time" tier. A disk
+                // failure must never kill the fill; the audio still plays this session.
+                runCatching { pregenCache.cache.put(key, audio) }
+                    .onFailure { android.util.Log.w("PlaybackService", "pregen persist failed for $key", it) }
+            },
         )
     }
 
@@ -879,6 +894,67 @@ class PlaybackService : Service() {
                 q.ensure(playhead)
                 delay(PREFILL_TICK_MS)
             }
+        }
+    }
+
+    /**
+     * Buffer-before-start for a cold/jumped passage: the queue only renders
+     * passages strictly AFTER [position], so instead of waiting for [position]
+     * itself (which would spin to the timeout), wait until the SAME buffer the
+     * prefill maintains is queued AHEAD of the playhead, then synthesize the
+     * cold passage synchronously — playback starts in steady state instead of
+     * stalling at the first boundary. Loop inbound only (suspends the play);
+     * bounded by [PLAY_BUFFER_TIMEOUT_MS] for engines slower than real-time
+     * (the wait then ends early with whatever buffer exists).
+     */
+    private suspend fun bufferForPlayback(
+        position: PlayerPosition,
+        voice: String,
+        speed: Double,
+        text: String,
+    ): SynthesisOutcome {
+        val q = queue
+        if (q != null && !stopSignal.isCompleted) {
+            val startedAt = System.currentTimeMillis()
+            android.util.Log.d("PlaybackService", "buffer: waiting for $PREFILL_LOOKAHEAD_SECONDS s ahead")
+            while (
+                q.aheadSeconds(position) < PREFILL_LOOKAHEAD_SECONDS &&
+                System.currentTimeMillis() - startedAt < PLAY_BUFFER_TIMEOUT_MS &&
+                !stopSignal.isCompleted
+            ) {
+                q.ensure(position)
+                delay(50)
+            }
+            android.util.Log.d(
+                "PlaybackService",
+                "buffer: ahead=" + q.aheadSeconds(position) + "s after " +
+                    (System.currentTimeMillis() - startedAt) + "ms",
+            )
+        }
+        return runtime.engine()?.synthesize(SynthesisRequest(text, voice, speed = speed))
+            ?: SynthesisOutcome.Failed("engine unavailable")
+    }
+
+    /**
+     * Keeps filling the buffer after STOP until the look-ahead target is met,
+     * so the next open reads it from disk — no cold gap tomorrow morning.
+     * Cancels the playback prefill (already stopped), runs a fresh fill from
+     * [from] (the last playhead), and tears the service down once full or the
+     * post-stop budget elapses. onSynthesized persists every passage to disk.
+     */
+    private fun startPostStopPrefill(from: PlayerPosition) {
+        val q = queue ?: return
+        pregenJob?.cancel()
+        android.util.Log.d("PlaybackService", "postStop: fill start from ${from.chapterIndex}/${from.passageIndex}")
+        pregenJob = scope.launch {
+            val startedAt = System.currentTimeMillis()
+            while (isActive && System.currentTimeMillis() - startedAt < POST_STOP_MAX_MS) {
+                q.ensure(from)
+                if (q.aheadSeconds(from) >= PREFILL_LOOKAHEAD_SECONDS) break
+                delay(PREFILL_TICK_MS)
+            }
+            android.util.Log.d("PlaybackService", "postStop: fill done ahead=${q.aheadSeconds(from)} self-stopping")
+            stopSelf()
         }
     }
 
@@ -975,6 +1051,11 @@ class PlaybackService : Service() {
         private const val PREFILL_LOOKAHEAD_PASSAGES = 60
         /** Prefill: re-check cadence; ensure() returns early once the target is met. */
         private const val PREFILL_TICK_MS = 200L
+        /** Buffer-before-start: max wall time to wait for the prefill queue to
+         * render a cold/jumped passage before falling back to a sync synthesize. */
+        private const val PLAY_BUFFER_TIMEOUT_MS = 60_000L
+        /** Post-STOP fill: keep filling for at most this long before tearing down. */
+        private const val POST_STOP_MAX_MS = 120_000L
         private val SPEED_PRESETS = listOf(1.0, 1.25, 1.5, 2.0)
         private val SETTLED_PHASES = setOf(PlayerPhase.PLAYING, PlayerPhase.PAUSED, PlayerPhase.LOADING)
         private var clock: () -> Long = System::currentTimeMillis

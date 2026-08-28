@@ -3,7 +3,6 @@ package com.moronigranja.localttsreader
 import android.app.Application
 import androidx.hilt.work.HiltWorkerFactory
 import androidx.work.Configuration
-import com.moronigranja.localttsreader.featureplayer.playback.PregenManager
 import com.moronigranja.localttsreader.locate.IndexLock
 import com.moronigranja.localttsreader.locate.IndexRebuilder
 import com.moronigranja.localttsreader.persistence.RoomLibraryStore
@@ -28,7 +27,6 @@ class LocalTtsReaderApp : Application(), Configuration.Provider {
     @Inject lateinit var indexRebuilder: IndexRebuilder
     @Inject lateinit var indexLock: IndexLock
     @Inject lateinit var appScope: CoroutineScope
-    @Inject lateinit var pregenManager: PregenManager
     @Inject lateinit var workerFactory: HiltWorkerFactory
 
     override val workManagerConfiguration: Configuration
@@ -36,7 +34,6 @@ class LocalTtsReaderApp : Application(), Configuration.Provider {
 
     override fun onCreate() {
         super.onCreate()
-        pregenManager.ensureOvernightScheduled() // 24h charging-gated pre-generation (#42)
         appScope.launch {
             // CR-3/A3: the rebuild reconciles UNDER the index lock — the fresh
             // Room snapshot is read inside the critical section, so a
