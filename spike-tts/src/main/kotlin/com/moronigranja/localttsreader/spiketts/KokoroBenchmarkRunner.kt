@@ -1,5 +1,6 @@
 package com.moronigranja.localttsreader.spiketts
 
+import ai.onnxruntime.OrtSession
 import android.content.Context
 import android.os.Build
 import android.os.Debug
@@ -11,6 +12,7 @@ import com.moronigranja.localttsreader.tts.kokoro.KokoroPacks
 import com.moronigranja.localttsreader.tts.kokoro.PhonemizeException
 import com.moronigranja.localttsreader.tts.kokoro.Phonemizer
 import java.io.File
+import kotlin.math.abs
 import kotlin.system.measureTimeMillis
 import kotlinx.coroutines.runBlocking
 import org.json.JSONArray
@@ -27,19 +29,51 @@ import org.json.JSONObject
  * a passthrough [Phonemizer] answers for the corpus texts. Everything
  * downstream — vocab filter, chunker, windows, ORT inference, trim, pause
  * insertion — runs verbatim in the engine.
+ *
+ * D2 — execution-provider comparison (measurement only; no production change):
+ * each provider (CPU / XNNPACK / NNAPI) runs its own pass and writes
+ * `kokoro_results_<label>.json`. Every non-CPU candidate is ORACLE-gated: the
+ * same corpus is synthesized with a CPU oracle and peak/mean absolute PCM
+ * amplitude deltas across the corpus are reported; a candidate whose max
+ * abs diff exceeds [ORACLE_REJECT_THRESHOLD] or any passage errors is recorded
+ * as rejected. Cold engine-open ms (the D1 metric) is captured per provider.
+ * A candidate that cannot initialize logs `provider <label> unavailable` and
+ * is skipped while CPU still completes. Default deployment stays CPU.
  */
 class KokoroBenchmarkRunner(private val context: Context) {
 
+    /** Execution providers compared on-device (D2). */
+    enum class OrtProvider(val label: String, val options: (OrtSession.SessionOptions) -> Unit) {
+        CPU("cpu", {}),
+        XNNPACK("xnnpack", { it.addXnnpack(mapOf("intra_op_num_threads" to "6")) }),
+        NNAPI("nnapi", { it.addNnapi() }),
+    }
+
     companion object {
         const val RUNS = 3
+        const val ORACLE_REJECT_THRESHOLD = 0.001f // max abs diff gate for adoption (decision #67 rule b)
         private val VOICES = mapOf("en-us" to "af_heart", "pt-br" to "pf_dora")
     }
 
     private val models = File(context.filesDir, "models")
     private val corpusFile = File(context.filesDir, "corpus.tsv")
 
-    /** Runs the benchmark; returns true on success. Progress via [log]. */
+    /** Runs every provider; returns true if CPU completed (candidates may be unavailable). */
     fun run(log: (String) -> Unit): Boolean {
+        var cpuOk = false
+        for (provider in OrtProvider.entries) {
+            val ok = run(provider, log)
+            if (provider == OrtProvider.CPU && ok) cpuOk = true
+        }
+        return cpuOk
+    }
+
+    /**
+     * Runs a single provider pass; returns true when its own runs completed.
+     * A candidate that fails to initialize logs unavailable and returns false
+     * without aborting the batch.
+     */
+    fun run(provider: OrtProvider, log: (String) -> Unit): Boolean {
         val outDir = context.getExternalFilesDir(null) ?: context.filesDir
         return try {
             check(File(models, "kokoro-model").isFile && File(models, "kokoro-voices").isFile) {
@@ -54,9 +88,10 @@ class KokoroBenchmarkRunner(private val context: Context) {
             check(entries.isNotEmpty()) { "corpus.tsv is empty or malformed" }
             val lookup = entries.associate { it.first to it.third }
             val languages = entries.map { it.second }.toSet()
-            log("device: ${Build.MANUFACTURER} ${Build.MODEL}, sdk ${Build.VERSION.SDK_INT}")
+            log("provider=${provider.label} device: ${Build.MANUFACTURER} ${Build.MODEL}, sdk ${Build.VERSION.SDK_INT}")
             log("corpus: ${entries.size} passages (${languages.sorted()}); phonemization = host-precomputed")
 
+            // Cold engine-open (D1 metric) on this provider's factory.
             val tOpen = System.currentTimeMillis()
             val engine = KokoroEngine.open(
                 spec = DefaultEngines.kokoro,
@@ -65,14 +100,38 @@ class KokoroBenchmarkRunner(private val context: Context) {
                 voicesFile = File(models, "kokoro-voices"),
                 phonemizer = CorpusPhonemizer(lookup, languages),
                 progress = { log("open stage: $it (${System.currentTimeMillis() - tOpen} ms)") },
+                sessionFactory = provider.options,
             )
-            log("engine open: ${System.currentTimeMillis() - tOpen} ms (kokoro-model + voices, embedded vocab)")
+            val engineOpenMs = System.currentTimeMillis() - tOpen
+            log("engine open: $engineOpenMs ms (provider=${provider.label})")
+
+            // Oracle engine: opened only for non-CPU candidates.
+            var oracle: KokoroEngine? = null
+            if (provider != OrtProvider.CPU) {
+                val tO = System.currentTimeMillis()
+                oracle = KokoroEngine.open(
+                    spec = DefaultEngines.kokoro,
+                    packs = KokoroPacks.all,
+                    modelFile = File(models, "kokoro-model"),
+                    voicesFile = File(models, "kokoro-voices"),
+                    phonemizer = CorpusPhonemizer(lookup, languages),
+                    progress = {},
+                    sessionFactory = OrtProvider.CPU.options,
+                )
+                log("oracle engine open: ${System.currentTimeMillis() - tO} ms (provider=cpu)")
+            }
 
             val thermal = ThermalProbe(context)
             thermal.start()
             val results = JSONObject()
-            val runs = JSONArray()
-            for (run in 1..RUNS) {
+            val runsJson = JSONArray()
+            val passes = if (provider == OrtProvider.CPU) RUNS else 1
+            var maxAbsDiff = 0f
+            var meanAbsDiffSum = 0.0
+            var diffCount = 0
+            var oracleMillisTotal = 0L
+            var oracleErrors = 0
+            for (run in 1..passes) {
                 val runJson = JSONObject().put("run", run)
                 val passagesJson = JSONArray()
                 for ((text, language, _) in entries) {
@@ -94,21 +153,47 @@ class KokoroBenchmarkRunner(private val context: Context) {
                                 .put("rtf", rtf)
                                 .put("samples", result.pcm.size / 2))
                             log("run $run [$language/$voice]: ${"%.2f".format(seconds)}s audio in " +
-                                "$millis ms, RTF=${"%.3f".format(rtf)}")
+                                "$millis ms, RTF=${"%.3f".format(rtf)} (provider=${provider.label})")
                             Wav.write(File(outDir, "kokoro_run${run}_${language}.wav"),
                                 pcmToFloats(result.pcm), KokoroEngine.SAMPLE_RATE)
+                            // Oracle gate (D2): candidate vs CPU on the same corpus.
+                            if (oracle != null) {
+                                var oracleOutcome: SynthesisOutcome? = null
+                                val oMillis = measureTimeMillis {
+                                    oracleOutcome = runBlocking {
+                                        oracle.synthesize(SynthesisRequest(text, voice))
+                                    }
+                                }
+                                val oRes = oracleOutcome as? SynthesisOutcome.Audio
+                                if (oRes == null) {
+                                    oracleErrors++
+                                    log("  oracle [${language}]: FAILED (${oracleOutcome})")
+                                } else {
+                                    val (peak, mean) = pcmDiff(
+                                        pcmToFloats(result.pcm), pcmToFloats(oRes.pcm))
+                                    maxAbsDiff = maxOf(maxAbsDiff, peak)
+                                    meanAbsDiffSum += mean
+                                    diffCount++
+                                    oracleMillisTotal += oMillis
+                                    log("  oracle [$language]: peak=${"%.6f".format(peak)} " +
+                                        "mean=${"%.6f".format(mean)} (${oMillis}ms)")
+                                }
+                            }
                         }
-                        is SynthesisOutcome.Failed -> error("synthesis failed [$language]: ${result.reason}")
+                        is SynthesisOutcome.Failed -> throw IllegalArgumentException(
+                            "synthesis failed [$language]: ${result.reason}")
                         SynthesisOutcome.Unavailable -> error("packs not ready on device")
                     }
                 }
                 runJson.put("passages", passagesJson)
-                runs.put(runJson)
+                runsJson.put(runJson)
             }
             thermal.stop()
             val mem = Debug.MemoryInfo()
             Debug.getMemoryInfo(mem)
-            results.put("runs", runs)
+            val meanAbsDiff = if (diffCount > 0) (meanAbsDiffSum / diffCount).toFloat() else 0f
+            results.put("provider", provider.label)
+            results.put("runs", runsJson)
             results.put("vm_hwm_kb", readVmHwm())
             results.put("total_pss_kb", mem.totalPss)
             results.put("thermal_status_max", thermal.maxStatus)
@@ -116,73 +201,87 @@ class KokoroBenchmarkRunner(private val context: Context) {
             results.put("screen", "off/locked (instrumented)")
             results.put("threads", 6)
             results.put("device", "${Build.MANUFACTURER} ${Build.MODEL}")
+            results.put("engine_open_ms", engineOpenMs)
             results.put("phonemization", "excluded (host-precomputed corpus; espeak-ng cost is ~ms/sentence)")
-
-            // Full-pipeline capstone (decision #32): when the espeak-ng bundle
-            // is staged, phonemize ON the device (the Android arm64 .so + data)
-            // and verify byte parity against the host corpus, then re-run one
-            // full round with the real phonemizer for the end-to-end RTF.
-            val espeakLib = File(context.filesDir, "espeak/libespeak-ng.so")
-            val espeakData = File(context.filesDir, "espeak/espeak-ng-data")
-            if (espeakLib.isFile && espeakData.isDirectory) {
-                try {
-                    val real = com.moronigranja.localttsreader.tts.kokoro.EspeakPhonemizer(
-                        libraryPath = espeakLib.absolutePath,
-                        dataPath = espeakData.absolutePath,
-                    )
-                    log("on-device espeak-ng loaded (lib + data)")
-                    var parity = true
-                    for ((text, language, hostPhonemes) in entries) {
-                        val devicePhonemes = real.phonemize(text, language)
-                        if (devicePhonemes == hostPhonemes) {
-                            log("phonemizer parity [$language]: MATCH (${devicePhonemes.length} chars)")
-                        } else {
-                            parity = false
-                            log("phonemizer parity [$language]: MISMATCH\n  host:   ${hostPhonemes.take(100)}\n  device: ${devicePhonemes.take(100)}")
-                        }
-                    }
-                    if (parity) {
-                        val fullEngine = KokoroEngine.open(
-                            spec = DefaultEngines.kokoro,
-                            packs = KokoroPacks.all,
-                            modelFile = File(models, "kokoro-model"),
-                            voicesFile = File(models, "kokoro-voices"),
-                            phonemizer = real,
-                            progress = { log("full open stage: $it") },
-                        )
-                        val fullJson = JSONArray()
-                        for ((text, language, _) in entries) {
-                            val voice = VOICES[language] ?: continue
-                            var outcome: SynthesisOutcome? = null
-                            val millis = measureTimeMillis {
-                                outcome = runBlocking { fullEngine.synthesize(SynthesisRequest(text, voice)) }
-                            }
-                            val result = outcome as? SynthesisOutcome.Audio
-                            val seconds = result?.pcm?.size?.div(2.0)?.div(KokoroEngine.SAMPLE_RATE) ?: 0.0
-                            log("full run [$language]: ${"%.2f".format(seconds)}s audio in $millis ms, RTF=${"%.3f".format(millis / 1000.0 / seconds)}")
-                            fullJson.put(JSONObject().put("language", language).put("synth_ms", millis).put("rtf", millis / 1000.0 / seconds))
-                        }
-                        results.put("full_pipeline", fullJson)
-                        fullEngine.close()
-                    } else {
-                        log("phonemizer parity FAILED — full-pipeline run skipped")
-                    }
-                    real.close()
-                } catch (e: Throwable) {
-                    log("on-device espeak-ng unavailable: $e")
-                }
-            } else {
-                log("espeak bundle not staged — skipping full-pipeline run")
+            if (oracle != null) {
+                val rejected = oracleErrors > 0 || maxAbsDiff > ORACLE_REJECT_THRESHOLD
+                results.put("oracle_compared_against", "cpu")
+                results.put("oracle_synth_ms_total", oracleMillisTotal)
+                results.put("max_abs_diff", maxAbsDiff)
+                results.put("mean_abs_diff", meanAbsDiff)
+                results.put("oracle_errors", oracleErrors)
+                results.put("oracle_rejected", rejected)
+                log("oracle gate: max_abs_diff=${"%.6f".format(maxAbsDiff)} " +
+                    "mean_abs_diff=${"%.6f".format(meanAbsDiff)} errors=$oracleErrors rejected=$rejected")
             }
-            File(outDir, "kokoro_results.json").writeText(results.toString(2))
-            log("kokoro_results.json written to $outDir")
+            // Full-pipeline capstone (decision #32) — CPU pass only: when the
+            // espeak-ng bundle is staged, phonemize ON the device and verify byte
+            // parity against the host corpus, then re-run one full round with the
+            // real phonemizer for the end-to-end RTF.
+            if (provider == OrtProvider.CPU) {
+                val espeakLib = File(context.filesDir, "espeak/libespeak-ng.so")
+                val espeakData = File(context.filesDir, "espeak/espeak-ng-data")
+                if (espeakLib.isFile && espeakData.isDirectory) {
+                    try {
+                        val real = com.moronigranja.localttsreader.tts.kokoro.EspeakPhonemizer(
+                            libraryPath = espeakLib.absolutePath,
+                            dataPath = espeakData.absolutePath,
+                        )
+                        log("on-device espeak-ng loaded (lib + data)")
+                        var parity = true
+                        for ((text, language, hostPhonemes) in entries) {
+                            val devicePhonemes = real.phonemize(text, language)
+                            if (devicePhonemes == hostPhonemes) {
+                                log("phonemizer parity [$language]: MATCH (${devicePhonemes.length} chars)")
+                            } else {
+                                parity = false
+                                log("phonemizer parity [$language]: MISMATCH\n  host:   ${hostPhonemes.take(100)}\n  device: ${devicePhonemes.take(100)}")
+                            }
+                        }
+                        if (parity) {
+                            val fullEngine = KokoroEngine.open(
+                                spec = DefaultEngines.kokoro,
+                                packs = KokoroPacks.all,
+                                modelFile = File(models, "kokoro-model"),
+                                voicesFile = File(models, "kokoro-voices"),
+                                phonemizer = real,
+                                progress = { log("full open stage: $it") },
+                            )
+                            val fullJson = JSONArray()
+                            for ((text, language, _) in entries) {
+                                val voice = VOICES[language] ?: continue
+                                var outcome: SynthesisOutcome? = null
+                                val millis = measureTimeMillis {
+                                    outcome = runBlocking { fullEngine.synthesize(SynthesisRequest(text, voice)) }
+                                }
+                                val result = outcome as? SynthesisOutcome.Audio
+                                val seconds = result?.pcm?.size?.div(2.0)?.div(KokoroEngine.SAMPLE_RATE) ?: 0.0
+                                log("full run [$language]: ${"%.2f".format(seconds)}s audio in $millis ms, RTF=${"%.3f".format(millis / 1000.0 / seconds)}")
+                                fullJson.put(JSONObject().put("language", language).put("synth_ms", millis).put("rtf", millis / 1000.0 / seconds))
+                            }
+                            results.put("full_pipeline", fullJson)
+                            fullEngine.close()
+                        } else {
+                            log("phonemizer parity FAILED — full-pipeline run skipped")
+                        }
+                        real.close()
+                    } catch (e: Throwable) {
+                        log("on-device espeak-ng unavailable: $e")
+                    }
+                } else {
+                    log("espeak bundle not staged — skipping full-pipeline run")
+                }
+            }
+            File(outDir, "kokoro_results_${provider.label}.json").writeText(results.toString(2))
+            log("kokoro_results_${provider.label}.json written to $outDir")
             log("peak status: ${thermal.maxStatus}, headroom: ${thermal.maxHeadroom}")
             log("VmHWM: ${readVmHwm()} kB, totalPss: ${mem.totalPss} kB")
-            log("DONE")
+            log("DONE (provider=${provider.label})")
             engine.close()
+            oracle?.close()
             true
         } catch (e: Throwable) {
-            log("FAILED: $e\n${e.stackTraceToString().lineSequence().take(6).joinToString("\n")}")
+            log("provider ${provider.label} unavailable: $e")
             false
         }
     }
@@ -197,6 +296,19 @@ class KokoroBenchmarkRunner(private val context: Context) {
         val buffer = java.nio.ByteBuffer.wrap(pcm).order(java.nio.ByteOrder.LITTLE_ENDIAN).asShortBuffer()
         for (i in out.indices) out[i] = buffer.get() / 32768.0f
         return out
+    }
+
+    /** Peak + mean absolute amplitude delta between two PCM float arrays. */
+    private fun pcmDiff(a: FloatArray, b: FloatArray): Pair<Float, Float> {
+        val n = minOf(a.size, b.size)
+        var peak = 0.0f
+        var total = 0.0
+        for (i in 0 until n) {
+            val d = abs(a[i] - b[i])
+            if (d > peak) peak = d
+            total += d
+        }
+        return peak to (if (n > 0) (total / n).toFloat() else 0f)
     }
 
     /** Answers phonemization from the precomputed corpus (host espeak-ng). */
@@ -221,8 +333,8 @@ class KokoroBenchmarkRunner(private val context: Context) {
             running = true
             thread = Thread {
                 try {
-                    // android.os.ThermalManager is missing from the android-36
-                    // compile jar; the class exists at runtime on API 29+.
+                    // android.os.ThermalManager is missing from the compile jar;
+                    // the class exists at runtime on API 29+.
                     val cls = Class.forName("android.os.ThermalManager")
                     val tm = context.getSystemService("thermalservice")!!
                     val statusM = cls.getMethod("getCurrentThermalStatus")

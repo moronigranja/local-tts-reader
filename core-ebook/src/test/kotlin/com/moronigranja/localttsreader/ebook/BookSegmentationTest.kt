@@ -127,14 +127,195 @@ class BookSegmentationTest {
         assertEquals(0, result.chapters[0].index)
     }
 
+    // Passage-level front/back matter (I1)
+    // ------------------------------------------------------------------
+
     @Test
-    fun `passages with no letters are stripped`() {
+    fun `single chapter front matter passages are stripped`() {
         val source = book(
             "T",
-            chapter("Chapter 1", "* * *", "···", "Real prose."),
+            chapter("Chapter 1",
+                "Cover Page", "Title Page", "Copyright 2026 Someone",
+                "Contents", "Story begins.", "Prose one.", "Prose two."),
         )
         val result = BookSegmentation.segment(source)
-        assertEquals(listOf("Real prose."), result.chapters[0].passages.map { it.text })
+        assertEquals(
+            listOf("Story begins.", "Prose one.", "Prose two."),
+            result.chapters[0].passages.map { it.text },
+        )
+    }
+
+    @Test
+    fun `single chapter back matter is stripped`() {
+        val source = book(
+            "T",
+            chapter("Chapter 1", "Story begins.", "Prose one.", "About the Author", "Index"),
+        )
+        val result = BookSegmentation.segment(source)
+        assertEquals(
+            listOf("Story begins.", "Prose one."),
+            result.chapters[0].passages.map { it.text },
+        )
+    }
+
+    @Test
+    fun `middle chapter mentioning index or copyright is NOT stripped`() {
+        val source = book(
+            "T",
+            chapter("Chapter 1", "one prose."),
+            chapter("An Interlude", "Index of a Plant", "edited under copyright law"),
+            chapter("Chapter 2", "two prose."),
+        )
+        val result = BookSegmentation.segment(source)
+        assertEquals(3, result.chapters.size)
+        assertEquals(
+            listOf("Index of a Plant", "edited under copyright law"),
+            result.chapters[1].passages.map { it.text }, // middle chapter untouched
+        )
+    }
+
+    @Test
+    fun `single chapter with only furniture stays unchanged`() {
+        val source = book(
+            "T",
+            chapter("Chapter 1", "Copyright 2026", "Contents"),
+        )
+        val result = BookSegmentation.segment(source)
+        // whole-book guard: strip would empty the chapter, so the original is restored.
+        assertEquals(listOf("Copyright 2026", "Contents"), result.chapters[0].passages.map { it.text })
+    }
+
+    // Smart chapter detection (I2)
+    // ------------------------------------------------------------------
+
+    @Test
+    fun `monolith splits on Chapter N`() {
+        val source = book(
+            "T",
+            chapter("Chapter 1", "Chapter 1", "It was a dark and stormy night.",
+                "Chapter 2", "More prose.", "Chapter 3", "Finale."),
+        )
+        val result = BookSegmentation.segment(source)
+        assertEquals(listOf("Chapter 1", "Chapter 2", "Chapter 3"), result.chapters.map { it.title })
+        assertEquals(
+            listOf(listOf("It was a dark and stormy night."), listOf("More prose."), listOf("Finale.")),
+            result.chapters.map { it.passages.map { p -> p.text } },
+        )
+    }
+
+    @Test
+    fun `a book with one chapter heading and prose stays one chapter`() {
+        val source = book(
+            "T",
+            chapter("Chapter 1", "Chapter 1",
+                "It was a dark and stormy night in London, unusually early.",
+                "He stood at the window.", "Outside, rain."),
+        )
+        val result = BookSegmentation.segment(source)
+        assertEquals(1, result.chapters.size)
+    }
+
+    @Test
+    fun `roman and name-case headings split`() {
+        val source = book(
+            "T",
+            chapter("Chapter 1", "CHAPTER II", "a line", "CHAPTER II the Bill", "b"),
+        )
+        val result = BookSegmentation.segment(source)
+        assertEquals(listOf("CHAPTER II", "CHAPTER II the Bill"), result.chapters.map { it.title })
+    }
+
+    @Test
+    fun `numeric heading lines split when consistent`() {
+        val source = book(
+            "T",
+            chapter("Chapter 1", "12. The Mill", "content 1", "13. The second", "content 2"),
+        )
+        val result = BookSegmentation.segment(source)
+        assertEquals(listOf("12. The Mill", "13. The second"), result.chapters.map { it.title })
+    }
+
+    @Test
+    fun `mix of chapter-numeral and all-caps headings does not split`() {
+        val source = book(
+            "T",
+            chapter("Chapter 1", "CHAPTER 2", "x", "THE MILL", "y"),
+        )
+        val result = BookSegmentation.segment(source)
+        assertEquals(1, result.chapters.size)
+    }
+
+    @Test
+    fun `chapter indexes contiguous after split`() {
+        val source = book(
+            "T",
+            chapter("Chapter 1", "Chapter 1", "one.", "Chapter 2", "two.", "Chapter 3", "three."),
+        )
+        val result = BookSegmentation.segment(source)
+        assertEquals(listOf(0, 1, 2), result.chapters.map { it.index })
+    }
+
+    @Test
+    fun `book of only headings does not divide into empty chapters`() {
+        val source = book("T", chapter("Chapter 1", "Chapter 1", "Chapter 2"))
+        val result = BookSegmentation.segment(source)
+        assertEquals(1, result.chapters.size)
+    }
+
+    @Test
+    fun `en headings split`() {
+        val source = book("T", chapter("Chapter 1", "Chapter 1", "prose a.", "Chapter 2", "prose b."))
+        val result = BookSegmentation.segment(source)
+        assertEquals(listOf("Chapter 1", "Chapter 2"), result.chapters.map { it.title })
+    }
+
+    @Test
+    fun `fr headings split`() {
+        val source = book("T", chapter("Chapter 1", "Chapitre 1", "texte.", "Chapitre 2", "texte."))
+        val result = BookSegmentation.segment(source)
+        assertEquals(listOf("Chapitre 1", "Chapitre 2"), result.chapters.map { it.title })
+    }
+
+    @Test
+    fun `es headings split`() {
+        val source = book("T", chapter("Chapter 1", "Capítulo 1", "texto.", "Capítulo 2", "texto."))
+        val result = BookSegmentation.segment(source)
+        assertEquals(listOf("Capítulo 1", "Capítulo 2"), result.chapters.map { it.title })
+    }
+
+    @Test
+    fun `pt headings split`() {
+        val source = book("T", chapter("Chapter 1", "Livro 1", "texto.", "Livro 2", "texto."))
+        val result = BookSegmentation.segment(source)
+        assertEquals(listOf("Livro 1", "Livro 2"), result.chapters.map { it.title })
+    }
+
+    @Test
+    fun `it headings split`() {
+        val source = book("T", chapter("Chapter 1", "Parte Prima", "testo.", "Parte Seconda", "testo."))
+        val result = BookSegmentation.segment(source)
+        assertEquals(listOf("Parte Prima", "Parte Seconda"), result.chapters.map { it.title })
+    }
+
+    @Test
+    fun `ja headings split`() {
+        val source = book("T", chapter("Chapter 1", "第1話", "本文.", "第2話", "本文."))
+        val result = BookSegmentation.segment(source)
+        assertEquals(listOf("第1話", "第2話"), result.chapters.map { it.title })
+    }
+
+    @Test
+    fun `zh-cmn headings split`() {
+        val source = book("T", chapter("Chapter 1", "第一节", "正文。", "第二节", "正文。"))
+        val result = BookSegmentation.segment(source)
+        assertEquals(listOf("第一节", "第二节"), result.chapters.map { it.title })
+    }
+
+    @Test
+    fun `hi headings split`() {
+        val source = book("T", chapter("Chapter 1", "अध्याय १", "पाठ।", "अध्याय २", "पाठ।"))
+        val result = BookSegmentation.segment(source)
+        assertEquals(listOf("अध्याय १", "अध्याय २"), result.chapters.map { it.title })
     }
 
     // ------------------------------------------------------------------

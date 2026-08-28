@@ -6,6 +6,7 @@ import com.moronigranja.localttsreader.tts.SynthesisOutcome
 import com.moronigranja.localttsreader.tts.SynthesisRequest
 import com.moronigranja.localttsreader.tts.TTSEngine
 import com.moronigranja.localttsreader.tts.TtsPack
+import ai.onnxruntime.OrtSession
 import java.io.File
 import kotlin.coroutines.CoroutineContext
 import kotlin.coroutines.cancellation.CancellationException
@@ -187,10 +188,11 @@ class KokoroEngine internal constructor(
             voicesFile: File,
             phonemizer: Phonemizer = EspeakPhonemizer.load(),
             progress: (String) -> Unit = {},
+            sessionFactory: (OrtSession.SessionOptions) -> Unit = {},
         ): KokoroEngine {
             require(modelFile.isFile) { "model pack file not ready: $modelFile" }
             require(voicesFile.isFile) { "voices pack file not ready: $voicesFile" }
-            val session = OrtKokoroSession.open(modelFile)
+            val session = OrtKokoroSession.open(modelFile, sessionFactory)
             progress("session")
             return try {
                 val vocab = session.embeddedVocab.ifEmpty { KokoroVocabulary.resource() }

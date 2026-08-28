@@ -94,7 +94,10 @@ class OrtKokoroSession private constructor(
         private const val WAVEFORM_OUTPUT = "waveform"
         private const val DURATION_OUTPUT = "duration"
 
-        fun open(modelFile: File): OrtKokoroSession {
+        fun open(
+            modelFile: File,
+            sessionFactory: (OrtSession.SessionOptions) -> Unit = {},
+        ): OrtKokoroSession {
             require(modelFile.isFile) { "model file not found: $modelFile" }
             // Explicit options mirror the device-verified T3 harness settings
             // (spike-tts Sessions.kt): ALL_OPT graph optimization + 6 intra-op
@@ -105,6 +108,7 @@ class OrtKokoroSession private constructor(
                 setOptimizationLevel(OrtSession.SessionOptions.OptLevel.ALL_OPT)
                 setIntraOpNumThreads(6)
             }
+            sessionFactory(sessionOptions)
             val session = OrtEnvironment.getEnvironment().createSession(modelFile.absolutePath, sessionOptions)
             try {
                 val inputs = session.inputInfo

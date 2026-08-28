@@ -1,4 +1,62 @@
 # Decision log
+
+## 67. D2 — ONNX execution-provider measurement: keep CPU default (2026-08-28)
+
+Measured the only Android-deployable ONNX Runtime execution providers
+(`onnxruntime-android` 1.23.2) against the CPU baseline on both devices,
+screen-off and media-volume 0 (the realistic player condition). This was a
+measurement slice only — the harness gained a cold-engine-open probe and an
+oracle gate; **no production engine path changed, and the deployment default
+stays CPU at the end of the slice.**
+
+Method (D1 seam, harness only): `core-tts` `OrtKokoroSession.open` gained an
+additive `sessionFactory` parameter (default `{}` ⇒ existing callsites
+byte-for-byte unchanged; `core-tts` JVM suite stays green). `spike-tts`
+`KokoroBenchmarkRunner` now iterates `OrtProvider {CPU, XNNPACK, NNAPI}`,
+writes `kokoro_results_<label>.json`, records engine-open ms, and for each
+candidate synthesizes the pre-phonemized corpus twice — candidate vs a fresh
+CPU oracle engine — and reports peak (`max_abs_diff`) and mean
+(`mean_abs_diff`) absolute PCM float-amplitude deltas. `spike-tts` also now
+pins the repo-root `debug.keystore` so the androidTest + target share a
+signature on every container build (previously the toolchain's regenerated
+default key made instrumentation fail with "signature matching" denial).
+
+Results (corpus = 2 passages: Pride & Prejudice en-us + Dom Casmurro pt-br,
+40.4s + 22.8s audio):
+
+| device | provider | engine-open ms | RTF (en/pt median) | totalPss kB | VmHWM kB | max_abs_diff | mean_abs_diff |
+|---|---|---|---|---|---|---|---|
+| S22 Ultra (SM-S908U1) | CPU | 1500 | 0.766 / 0.752 | 1 321 349 | 1 413 148 | — | — |
+| S22 Ultra | XNNPACK | 1900 | 0.812 / 0.823 | 1 996 271 | 2 101 232 | 0.102 | 0.00082 |
+| S22 Ultra | NNAPI | 2400 | 0.964 / 0.938 | 2 542 312 | 2 648 688 | 0.0477 | 0.00061 |
+| HiBreak (Bigme) | CPU | 8500 | 2.97 / 2.90 | 1 333 340 | 1 417 520 | — | — |
+| HiBreak | XNNPACK | 9000 | 3.17 / 3.17 | 2 004 914 | 2 048 848 | 0.070 | 0.00075 |
+| HiBreak | NNAPI | 8100 | 3.53 / 2.98 | 2 519 767 | 2 048 488 | 0.069 | 0.00070 |
+
+CPU = baseline oracle (no diff). ThermalManager is absent on these device
+builds (`thermal_status_max = -1` recorded); PSS/VmHWM come from
+`Debug.MemoryInfo` + `/proc/self/status`.
+
+Decision per the D2.3 hard rule — ADOPT a delegate only if it (a) materially
+improves RTF/first-audio, (b) `max_abs_diff <= 0.001` with no failed/unavailable
+passages, and (c) thermal/PSS not worse:
+- **No candidate satisfies all three on either device.** Both are *slower* on
+  both (CPU is fastest everywhere), both blow the `max_abs_diff <= 0.001`
+  oracle gate on every run (0.048–0.102), and both roughly double resident
+  memory.
+- **FACT: keep production on CPU today** (the existing default). No change to
+  the `core-tts` default provider in this slice.
+- **Deferred: needs X to adopt** — a measured candidate would need (i) an
+  INT8/fp16 quantized graph that actually beats CPU RTF without sampling
+  divergence (the fp32 graph under XNNPACK/NNAPI is 10–30% *slower*), and
+  (ii) oracle `max_abs_diff <= 0.001`. Nothing in this slice ships an
+  accelerator; the probe seam remains for a future pass.
+
+Evidence: `:core-ebook:test` (BookSegmentation I1+I2) and `:core-tts:test`
+green; spike `assembleDebug` + `assembleDebugAndroidTest` build in-container;
+both devices' instrumented run logged `DONE` per provider and wrote
+per-provider JSONs (S22: `cpu`, `xnnpack`, `nnapi`; HiBreak: same + full
+CPU run).
 ## 66. A6 — Composition root + feature boundaries (CR-6) (2026-08-27)
 
 Turned `app` into the effective composition root and removed every
