@@ -23,9 +23,8 @@ plan — slicing happens through decisions.md.
 | ~~**CR-4: PCM cache LRU state is lost across process restart**~~ | ~~Existing disk entries are absent from the in-memory eviction map. Near the 4 GiB cap, every newly synthesized passage can evict itself while old entries remain, effectively freezing cache replacement.~~ | Fixed — A4, 2026-08-27 (decisions #63; record below) | code review 2026-08-27; decisions #35/#42/#44 |
 | ~~**CR-5: asynchronous book commands can overwrite newer player state**~~ | ~~`ACTION_OPEN`/`ACTION_PLAY` load books in untracked coroutines. `stopEverything()` cannot cancel them; an older load may publish after a newer command or remove its foreground notification.~~ | Fixed — A5, 2026-08-27 (decisions #62; record below) | code review 2026-08-27; T4 single-writer contract |
 | ~~**CR-6: feature-module dependency rules are no longer enforced**~~ | ~~Feature modules depend directly on other feature modules and concrete Android/persistence implementations, while `feature-library` owns application-wide DI. `app` is not the effective composition root described by the architecture.~~ | Fixed — A6, 2026-08-27 (decisions #66; record below) | code review 2026-08-27; `architecture.md` §2 |
-| ~~**CR-7: pause/navigation during first-audio generation does not settle the session**~~ | While first-play synthesis is in flight ("Generating…"), pressing pause (reader center control and media-session dispatch) left `dumpsys media_session` reporting `PLAYING(3)` with the notification still advertising "Pause"; ±30s presses re-synthesized instead of repositioning a stopped playhead. No transport action stopped the session mid-generation; only process teardown ended it. Evidence: `docs/prints/player-generating-after-play.png`, `player-generating-after-seek.png`, `player-pause-unsettled.png`, `notification-state-desync.png`. | Fixed — A7, 2026-08-27 (decisions #62; record below) | device run 2026-08-27; CR-5 single-writer contract |
 | ~~**CR-8: read-along anchors + live playhead never published (`PlaybackUiState.segments`/`offsetSeconds` dead)**~~ | `3e01cd3` (decisions #51 gap pass) collaterally dropped `segments = segments,` and `offsetSeconds = liveOffsetSeconds(),` from `PlaybackService.publish()` while rewriting the reader footer. `activeSentenceIndex`/`offsetSeconds`/`segments` stayed in the state contract but no path ever set them — the read-along highlight and passage progress bar are unobservable. Surfaced by the E2E regression: `PlaybackE2eTest` "read-along anchors surfaced somewhere" failed every run. | Fixed — on-device E2E run 2026-08-27 (both publishes restored + rerun-safe E2E; record below) | device E2E 2026-08-27; decisions #31/#34 |
-| **Cold-launch main-thread block and first-audio latency on device** | At cold launch Choreographer skipped 124 frames (≈2 s main-thread block, 16:02:15 log). First play then stayed in "Generating…" with time-left static ("10:41:20 left") across a 12 s+ observation; every −30/+30 press re-ran synchronous synthesis. Memory while idle after the session: 1.69 GB PSS / 1.4 GB native heap (1.80 GB RSS). Evidence: `docs/prints/player-generating-after-play.png`, `player-generating-after-seek.png`. | Open — verify against D1/D2 baselines; fix under Phase D | device run 2026-08-27; decisions #53 |
+| ~~**CR-9: chapter text never published (`PlaybackUiState.chapterPassages` dead — reader body blank, touch nav dead)**~~ | The `26a3272` CR-8 fix collaterally dropped `chapterPassages = position?.let { p -> book?.chapters?.firstOrNull { it.index == p.chapterIndex }?.passages?.map { it.text } } ?: emptyList()` from `PlaybackService.publish()`'s `it.copy(...)` block while inserting the two restored publishes (same class of `copy-move` regression that hit `segments`/`offsetSeconds` in `3e01cd3`). `chapterPassages` stayed in the `PlaybackUiState` contract and `PaginatedChapter` reads it, but no path wrote it — the reader body went blank on every book, side-tap page turns and the empty-state guard stopped rendering. | Fixed — on-device repro 2026-08-27 (chapterPassages restore; record below) | device repro 2026-08-27; decisions #51 follow-up |
 | **Reader bottom line cropped under the shared player card** | On the reader, the last text line is clipped at the boundary with the bottom transport card — the visible slice ends mid-line ("…He") with no way to scroll the remainder above the card. Evidence: `docs/prints/reader-bottom-crop.png`, `reader-bottom-crop-2.png`. | Open — reader/card inset fix (Phase B3 step 2) | user report + device run 2026-08-27 |
 | **Chapter menu doubles the ordinal ("1. 1. Millie…")** | `ReaderScreen` chapter dropdown prefixes `${index + 1}.` to chapter titles that already carry their own ordinal (Impulse navPoint labels "1. Millie: The Underlying Problem"), rendering "1. 1. Millie: …". Evidence: `docs/prints/reader-chapter-menu-doubled-ordinal.png`. | Open — cosmetic; fix in B3 reader chrome pass | code trace + device run 2026-08-27 |
 
@@ -652,8 +651,67 @@ frames, sources disk → pregen), COMPLETED, "OK (1 test)".
   (full-frame drains, anchors published); `PlayPositionE2eTest`,
   `PregenE2eTest`, `VoiceSelectionE2eTest`, `PtVoiceE2eTest` re-run green.
 
-## Test-harness limitations (worked around, not fixed)
+**Regression coverage/acceptance:**
+- Device: `PlaybackE2eTest` passes with a real two-passage AudioTrack run
+- (full-frame drains, anchors published); `PlayPositionE2eTest`,
+- `PregenE2eTest`, `VoiceSelectionE2eTest`, `PtVoiceE2eTest` re-run green.
+§
+**Regression coverage/acceptance:**
+- Device: `PlaybackE2eTest` passes with a real two-passage AudioTrack run
+- (full-frame drains, anchors published); `PlayPositionE2eTest`,
+- `PregenE2eTest`, `VoiceSelectionE2eTest`, `PtVoiceE2eTest` re-run green.
+### CR-9 — ~~Chapter text never published (reader blank, touch nav dead)~~ (FIXED — device repro, 2026-08-27)
 
+**Severity/status:** Major; regression from `26a3272` (CR-8 commit); caught by a
+device repro on the S22 within hours of the fix landing.
+
+**Shipped contract:** `PlaybackStateHolder`/`PlaybackUiState` carries the
+current chapter's passage texts in `chapterPassages: List<String>` (decisions
+#51 follow-up, "stitch the chapter into one continuous reader surface").
+`PaginatedChapter` joins the list with `\n\n` and paginates the joined
+chapter as one continuous page; `ReaderScreen`'s side-tap and swipe page-turn
+gestures and the empty-state guard depend on it.
+
+**Regression:** the CR-8 commit (segments + offsetSeconds restoration)
+replaced the existing `chapterPassages = position?.let { p -> book?.chapters
+?.firstOrNull { it.index == p.chapterIndex }?.passages?.map { it.text } }
+?: emptyList()` block in `publish()`'s `it.copy(...)` with the two new
+lines (same `copy-move` class of regression that originally hit
+`segments`/`offsetSeconds` in `3e01cd3`). `chapterPassages` remained in the
+state contract and the reader rendered nothing, so the body was a void,
+side-tap page-turning had no text to scroll through, and the empty-state
+string only showed while `phase == IDLE`.
+
+**Why existing verification missed it:** no host test reads
+`PlaybackStateHolder.state.chapterPassages`; the only consumers are the
+Compose reader and the player card's chapter-passages hint, and the
+instrumented E2E classes don't drive the reader surface.
+
+**Device evidence (S22, 2026-08-27):**
+
+```
+publish diag:  book!=null=true bookChapters=3 bookCh0Passages=908 bookChAtPosPassages=908 phase=IDLE
+publish post:  stateChapterPassages=0 statePassageText=483 stateBookTitle=No More Mr Nice Guy
+```
+
+— the service has 908 passages for chapter 0, but the published state carried
+zero. `uiautomator dump` on the reader body showed only the empty-state
+sentence; after restoring the line the same dump shows the chapter's first
+page rendering and side-tap/swipe page turns work.
+
+**Repair:**
+
+- `PlaybackService.publish()`: restore `chapterPassages = position?.let { p ->
+  book?.chapters?.firstOrNull { it.index == p.chapterIndex }?.passages
+  ?.map { it.text } } ?: emptyList()` in `PlaybackStateHolder.update` (between
+  `chapters` and `segments`, matching `PlaybackUiState` field order, decisions
+  #51 follow-up).
+
+**Regression coverage/acceptance:**
+
+- Device: every reader open renders the chapter body (not the empty-state
+  sentence) and side-tap/swipe page turns land on subsequent pages; existing
+  E2E classes (`PlaybackE2eTest` etc.) re-run green.
 | Limitation | Workaround | Reported in |
 |---|---|---|
 | Instrumented test classes sharing one process trip Room-reopen races | Run each test CLASS in its own `am instrument` invocation | `build.md` (instrumented set), decisions #36/#45 |
