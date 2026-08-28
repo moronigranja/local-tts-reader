@@ -3,6 +3,7 @@ package com.moronigranja.localttsreader
 import android.app.Application
 import androidx.hilt.work.HiltWorkerFactory
 import androidx.work.Configuration
+import com.moronigranja.localttsreader.featureplayer.playback.PregenManager
 import com.moronigranja.localttsreader.locate.IndexLock
 import com.moronigranja.localttsreader.locate.IndexRebuilder
 import com.moronigranja.localttsreader.persistence.RoomLibraryStore
@@ -26,6 +27,7 @@ class LocalTtsReaderApp : Application(), Configuration.Provider {
     @Inject lateinit var libraryStore: RoomLibraryStore
     @Inject lateinit var indexRebuilder: IndexRebuilder
     @Inject lateinit var indexLock: IndexLock
+    @Inject lateinit var pregenManager: PregenManager
     @Inject lateinit var appScope: CoroutineScope
     @Inject lateinit var workerFactory: HiltWorkerFactory
 
@@ -34,6 +36,12 @@ class LocalTtsReaderApp : Application(), Configuration.Provider {
 
     override fun onCreate() {
         super.onCreate()
+        // QW5d: the overnight pregen scheduling hook is disabled, but a
+        // previously-enqueued overnight job survives in WorkManager's DB and
+        // can still fire once after an upgrade — cancel it deterministically
+        // (PregenManager.cancelOvernight; the manager's WorkManager is lazy,
+        // so this does not touch the provider during injection).
+        pregenManager.cancelOvernight()
         appScope.launch {
             // CR-3/A3: the rebuild reconciles UNDER the index lock — the fresh
             // Room snapshot is read inside the critical section, so a

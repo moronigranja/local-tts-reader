@@ -79,6 +79,17 @@ class PregenManager @Inject constructor(
         )
     }
 
+    /**
+     * App-start neutralization (QW5d): the startup scheduling hook is gone,
+     * but a previously-enqueued overnight PeriodicWorkRequest survives in
+     * WorkManager's DB and can still fire once after an upgrade — cancel it
+     * deterministically at startup (LocalTtsReaderApp.onCreate). A fresh
+     * install with nothing enqueued is a harmless no-op.
+     */
+    fun cancelOvernight() {
+        workManager.cancelUniqueWork(PregenWorker.OVERNIGHT_NAME)
+    }
+
     fun workInfo(bookId: String): LiveData<List<WorkInfo>> =
         workManager.getWorkInfosForUniqueWorkLiveData(PregenWorker.workName(bookId))
 }

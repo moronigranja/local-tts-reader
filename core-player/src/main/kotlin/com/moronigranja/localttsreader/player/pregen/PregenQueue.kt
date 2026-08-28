@@ -1,7 +1,6 @@
 package com.moronigranja.localttsreader.player.pregen
 
 import com.moronigranja.localttsreader.model.Book
-import com.moronigranja.localttsreader.player.BookLayout
 import com.moronigranja.localttsreader.player.PlayerPosition
 import com.moronigranja.localttsreader.player.passageText
 import com.moronigranja.localttsreader.tts.SynthesisOutcome
@@ -47,7 +46,7 @@ class PregenQueue(
      * it to the disk tier. The default no-ops for host tests. */
     private val onSynthesized: suspend (key: PregenKey, audio: PregenAudio) -> Unit = { _, _ -> },
 ) {
-    private val layout = BookLayout(book)
+    private val planner = PregenPlanner(book, voice, speed)
     private val lock = Object()
     private val entries = LinkedHashMap<PregenKey, PregenAudio>()
     private val inFlight = mutableSetOf<PregenKey>()
@@ -63,19 +62,20 @@ class PregenQueue(
             entries.keys.removeAll { key -> !isAfter(key, from) }
             shrinkToBound()
             val missing = mutableListOf<PregenKey>()
-            var (chapter, passage) = from.chapterIndex to from.passageIndex
-            while (
-                entries.size + missing.size < lookahead &&
-                queuedSecondsLocked(from) < lookaheadSeconds
-            ) {
-                val next = layout.next(chapter, passage) ?: break
-                val (c, p) = next
-                val key = PregenKey(book.id, c, p, voice, speed)
-                if (key in inFlight) break // contiguous: never plan past in-flight work
-                if (!entries.containsKey(key) && key !in missing) missing += key
-                chapter = c
-                passage = p
-            }
+            planner.plan(
+                from = from.chapterIndex to from.passageIndex,
+                // Contiguous-prefix + bounds, exactly the old loop's decisions:
+                // stop at the first passage another coroutine is synthesizing
+                // (never plan past an unsynthesized near gap) or at the
+                // look-ahead count/time limits.
+                stop = { _, _, key ->
+                    key in inFlight ||
+                        entries.size + missing.size >= lookahead ||
+                        queuedSecondsLocked(from) >= lookaheadSeconds
+                },
+                shouldVisit = { _, _, key -> !entries.containsKey(key) && key !in missing },
+                onCandidate = { _, _, key -> missing += key },
+            )
             inFlight.addAll(missing)
             missing
         }

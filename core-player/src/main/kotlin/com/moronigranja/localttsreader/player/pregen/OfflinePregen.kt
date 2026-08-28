@@ -118,57 +118,91 @@ class OfflinePregen(
         )
         var consecutiveFailures = 0
         var lastPutBytes = 0L
+        // The walker stops via its hooks; the stopping reason is captured
+        // here and stamped on the final progress (null = walked to the end).
+        var terminal: PregenTerminal? = null
 
         suspend fun bump(update: PregenProgress.() -> PregenProgress) {
             progress = update(progress)
             onProgress(progress)
         }
 
-        /** Sets the terminal and fires one final event, so the last observed
-         * progress equals the returned result. */
-        suspend fun finished(terminal: PregenTerminal): PregenProgress {
-            val final = progress.copy(terminal = terminal)
+        /** Fires one final event so the last observed progress equals the
+         * returned result; defaults the terminal to [PregenTerminal.Completed]. */
+        suspend fun finished(): PregenProgress {
+            val final = progress.copy(terminal = terminal ?: PregenTerminal.Completed)
             onProgress(final)
             return final
         }
 
-        for (chapter in book.chapters) {
-            budget.maxChapters?.let { if (progress.chaptersDone >= it) return finished(PregenTerminal.BudgetExhausted) }
-            context.ensureActive()
-            if (!shouldContinue()) return finished(PregenTerminal.Yielded)
-
-            for ((passageIndex, passage) in chapter.passages.withIndex()) {
-                context.ensureActive()
-                if (!shouldContinue()) return finished(PregenTerminal.Yielded)
-                budget.maxTimeMs?.let { if (clock() - startedAt >= it) return finished(PregenTerminal.BudgetExhausted) }
-                budget.maxPassages?.let { if (progress.processed >= it) return finished(PregenTerminal.BudgetExhausted) }
-
-                val key = PregenKey(book.id, chapter.index, passageIndex, voice, speed)
+        PregenPlanner(book, voice, speed).walk(
+            onChapter = { chapterIndex ->
+                // Chapter-boundary gates: maxChapters and the caller's yield.
+                if (budget.maxChapters?.let { progress.chaptersDone >= it } == true) {
+                    terminal = PregenTerminal.BudgetExhausted
+                    false
+                } else if (!shouldContinue()) {
+                    terminal = PregenTerminal.Yielded
+                    false
+                } else {
+                    context.ensureActive()
+                    true
+                }
+            },
+            shouldVisit = { _, _, key ->
                 if (cache.contains(key)) {
                     bump { copy(passagesCached = passagesCached + 1) }
                     consecutiveFailures = 0
-                    continue
+                    false
+                } else {
+                    true
                 }
-                if (cache.bytesRemaining() == 0L) return finished(PregenTerminal.CacheSaturated)
-                if (lastPutBytes > 0L && cache.bytesRemaining() < lastPutBytes) return finished(PregenTerminal.CacheSaturated)
-
-                when (val outcome = synthesize(passage.text)) {
-                    is SynthesisOutcome.Audio -> {
-                        cache.put(key, PregenAudio(outcome.pcm, outcome.sampleRateHz, outcome.segments))
-                        bump { copy(passagesSynthesized = passagesSynthesized + 1) }
-                        consecutiveFailures = 0
-                        lastPutBytes = outcome.pcm.size.toLong()
-                    }
-                    is SynthesisOutcome.Unavailable -> return finished(PregenTerminal.Unavailable)
-                    is SynthesisOutcome.Failed -> {
-                        bump { copy(failures = failures + 1) }
-                        consecutiveFailures++
-                        if (consecutiveFailures >= consecutiveFailureCap) return finished(PregenTerminal.FailureCap)
+            },
+            onCandidate = { _, passageIndex, key ->
+                context.ensureActive()
+                if (!shouldContinue()) {
+                    terminal = PregenTerminal.Yielded
+                    false
+                } else if (budget.maxTimeMs?.let { clock() - startedAt >= it } == true) {
+                    terminal = PregenTerminal.BudgetExhausted
+                    false
+                } else if (budget.maxPassages?.let { progress.processed >= it } == true) {
+                    terminal = PregenTerminal.BudgetExhausted
+                    false
+                } else if (cache.bytesRemaining() == 0L) {
+                    terminal = PregenTerminal.CacheSaturated
+                    false
+                } else if (lastPutBytes > 0L && cache.bytesRemaining() < lastPutBytes) {
+                    terminal = PregenTerminal.CacheSaturated
+                    false
+                } else {
+                    when (val outcome = synthesize(book.chapters[key.chapterIndex].passages[passageIndex].text)) {
+                        is SynthesisOutcome.Audio -> {
+                            cache.put(key, PregenAudio(outcome.pcm, outcome.sampleRateHz, outcome.segments))
+                            bump { copy(passagesSynthesized = passagesSynthesized + 1) }
+                            consecutiveFailures = 0
+                            lastPutBytes = outcome.pcm.size.toLong()
+                            true
+                        }
+                        is SynthesisOutcome.Unavailable -> {
+                            terminal = PregenTerminal.Unavailable
+                            false
+                        }
+                        is SynthesisOutcome.Failed -> {
+                            bump { copy(failures = failures + 1) }
+                            consecutiveFailures++
+                            if (consecutiveFailures >= consecutiveFailureCap) {
+                                terminal = PregenTerminal.FailureCap
+                                false
+                            } else {
+                                true
+                            }
+                        }
                     }
                 }
-            }
-            bump { copy(chaptersDone = chaptersDone + 1) }
-        }
-        return finished(PregenTerminal.Completed)
+            },
+            onChapterDone = { _ -> bump { copy(chaptersDone = chaptersDone + 1) } },
+        )
+        return finished()
     }
 }

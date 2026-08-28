@@ -11,6 +11,7 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import android.content.pm.ApplicationInfo
 import android.media.AudioAttributes
 import android.media.AudioFocusRequest
 import android.media.AudioManager
@@ -127,6 +128,13 @@ class PlaybackService : Service() {
     /** CR-2 host-test seam: the current PCM slice's start offset (book-time). */
     internal var baselineOffset = 0.0
     private var ringHasEntries = false
+    // Measurement probes (goals §Measurement): tap-to-audio dispatch baseline
+    // + boundary-gap consecutive-play baseline. Debug-gated (probesActive) and
+    // log-only — never block, publish, or reorder.
+    private var tapAt = 0L
+    private var tapAction: String? = null
+    private var playAt = 0L
+    private var prevFrames = 0
     // Media-notification cover art, cached per book (files/covers/<bookId>).
     private var coverArtBookId: String? = null
     private var coverArt: Bitmap? = null
@@ -137,6 +145,34 @@ class PlaybackService : Service() {
     private lateinit var audioManager: AudioManager
     private var focusRequest: AudioFocusRequest? = null
     private val mainHandler = Handler(Looper.getMainLooper())
+
+    // ------------------------------------------------------------------
+    // Measurement probes (docs/generate-play-goals.md §Measurement)
+    // ------------------------------------------------------------------
+
+    /** True on app debug builds: there is no feature-player BuildConfig, so
+     * the gate is the app's debuggable runtime flag AND the [gapProbeActive]
+     * master toggle (flip it to withdraw every probe without a rebuild). */
+    private val probesActive: Boolean
+        get() = gapProbeActive && (applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE) != 0
+
+    /** Single gated emit point for every probe: logs only — never blocks,
+     * publishes, or reorders, so the 50 ms poll loop and CR-2/CR-5/CR-7
+     * ordering are untouched. Tags are consumed by a dev script. */
+    private fun probe(tag: String, message: String) {
+        if (!probesActive) return
+        android.util.Log.d(tag, message)
+    }
+
+    /** Arms the tap-to-audio baseline (L1/L2/L3) at transport-command
+     * dispatch, captured as early as possible — the first thing after
+     * onStartCommand entry. A null action (sticky restart / watchdog replay)
+     * is not a user tap and keeps the previous tap armed. */
+    private fun probeTap(action: String?) {
+        if (action == null) return
+        tapAt = clock()
+        tapAction = action
+    }
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -158,6 +194,10 @@ class PlaybackService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent == null) return START_NOT_STICKY
+        // Measurement probe (goals §Measurement): the tap timestamp is taken
+        // at dispatch — before the foreground/when block — and consumed at
+        // the first output.play (tap-to-audio, L1/L2/L3).
+        if (probesActive) probeTap(intent.action)
         // Every command arrives via startForegroundService: enter the
         // foreground FIRST so an early return (no engine/book/machine) can
         // never trip ForegroundServiceDidNotStartInTimeException (#50).
@@ -558,12 +598,13 @@ class PlaybackService : Service() {
                 ?: fromDisk
                     ?.let { SynthesisOutcome.Audio(it.pcm, it.sampleRateHz, channelCount = 1, segments = it.segments) }
                 ?: bufferForPlayback(position, voice, current.speed, text)
-            android.util.Log.d("PlaybackService", "loop: source=" + when {
+            val sourceKey = when {
                 fromLast != null -> "buffer"
                 fromQueue != null -> "pregen"
                 fromDisk != null -> "disk"
                 else -> "synthesized"
-            })
+            }
+            android.util.Log.d("PlaybackService", "loop: source=$sourceKey")
             val audio = outcome as? SynthesisOutcome.Audio ?: run {
                 val reason = (outcome as? SynthesisOutcome.Failed)?.reason ?: "engine/packs unavailable"
                 PlaybackStateHolder.update { it.copy(failure = "synthesis failed: $reason") }
@@ -585,7 +626,26 @@ class PlaybackService : Service() {
             active.onAudioStarted()
             val sliced = sliceForSpeed(audio.pcm, baselineOffset, audio.sampleRateHz, current.speed)
             output.play(sliced, audio.sampleRateHz, current.speed)
-
+            // Measurement probes (goals §Measurement): tap-to-audio at the
+            // first frame actually written to AudioTrack, and the boundary
+            // gap vs the previous CONSECUTIVE same-loop play. gap-ms is an
+            // approximation: play(N+1) dispatch minus (play(N) dispatch plus
+            // play(N)'s rendered duration) — the true passage end is not
+            // observable without an AudioTrack marker callback.
+            if (probesActive) {
+                val frames = sliced.size / 2
+                val now = clock()
+                val gapMs = computeGapMs(now, playAt, prevFrames, audio.sampleRateHz)
+                if (gapMs != null) {
+                    probe("AyvuGap", "gap-ms=$gapMs passage=${position.chapterIndex}/${position.passageIndex}")
+                }
+                playAt = now
+                prevFrames = frames
+                if (tapAt != 0L) {
+                    probe("AyvuTap", "tap-to-audio ms=${now - tapAt} source=$sourceKey action=${tapAction ?: "unknown"}")
+                    tapAt = 0L
+                }
+            }
             // Pre-generation is a background prefill job (startPrefill), not a
             // per-boundary cancel-relaunch: a cancelled synthesis never finishes
             // and every passage change paid a cold restart. The fill job only
@@ -716,7 +776,13 @@ class PlaybackService : Service() {
     // Media session / focus / noisy / notification
 
     private val mediaCallback = object : MediaSessionCompat.Callback() {
-        override fun onPlay() = resumePlayer(PlaybackStateHolder.state.value.bookId)
+        override fun onPlay() {
+            // Measurement probe (goals §Measurement, L3): media-button/headset
+            // resume tap — in-process resume AND the post-death rebuild (arms
+            // before resumePlayer's machine==null startPlayback).
+            if (probesActive) probeTap(ACTION_RESUME)
+            resumePlayer(PlaybackStateHolder.state.value.bookId)
+        }
         override fun onPause() = pausePlayer(PauseReason.USER)
         override fun onStop() = stopPlayer()
         override fun onSkipToNext() = navigate { it.skipForward() }
@@ -958,6 +1024,13 @@ class PlaybackService : Service() {
         pregenJob = null
         stopSignal.complete(Unit)
         stopSignal = CompletableDeferred()
+        // Measurement probe baseline (goals §Measurement, GAP1): resume/seek/
+        // stop breaks consecutive same-loop plays — the next play is a fresh
+        // start, never a gap. The tap arm is deliberately preserved: an
+        // open/play tap races its own command's stopEverything and must
+        // survive to the first play dispatch.
+        playAt = 0L
+        prevFrames = 0
         output.stop()
         focusRequest?.let { audioManager.abandonAudioFocusRequest(it) }
         focusRequest = null
@@ -1038,6 +1111,27 @@ class PlaybackService : Service() {
         private const val POST_STOP_MAX_MS = 120_000L
         private val SETTLED_PHASES = setOf(PlayerPhase.PLAYING, PlayerPhase.PAUSED, PlayerPhase.LOADING)
         private var clock: () -> Long = System::currentTimeMillis
+        /** Measurement-probe master toggle (goals §Measurement): one-line
+         * kill switch; the runtime gate additionally requires a debuggable
+         * app build (feature-player has no BuildConfig). */
+        internal var gapProbeActive = true
+
+        /**
+         * Pure GAP1 decision (goals §Measurement): the inter-play gap between
+         * two consecutive same-loop plays. [prevPlayAt] is play N's dispatch
+         * time (0 = none — resume/seek reset the baseline via stopEverything,
+         * so a fresh start is never reported as a gap); [prevFrames] is play
+         * N's frame count (sliced PCM size / 2, mono 16-bit). Returns the gap
+         * in ms, or null when the pair is not same-loop-consecutive or the
+         * clock went backwards. Approximation: play-dispatch to play-dispatch,
+         * not a true passage-end measurement.
+         */
+        internal fun computeGapMs(now: Long, prevPlayAt: Long, prevFrames: Int, sampleRate: Int): Long? {
+            if (prevPlayAt <= 0L || prevFrames <= 0 || sampleRate <= 0) return null
+            val expectedEnd = prevPlayAt + (prevFrames * 1000L) / sampleRate
+            if (now < expectedEnd) return null
+            return now - expectedEnd
+        }
 
         const val ACTION_OPEN = "open"
         const val ACTION_PLAY = "play"

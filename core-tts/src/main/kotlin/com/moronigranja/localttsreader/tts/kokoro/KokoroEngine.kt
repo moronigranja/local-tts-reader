@@ -147,6 +147,9 @@ class KokoroEngine internal constructor(
         return SynthesisOutcome.Audio(pcm16(withPauses), SAMPLE_RATE, 1, segments)
     }
 
+    /**
+     * Process-scoped, never closed in production; kept for tests/benchmarks.
+     */
     override fun close() {
         session.close()
     }

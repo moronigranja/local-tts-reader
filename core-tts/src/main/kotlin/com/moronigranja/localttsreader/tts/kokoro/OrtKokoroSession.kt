@@ -67,6 +67,9 @@ class OrtKokoroSession private constructor(
         }
     }
 
+    /**
+     * Process-scoped, never closed in production; kept for tests/benchmarks.
+     */
     override fun close() {
         if (!closed) {
             closed = true
