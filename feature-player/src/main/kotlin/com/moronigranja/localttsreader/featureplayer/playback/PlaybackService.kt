@@ -168,7 +168,7 @@ class PlaybackService : Service() {
             ACTION_PLAY -> startPlayback(intent.bookId(), explicit = false)
             ACTION_PLAY_POSITION -> startPlayback(intent.bookId(), explicit = true, intent = intent)
             ACTION_OPEN_CHAPTER -> openChapter(intent.bookId(), intent.getIntExtra(EXTRA_DIRECTION, 0))
-            ACTION_RESUME -> resumePlayer()
+            ACTION_RESUME -> resumePlayer(intent.bookId())
             ACTION_PAUSE -> pausePlayer(PauseReason.USER)
             ACTION_SKIP_FORWARD -> navigate { it.skipForward() }
             ACTION_SKIP_BACKWARD -> navigate { it.skipBackward() }
@@ -331,8 +331,18 @@ class PlaybackService : Service() {
         }
     }
 
-    private fun resumePlayer() {
-        val active = machine ?: return
+    private fun resumePlayer(bookId: String? = null) {
+        val active = machine
+        if (active == null) {
+            // The service restarted with no machine (STOP's post-stop fill
+            // self-stopped it, or the process recycled) while the reader
+            // stayed open: there is nothing to resume into. With the
+            // reader's book id, rebuild the machine and resume from the
+            // persisted playhead — the play button must never be dead.
+            val id = bookId ?: return
+            startPlayback(id, explicit = false)
+            return
+        }
         val phase = active.state.value.phase
         if (phase == PlayerPhase.PLAYING || phase == PlayerPhase.LOADING) return
         if (runtime.engine() == null) return

@@ -23,13 +23,33 @@ class ReaderViewModel @Inject constructor(
 
     val state: StateFlow<PlaybackUiState> = PlaybackStateHolder.state
 
+    /** The book this reader shows — [resume] carries it so a machine-less
+     * service (STOP's post-stop fill self-stopped it) can rebuild and
+     * resume from the persisted playhead instead of dead-ending the
+     * play button. */
+    private var openedBookId: String? = null
+
     /** Opens a book in the reader WITHOUT starting playback (decisions #52). */
-    fun open(bookId: String) = command(PlaybackService.ACTION_OPEN, bookId)
-    override fun play(bookId: String) = command(PlaybackService.ACTION_PLAY, bookId)
-    override fun playAt(bookId: String, chapterIndex: Int, passageIndex: Int) =
+    fun open(bookId: String) {
+        openedBookId = bookId
+        command(PlaybackService.ACTION_OPEN, bookId)
+    }
+
+    override fun play(bookId: String) {
+        openedBookId = bookId
+        command(PlaybackService.ACTION_PLAY, bookId)
+    }
+
+    override fun playAt(bookId: String, chapterIndex: Int, passageIndex: Int) {
+        openedBookId = bookId
         command(PlaybackService.ACTION_PLAY_POSITION, bookId, chapterIndex, passageIndex)
-    fun playPosition(bookId: String, chapter: Int, passage: Int) =
+    }
+
+    fun playPosition(bookId: String, chapter: Int, passage: Int) {
+        openedBookId = bookId
         command(PlaybackService.ACTION_PLAY_POSITION, bookId, chapter, passage)
+    }
+
     fun openChapter(bookId: String, direction: Int) =
         command(PlaybackService.ACTION_OPEN_CHAPTER, bookId, direction = direction)
     fun skipForward() = command(PlaybackService.ACTION_SKIP_FORWARD)
@@ -39,7 +59,7 @@ class ReaderViewModel @Inject constructor(
     fun cycleSleep() = command(PlaybackService.ACTION_SLEEP)
     fun bookmark() = command(PlaybackService.ACTION_BOOKMARK)
 
-    override fun resume() = command(PlaybackService.ACTION_RESUME)
+    override fun resume() = command(PlaybackService.ACTION_RESUME, openedBookId)
     override fun pause() = command(PlaybackService.ACTION_PAUSE)
     override fun seekForward() = command(PlaybackService.ACTION_SEEK_FORWARD)
     override fun seekBackward() = command(PlaybackService.ACTION_SEEK_BACKWARD)
