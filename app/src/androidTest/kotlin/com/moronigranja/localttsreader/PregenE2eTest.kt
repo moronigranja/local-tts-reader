@@ -20,7 +20,7 @@ import com.moronigranja.localttsreader.persistence.RoomLibraryStore
 import com.moronigranja.localttsreader.player.PlayerPhase
 import com.moronigranja.localttsreader.player.pregen.PcmPassageCache
 import com.moronigranja.localttsreader.player.pregen.PregenKey
-import com.moronigranja.localttsreader.tts.kokoro.KokoroEngine
+import com.moronigranja.localttsreader.player.pregen.PregenSpaceEstimator
 import java.io.File
 import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.CoroutineScope
@@ -54,6 +54,10 @@ class PregenE2eTest {
     private lateinit var store: RoomLibraryStore
     private lateinit var cache: PcmPassageCache
     private val scope = CoroutineScope(Dispatchers.IO)
+
+    /** The engine the worker synthesizes with (decisions #54); part of the
+     * [PregenKey] path, so the in-test keys must carry it. */
+    private val engine = PregenKey.DEFAULT_ENGINE
 
     // 4 passages x ~15 s ≈ 1 min of audio: a real synthesis run (Kokoro RTF
     // ~0.7 on this device) without stretching the test past ~4 minutes total.
@@ -158,16 +162,20 @@ class PregenE2eTest {
         assertTrue("worker filled the whole book within 5 min", complete)
 
         // 3) The tier holds every passage, PCM + anchors round-trip.
-        val key = PregenKey(book.id, 0, 0, "af_heart", 1.0) // worker defaults: settings voice, speed 1.0
+        val key = PregenKey(book.id, 0, 0, "af_heart", 1.0, engine) // worker defaults: settings voice, speed 1.0
         val audio = cache.get(key) ?: throw AssertionError("first passage not on disk")
         assertTrue(audio.pcm.isNotEmpty())
-        assertEquals(KokoroEngine.SAMPLE_RATE, audio.sampleRateHz)
+        assertEquals(
+            PregenSpaceEstimator.sampleRateHz(PregenKey.DEFAULT_ENGINE),
+            audio.sampleRateHz,
+            "disk audio at the estimator's kokoro rate (24 kHz)",
+        )
         assertTrue("sentence anchors persisted", !audio.segments.isNullOrEmpty())
         for (chapter in book.chapters) {
             for (passageIndex in chapter.passages.indices) {
                 assertTrue(
                     "c${chapter.index}p$passageIndex cached",
-                    cache.contains(PregenKey(book.id, chapter.index, passageIndex, "af_heart", 1.0)),
+                    cache.contains(PregenKey(book.id, chapter.index, passageIndex, "af_heart", 1.0, engine)),
                 )
             }
         }
@@ -197,7 +205,7 @@ class PregenE2eTest {
     private fun allPassagesCached(): Boolean =
         book.chapters.all { chapter ->
             chapter.passages.indices.all { passageIndex ->
-                cache.contains(PregenKey(book.id, chapter.index, passageIndex, "af_heart", 1.0))
+                cache.contains(PregenKey(book.id, chapter.index, passageIndex, "af_heart", 1.0, engine))
             }
         }
 }

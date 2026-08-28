@@ -46,7 +46,6 @@ import com.moronigranja.localttsreader.persistence.RoomLibraryStore
 import com.moronigranja.localttsreader.tts.SegmentAnchor
 import com.moronigranja.localttsreader.tts.SynthesisOutcome
 import com.moronigranja.localttsreader.tts.SynthesisRequest
-import com.moronigranja.localttsreader.tts.kokoro.KokoroEngine
 import dagger.hilt.android.AndroidEntryPoint
 import java.io.File
 import javax.inject.Inject
@@ -127,6 +126,11 @@ class PlaybackService : Service() {
     private var segments: List<SegmentAnchor> = emptyList()
     /** CR-2 host-test seam: the current PCM slice's start offset (book-time). */
     internal var baselineOffset = 0.0
+    /** The last rendered passage's sample rate (S5, decisions #77): the live
+     * playhead and the completion margin must use the actual audio rate, not a
+     * kokoro constant — a future 22.05/16 kHz engine would silently miscompute
+     * both. Defaults to kokoro's 24 kHz before the first passage renders. */
+    private var lastSampleRateHz = DEFAULT_SAMPLE_RATE_HZ
     private var ringHasEntries = false
     // Measurement probes (goals §Measurement): tap-to-audio dispatch baseline
     // + boundary-gap consecutive-play baseline. Debug-gated (probesActive) and
@@ -362,7 +366,9 @@ class PlaybackService : Service() {
             // CR-5/CR-7: a superseded play must not enter the foreground or
             // start its loop after a newer command won.
             if (!active(generation)) return@launchCommand
-            PlaybackActive.markStarted() // overnight pre-gen yields while a session is live (#42)
+            // G2: the session window starts here and ends only when the
+            // post-stop fill completes (markStopped in startPostStopPrefill).
+            PlaybackActive.markStarted()
             startForeground(NOTIFICATION_ID, buildNotification())
             publish()
             startLoop()
@@ -398,6 +404,8 @@ class PlaybackService : Service() {
             if (!active(generation)) return@launchCommand
             queue = buildQueue()
             active.state.value.position?.let { startPrefill(it) }
+            // G2: the session window starts here and ends only when the
+            // post-stop fill completes (markStopped in startPostStopPrefill).
             PlaybackActive.markStarted()
             startForeground(NOTIFICATION_ID, buildNotification())
             publish()
@@ -529,7 +537,10 @@ class PlaybackService : Service() {
     }
 
     private fun stopPlayer() {
-        PlaybackActive.markStopped()
+        // G2: the STOP command does NOT end the session window — the post-stop
+        // fill still synthesizes, and a yielding pregen worker must stay
+        // paused until that fill completes (markStopped fires there, after
+        // which stopSelf/onDestroy tears the service down).
         // Capture the playhead BEFORE captureAndStop resets the machine — the
         // post-stop fill resumes from where listening stopped.
         val stopPos = machine?.state?.value?.position
@@ -623,6 +634,7 @@ class PlaybackService : Service() {
             lastAudio = key to PregenAudio(audio.pcm, audio.sampleRateHz, audio.segments)
             segments = audio.segments ?: emptyList()
             baselineOffset = position.offsetSeconds
+            lastSampleRateHz = audio.sampleRateHz
             active.onAudioStarted()
             val sliced = sliceForSpeed(audio.pcm, baselineOffset, audio.sampleRateHz, current.speed)
             output.play(sliced, audio.sampleRateHz, current.speed)
@@ -650,7 +662,7 @@ class PlaybackService : Service() {
             // per-boundary cancel-relaunch: a cancelled synthesis never finishes
             // and every passage change paid a cold restart. The fill job only
             // stops on stopEveryState/rebuild.
-            val finished = awaitPlaybackOrStop(sliced.size / 2, active)
+            val finished = awaitPlaybackOrStop(sliced.size / 2, audio.sampleRateHz, active)
             android.util.Log.d("PlaybackService", "loop: await returned finished=$finished (pos=${output.positionSamples}/${sliced.size / 2})")
             if (!finished) return
 
@@ -665,10 +677,11 @@ class PlaybackService : Service() {
         }
     }
 
-    private suspend fun awaitPlaybackOrStop(totalFrames: Int, active: PlayerStateMachine): Boolean {
+    private suspend fun awaitPlaybackOrStop(totalFrames: Int, sampleRate: Int, active: PlayerStateMachine): Boolean {
         // Static tracks park the head at the end without a marker callback on
-        // some devices; poll the head position (10 ms of margin).
-        val target = totalFrames - FRAME_MARGIN
+        // some devices; poll the head position (10 ms of margin, from the
+        // rendered rate — S5 kills the kokoro 24 kHz constant).
+        val target = totalFrames - frameMargin(sampleRate)
         while (true) {
             if (stopSignal.isCompleted) return false
             if (output.positionSamples >= target) return true
@@ -701,41 +714,14 @@ class PlaybackService : Service() {
                 publish()
                 return
             }
-            if (events.isEmpty() && active.state.value.phase in SETTLED_PHASES) publish()
+            if (events.isEmpty() && active.state.value.phase in SETTLED_PHASES) publishDetails()
         }
     }
 
     private fun publish() {
         val active = machine ?: run { PlaybackStateHolder.reset(); return }
         val state = active.state.value
-        val position = state.position
-        PlaybackStateHolder.update {
-            it.copy(
-                bookId = active.bookId,
-                bookTitle = book?.title ?: "",
-                authors = book?.authors ?: emptyList(),
-                chapterIndex = position?.chapterIndex ?: 0,
-                passageIndex = position?.passageIndex ?: 0,
-                passageText = position?.let { p -> book?.passageText(p.chapterIndex, p.passageIndex) } ?: "",
-                passageDurationSeconds = segments.lastOrNull()?.endSeconds ?: 0.0,
-                chapters = book?.chapters?.map { it.title.orEmpty() } ?: emptyList(),
-                chapterPassages = position?.let { p ->
-                    book?.chapters?.firstOrNull { it.index == p.chapterIndex }?.passages?.map { it.text }
-                } ?: emptyList(),
-                segments = segments,
-                offsetSeconds = liveOffsetSeconds(),
-                readFraction = position?.let { p -> book?.let { BookProgress.fraction(it, p.chapterIndex, p.passageIndex) } } ?: 0f,
-                elapsedSeconds = position?.let { p -> book?.let { BookProgress.elapsedSeconds(it, p) } } ?: 0.0,
-                timeLeftSeconds = position?.let { p ->
-                    book?.let { BookProgress.remainingSeconds(it, p.chapterIndex, p.passageIndex, liveOffsetSeconds(), state.speed) }
-                } ?: 0.0,
-                speed = state.speed,
-                phase = state.phase,
-                sleepTimer = state.sleepTimer,
-                canUndo = ringHasEntries,
-                failure = state.failure ?: PlaybackStateHolder.state.value.failure,
-            )
-        }
+        PlaybackStateHolder.update { stateCopy(it, active) }
         session.setMetadata(
             MediaMetadataCompat.Builder()
                 .putString(MediaMetadataCompat.METADATA_KEY_TITLE, book?.title ?: "")
@@ -764,12 +750,58 @@ class PlaybackService : Service() {
         runCatching { NotificationManagerCompat.from(this).notify(NOTIFICATION_ID, buildNotification()) }
     }
 
+    /** Per-second read-along/progress publish (S3, goals G1/G3): StateFlow
+     * ONLY — no MediaSession rebuild, no notification — so the 1 s ticker
+     * stops re-`notify`ing notification 42 and resetting the session state
+     * every second. Same field computation as [publish] via [stateCopy], so
+     * the two paths cannot drift (CR-8/CR-9). */
+    internal fun publishDetails() {
+        val active = machine ?: return
+        PlaybackStateHolder.update { stateCopy(it, active) }
+    }
+
+    /** The full [PlaybackUiState] field computation — the single copy block
+     * the repo has burned on twice (CR-8/CR-9 collateral drops). Both
+     * [publish] (structural snapshot) and [publishDetails] (per-second feed)
+     * drive through here so every field stays populated on every path. */
+    private fun stateCopy(base: PlaybackUiState, active: PlayerStateMachine): PlaybackUiState {
+        val state = active.state.value
+        val position = state.position
+        return base.copy(
+            bookId = active.bookId,
+            bookTitle = book?.title ?: "",
+            authors = book?.authors ?: emptyList(),
+            chapterIndex = position?.chapterIndex ?: 0,
+            passageIndex = position?.passageIndex ?: 0,
+            passageText = position?.let { p -> book?.passageText(p.chapterIndex, p.passageIndex) } ?: "",
+            passageDurationSeconds = segments.lastOrNull()?.endSeconds ?: 0.0,
+            chapters = book?.chapters?.map { it.title.orEmpty() } ?: emptyList(),
+            chapterPassages = position?.let { p ->
+                book?.chapters?.firstOrNull { it.index == p.chapterIndex }?.passages?.map { it.text }
+            } ?: emptyList(),
+            segments = segments,
+            offsetSeconds = liveOffsetSeconds(),
+            readFraction = position?.let { p -> book?.let { BookProgress.fraction(it, p.chapterIndex, p.passageIndex) } } ?: 0f,
+            elapsedSeconds = position?.let { p -> book?.let { BookProgress.elapsedSeconds(it, p) } } ?: 0.0,
+            timeLeftSeconds = position?.let { p ->
+                book?.let { BookProgress.remainingSeconds(it, p.chapterIndex, p.passageIndex, liveOffsetSeconds(), state.speed) }
+            } ?: 0.0,
+            speed = state.speed,
+            phase = state.phase,
+            sleepTimer = state.sleepTimer,
+            canUndo = ringHasEntries,
+            failure = state.failure ?: PlaybackStateHolder.state.value.failure,
+        )
+    }
+
     /** Live playhead in book-time seconds within the passage. */
     private fun liveOffsetSeconds(): Double {
         val active = machine ?: return 0.0
         // The buffer is book-time and sped by setPlaybackRate, so the head
-        // position counts book-time frames at ANY speed (decisions #52).
-        return baselineOffset + output.positionSamples / (KokoroEngine.SAMPLE_RATE.toDouble())
+        // position counts book-time frames at ANY speed (decisions #52); the
+        // frame→time conversion uses the rendered rate, not a kokoro constant
+        // (S5 — swaps to a future engine without miscomputing the playhead).
+        return baselineOffset + output.positionSamples / lastSampleRateHz.toDouble()
     }
 
     // ------------------------------------------------------------------
@@ -931,17 +963,43 @@ class PlaybackService : Service() {
      * which used to kill the in-flight synthesis cold (the 24 s gap).
      */
     private fun startPrefill(from: PlayerPosition) {
+        startFill(from, followPlayhead = true, deadlineMs = null)
+    }
+
+    /**
+     * One parameterized fill job (QW4, decisions #78): the single owner of
+     * the pre-generation loop, replacing the duplicated
+     * startPrefill / bufferForPlayback-ensure / startPostStopPrefill shapes.
+     * [followPlayhead] = true re-arms from the live playhead every tick and
+     * runs until cancelled (booking open prefill); false pins [from] and
+     * stops once [PREFILL_LOOKAHEAD_SECONDS] are queued or [deadlineMs]
+     * elapses (post-STOP fill). [onDone] fires on the completion path (the
+     * post-stop fill clears the G2 session window and self-stops there).
+     */
+    private fun startFill(
+        from: PlayerPosition,
+        followPlayhead: Boolean,
+        deadlineMs: Long?,
+        onDone: (suspend () -> Unit)? = null,
+    ) {
         val q = queue ?: return
         pregenJob?.cancel() // superseded queue (speed/voice/book) — safe to drop
         pregenJob = scope.launch {
+            val startedAt = System.currentTimeMillis()
             while (isActive) {
+                if (deadlineMs != null && System.currentTimeMillis() - startedAt >= deadlineMs) break
                 // Re-arm from the live playhead every tick so consumed passages
                 // stay pruned and the fill tracks the moving position; [from]
                 // is the start (a book opened idle front-loads its opening).
-                val playhead = machine?.state?.value?.position ?: from
+                val playhead = if (followPlayhead) machine?.state?.value?.position ?: from else from
                 q.ensure(playhead)
+                if (!followPlayhead && q.aheadSeconds(playhead) >= PREFILL_LOOKAHEAD_SECONDS) {
+                    android.util.Log.d("PlaybackService", "postStop: fill done ahead=${q.aheadSeconds(playhead)} self-stopping")
+                    break
+                }
                 delay(PREFILL_TICK_MS)
             }
+            onDone?.invoke()
         }
     }
 
@@ -970,7 +1028,9 @@ class PlaybackService : Service() {
                 System.currentTimeMillis() - startedAt < PLAY_BUFFER_TIMEOUT_MS &&
                 !stopSignal.isCompleted
             ) {
-                q.ensure(position)
+                // The long-lived fill job (startFill/followPlayhead) already
+                // ensures toward this same target — polling here avoids an
+                // extra contended ensure per 50 ms (QW4).
                 delay(50)
             }
             android.util.Log.d(
@@ -991,17 +1051,11 @@ class PlaybackService : Service() {
      * post-stop budget elapses. onSynthesized persists every passage to disk.
      */
     private fun startPostStopPrefill(from: PlayerPosition) {
-        val q = queue ?: return
-        pregenJob?.cancel()
         android.util.Log.d("PlaybackService", "postStop: fill start from ${from.chapterIndex}/${from.passageIndex}")
-        pregenJob = scope.launch {
-            val startedAt = System.currentTimeMillis()
-            while (isActive && System.currentTimeMillis() - startedAt < POST_STOP_MAX_MS) {
-                q.ensure(from)
-                if (q.aheadSeconds(from) >= PREFILL_LOOKAHEAD_SECONDS) break
-                delay(PREFILL_TICK_MS)
-            }
-            android.util.Log.d("PlaybackService", "postStop: fill done ahead=${q.aheadSeconds(from)} self-stopping")
+        startFill(from, followPlayhead = false, deadlineMs = POST_STOP_MAX_MS) {
+            // G2: the session window ends when the fill completes — a yielding
+            // pregen worker may resume only once post-stop synthesis is done.
+            PlaybackActive.markStopped()
             stopSelf()
         }
     }
@@ -1053,6 +1107,10 @@ class PlaybackService : Service() {
     private fun active(generation: Long): Boolean = generation == commandGeneration
 
     override fun onDestroy() {
+        // G2 teardown safety net: the STOP path defers the clear to the
+        // post-stop fill's completion, so this is what ends the window when
+        // no fill runs (no machine) or the service dies mid-session. A fill
+        // that already marked stopped makes this a harmless repeat clear.
         PlaybackActive.markStopped()
         runBlocking {
             // CR-2: exactly one authoritative final write — join a graceful
@@ -1096,8 +1154,12 @@ class PlaybackService : Service() {
         /** CR-2 live-playhead persistence cadence (roadmap A2). */
         internal const val CHECKPOINT_MS = 5_000L
         private const val SEEK_STEP_SECONDS = 30.0
-        private const val FRAME_MARGIN = 240 // 10 ms at 24 kHz
+        /** Kokoro's sample rate — the default before a passage renders (S5). */
+        private const val DEFAULT_SAMPLE_RATE_HZ = 24_000
         private const val DUCK_VOLUME = 0.2f
+
+        /** 10 ms of completion margin in frames at a rendered rate (S5). */
+        private fun frameMargin(sampleRate: Int): Int = sampleRate / 100
         /** Prefill: buffer this many seconds of audio ahead while playing. */
         private const val PREFILL_LOOKAHEAD_SECONDS = 45.0
         /** Prefill: hard passage ceiling (bulwark against tiny-passage books). */

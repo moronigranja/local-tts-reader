@@ -1,5 +1,47 @@
 # Decision log
 
+## 79. S4 — AudioTrack reuse (2026-08-28)
+
+S4 lands the micro-lean the structural verdict kept open (lean-up §4): `AudioTrackPassageOutput` now retains ONE MODE_STATIC `AudioTrack` across passages instead of building a fresh track per boundary.
+
+- **Reuse identity** (`shouldReuse`): keep the retained track only when the new passage matches every property that defines a static track — sample rate, channel config (mono 16-bit), and EXACT static capacity (`bufferSizeInFrames * 2` bytes). A static track's frame count is fixed at construction and the audio server plays to it; a smaller re-write would replay stale tail audio and a larger one cannot be written, so only an exact-capacity re-feed is faithful. Any mismatch rebuilds (stop + release + `buildTrack`).
+- **Re-feed path**: `stop()` resets the static head to buffer start (AOSP-documented head reset; `flush()` is a native no-op for static tracks but keeps the Robolectric shadow head honest), then `write()` copies the new passage from offset 0 — the head counts the NEW passage from 0, so an exact-capacity re-feed is verified faithful.
+- **Speed stays OUT of the identity**: applied per play via `AudioTrack.setPlaybackRate` (decisions #52), so one retained track serves every speed of a matching passage.
+
+Evidence: `PassageOutputReuseTest` (format match reuses one retained track; sample-rate change rebuilds; size change rebuilds; position/state contract holds across reuse; speed applied per play and not part of the identity; pure `shouldReuse` decision covers rate/channel/capacity); `./tools/docker-build.sh :core-player:test :feature-player:testDebugUnitTest` → BUILD SUCCESSFUL.
+
+## 78. S3+QW4 — publish details/snapshot split; one fill job (2026-08-28)
+
+S3 (publication-surface split) and QW4 (one fill job) land together; the QW1 field-set guard test (decisions #72) is the parity guard the split leans on.
+
+- **S3**: `publish()` is now the STRUCTURAL snapshot — full state copy via `stateCopy` + MediaSession metadata/playback-state + `notify(42)` — and `publishDetails()` is the per-second feed: StateFlow-ONLY, no session rebuild, no notification. The 1 s ticker calls `publishDetails` while settled, so the notification is no longer re-posted and the session state reset every second (G1/G3; `segments`/`offsetSeconds`/`activeSentenceIndex` stay on the per-second path). Both paths drive through the single `stateCopy` field computation — the two paths cannot drift (CR-8/CR-9 family; the guard test stays green).
+- **QW4**: one parameterized fill job `startFill(from, followPlayhead, deadlineMs, onDone)` replaces the triplicated `startPrefill` / `startPostStopPrefill` / `bufferForPlayback`-ensure shapes. Prefill = followPlayhead, no deadline; post-stop = pinned `from`, `POST_STOP_MAX_MS`, `onDone` clears the G2 window and self-stops. `bufferForPlayback` keeps its bounded pre-start wait but only polls — the long-lived fill job already ensures toward the same target (no contended per-50 ms ensure).
+- CR-2 untouched: `captureAndStop`/`teardownWrite`/`finalStopJob` byte-identical; the CR-5/CR-7 publish-ordering suites stay green.
+
+Evidence: `PlaybackServicePublishGuardTest` (`publish populates the full historically-dropped field set`, `publishDetails feeds per-second state without re-notifying`), `PlaybackServiceA57Test` (`session window stays engaged through STOP until the post-stop fill completes`); `./tools/docker-build.sh :core-player:test :feature-player:testDebugUnitTest` → BUILD SUCCESSFUL.
+
+## 77. S5 — engine dimension + rate-aware playhead/estimator (2026-08-28)
+
+S5 lands the engine-swap PREP (the swap itself stays decisions #54): the two documented blockers — kokoro-rate math in the service and a no-engine cache key — are gone.
+
+- **`PregenKey` engine dimension**: keys gain `engine` (default `kokoro`); disk path v2 is `<bookId>/<engine>/<voice>/<speed>/c<ch>p<passage>` — the engine segment sits directly under the `bookId` subtree, the delete/usage unit (decisions #11), so the same voice name can never collide across engines. `parse` also accepts the pre-engine v1 layout `<bookId>/<voice>/<speed>/…` as `kokoro`, and `PcmPassageCache.pcmFile` resolves v1 files for kokoro keys ONLY — legacy entries stay genuinely addressable and are never treated as disk artifacts (CR-4 deletes only unparseable paths; an over-cap v1 tier still converges; a put on a legacy key replaces its v1 slot without double-counting).
+- **`PregenSpaceEstimator`**: the core-tts import is gone — a per-engine sample-rate map lives in core-player (unknown engines fall back to the documented 24 kHz default); estimates key per engine so one engine's estimate never sees another engine's bytes.
+- **Threading**: `PregenPlanner`/`PregenQueue`/`OfflinePregen` carry the engine dimension through every key construction.
+- **Rate-aware service**: `liveOffsetSeconds` divides by the last rendered sample rate (kokoro 24 kHz only until the first passage renders), and `frameMargin(rate) = rate / 100` (10 ms completion margin) replaces the fixed 240-frame constant.
+
+Evidence: `PregenQueueTest` (engine-dimension round-trip, legacy paths parse as kokoro, entries keyed per engine), `PcmPassageCacheTest` (legacy pre-engine paths bootstrap as kokoro, over-cap v1 convergence, v1-slot replacement), `PregenSpaceEstimatorTest` (rate map pins kokoro + safe fallback, per-engine cache keys); `./tools/docker-build.sh :core-player:test :feature-player:testDebugUnitTest` → BUILD SUCCESSFUL.
+
+## 76. G2+S1b — full-session admission window; overnight arm removed (2026-08-28)
+
+G2's admission rule (goals-doc decision) lands with S1b (overnight arm removal), reversing decisions #42's "manual runs do not yield" for the worker's runtime behavior (the #42 design note stays on record for a possible overnight return).
+
+- **Session window**: `PlaybackActive` is set from session start (the play/resume command paths) and cleared only when the POST-STOP fill completes — `markStopped` moved to the fill's `onDone` (before `stopSelf`), so STOP alone does not end the window and a yielding worker stays paused while the service synthesizes the post-stop buffer (lean-up "edge interactions" #1). `onDestroy` keeps a safety-net `markStopped` for the no-fill/die-mid-session paths (a fill that already cleared it makes the repeat a harmless no-op).
+- **Worker**: `PregenWorker` is single-mode manual and yields to an engaged session for ALL runs — `break` before the next book plus `shouldContinue = { !PlaybackActive.isActive }`; `PregenTerminal.Yielded` settles as success (CR-1 mapping unchanged).
+- **S1b**: overnight arm deleted — `PregenManager.ensureOvernightScheduled` + the `MODE_OVERNIGHT` budget/yield/notification variants are gone; `OVERNIGHT_NAME` is retained for the QW5d startup cancel (decisions #74), a no-op on fresh installs.
+- **Single boolean**: `PlaybackActive` stays one flag — exactly one playback surface today; a refcount for future concurrent surfaces remains a deferred item.
+
+Evidence: `PregenWorkerTest` (`manual pregen breaks before any synthesis while playback is engaged`, `manual pregen yields mid-book when playback engages and never resumes`), `PlaybackServiceA57Test` (`session window stays engaged through STOP until the post-stop fill completes` — `FakeEngine` made open so `GatedSessionEngine` can gate synthesis mid-session); `./tools/docker-build.sh :core-player:test :feature-player:testDebugUnitTest` → BUILD SUCCESSFUL.
+
 ## 75. S1/O3 — shared PregenPlanner (2026-08-28)
 
 S1/O3 lands a single spine-order passage walk in core-player: `PregenPlanner`

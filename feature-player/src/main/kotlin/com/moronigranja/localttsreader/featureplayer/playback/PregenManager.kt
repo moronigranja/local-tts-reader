@@ -2,17 +2,13 @@ package com.moronigranja.localttsreader.featureplayer.playback
 
 import android.content.Context
 import androidx.lifecycle.LiveData
-import androidx.work.Constraints
 import androidx.work.Data
-import androidx.work.ExistingPeriodicWorkPolicy
 import androidx.work.ExistingWorkPolicy
 import androidx.work.OneTimeWorkRequestBuilder
-import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkInfo
 import androidx.work.WorkManager
 import androidx.work.workDataOf
 import dagger.hilt.android.qualifiers.ApplicationContext
-import java.util.concurrent.TimeUnit
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -24,9 +20,10 @@ import javax.inject.Singleton
  *   [budgetMinutes] bounds the run to that much listening time (decisions #49
  *   overlay; null = whole book, the pre-overlay default). KEEP: a tap while
  *   one is already queued does nothing.
- * - [ensureOvernightScheduled] installs the 24h charging-gated periodic job
- *   (called once at app start; KEEP keeps the existing schedule).
  * - [workInfo] observes a book's manual job for the library-row progress.
+ *
+ * The overnight arm is gone (S1b): only [cancelOvernight] remains, to
+ * neutralize a periodic job left behind by a pre-removal install.
  */
 @Singleton
 class PregenManager @Inject constructor(
@@ -62,28 +59,11 @@ class PregenManager @Inject constructor(
         workManager.cancelUniqueWork(PregenWorker.workName(bookId))
     }
 
-    /** Idempotent app-start hook: the overnight job is unique and KEEP-ing. */
-    fun ensureOvernightScheduled() {
-        workManager.enqueueUniquePeriodicWork(
-            PregenWorker.OVERNIGHT_NAME,
-            ExistingPeriodicWorkPolicy.KEEP,
-            PeriodicWorkRequestBuilder<PregenWorker>(24, TimeUnit.HOURS)
-                .setConstraints(
-                    Constraints.Builder()
-                        .setRequiresCharging(true)
-                        .setRequiresBatteryNotLow(true)
-                        .build(),
-                )
-                .setInputData(workDataOf(PregenWorker.KEY_MODE to PregenWorker.MODE_OVERNIGHT))
-                .build(),
-        )
-    }
-
     /**
-     * App-start neutralization (QW5d): the startup scheduling hook is gone,
-     * but a previously-enqueued overnight PeriodicWorkRequest survives in
-     * WorkManager's DB and can still fire once after an upgrade — cancel it
-     * deterministically at startup (LocalTtsReaderApp.onCreate). A fresh
+     * App-start neutralization (QW5d): the overnight scheduling arm is gone
+     * (S1b), but a previously-enqueued overnight PeriodicWorkRequest survives
+     * in WorkManager's DB and can still fire once after an upgrade — cancel
+     * it deterministically at startup (LocalTtsReaderApp.onCreate). A fresh
      * install with nothing enqueued is a harmless no-op.
      */
     fun cancelOvernight() {

@@ -5,9 +5,14 @@ import java.io.File
 /**
  * Post-v1 disk tier for pre-generated passages (decisions #35): raw PCM with
  * a `.meta` sidecar (sample rate + sentence anchors) under
- * `<root>/<bookId>/<voice>/<speed>/c<ch>p<passage>.pcm` — the layout is the
- * [PregenKey] path, so book removal deletes a `bookId` subtree (content-hash
- * ids, decisions #11) and engine+voice+speed are part of the key (#31/#34).
+ * `<root>/<bookId>/<engine>/<voice>/<speed>/c<ch>p<passage>.pcm` — the
+ * layout is the [PregenKey] path, so book removal deletes a `bookId` subtree
+ * (content-hash ids, decisions #11) and engine+voice+speed are part of the
+ * key (#31/#34). Pre-engine entries written under the v1 layout
+ * `<root>/<bookId>/<voice>/<speed>/…` still bootstrap: [PregenKey.parse]
+ * reads them as engine `kokoro` (decisions #54) and [pcmFile] resolves
+ * them, so an upgrade never wipes or orphans existing PCM and an
+ * over-cap v1 tier still converges (CR-4 deletes only what cannot parse).
  *
  * LRU eviction by a byte cap tracked in-process. Within one process, access
  * order is exact ([get]/[put] refresh it); across a process restart, the
@@ -161,7 +166,21 @@ class PcmPassageCache(
         val rest = slug.substringAfter('/')
         val folderPart = rest.substringBeforeLast('/')
         val namePart = rest.substringAfterLast('/')
-        return File(File(File(root, bookPart), folderPart), "$namePart.pcm")
+        val v2 = File(File(File(root, bookPart), folderPart), "$namePart.pcm")
+        // Engine-dimension migration (decisions #54): the pre-engine tier
+        // wrote <bookId>/<voice>/<speed>/… without the engine segment. Only
+        // the default engine predates that dimension, so ONLY kokoro keys
+        // may resolve to a v1 file — a non-default engine must never see a
+        // voice-only path (that is the collision #54 exists to prevent). The
+        // v2 file is authoritative once written; the v1 fallback keeps legacy
+        // entries genuinely addressable (get/contains/sizeOf/delete/evict all
+        // resolve through here), so an over-cap or cap-full v1 tier still
+        // converges and evicts REAL bytes instead of phantom keys (CR-4).
+        if (key.engine == PregenKey.DEFAULT_ENGINE && !v2.isFile) {
+            val legacy = File(File(File(root, bookPart), "${key.voice}/${PregenKey.formatSpeed(key.speed)}"), "$namePart.pcm")
+            if (legacy.isFile) return legacy
+        }
+        return v2
     }
 
     private fun meta(audio: PregenAudio): String = buildString {

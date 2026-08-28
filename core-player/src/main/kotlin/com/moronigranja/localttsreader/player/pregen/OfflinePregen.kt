@@ -97,6 +97,8 @@ class OfflinePregen(
      * budget with virtual time.
      */
     private val clock: () -> Long = System::currentTimeMillis,
+    /** Engine whose voice/speed the run synthesizes — part of the [PregenKey] cache path. */
+    private val engine: String = PregenKey.DEFAULT_ENGINE,
 ) {
 
     init {
@@ -135,7 +137,7 @@ class OfflinePregen(
             return final
         }
 
-        PregenPlanner(book, voice, speed).walk(
+        PregenPlanner(book, voice, speed, engine).walk(
             onChapter = { chapterIndex ->
                 // Chapter-boundary gates: maxChapters and the caller's yield.
                 if (budget.maxChapters?.let { progress.chaptersDone >= it } == true) {

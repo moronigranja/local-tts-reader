@@ -14,7 +14,7 @@ feature-ocr/     LIVE — S1: TessTwoOcrEngine (tess-two 9.1.0) + TessDataStager
 feature-settings/ LIVE — V1: settings screen, packs download UI, voice picker + favorites, threshold, OCR langs, theme; AndroidHttpTransport; Offline-audio section (per-book usage + delete, #44)
 feature-share/    LIVE — S2/S3: ACTION_SEND gateway (text+image), typed resolver, found/not-found UX, OpenTarget contract + Listen-here entry (#37/#38)
 feature-library/  SAF import + library list UI (Compose, Hilt) — C5/C6; search pending; library-row pre-gen action + usage/estimate/delete over PregenStorage (#42/#44)
-feature-player/   LIVE — playback service, MediaSession, pregen wiring (queue + disk tier, #35/#42); reader surface + S3 gestures (#38); PregenWorker/PregenManager overnight + manual offline pre-gen (#42); PregenStorage storage-transparency façade (#44)
+feature-player/   LIVE — playback service, MediaSession, pregen wiring (queue + disk tier, #35/#42); reader surface + S3 gestures (#38); PregenWorker/PregenManager single-mode manual offline pre-gen — overnight arm removed (S1b, #76; QW5d startup cancel kept); PregenStorage storage-transparency façade (#44)
 app/              Hilt composition root: Library/Settings/Reader routes, S3 open-target intent handling, AppShareModule (Listen-here handler) — F1/C5/C6/#36/#38
 ```
 

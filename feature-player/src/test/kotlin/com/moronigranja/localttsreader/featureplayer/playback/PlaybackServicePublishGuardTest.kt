@@ -1,6 +1,7 @@
 package com.moronigranja.localttsreader.featureplayer.playback
 
 import android.app.Notification
+import android.app.NotificationManager
 import android.content.Context
 import android.content.ContextWrapper
 import android.support.v4.media.session.MediaSessionCompat
@@ -310,6 +311,55 @@ class PlaybackServicePublishGuardTest {
         assertEquals(book.id, service.book?.id)
         assertEquals(book.id, PlaybackStateHolder.state.value.bookId)
         service.stopEverything() // cancel the in-flight buffer/prefill jobs
+        PlaybackStateHolder.reset()
+    }
+
+    // ------------------------------------------------------------------
+    // S3 — publishDetails (per-second path) vs publish (structural snapshot)
+    // ------------------------------------------------------------------
+
+    /** The per-second ticker path must feed the read-along/progress state
+     * (G1/G3: segments + live playhead, from which the reader derives
+     * activeSentenceIndex) WITHOUT the MediaSession rebuild + notification
+     * re-`notify` that the structural snapshot pays for — and it must keep
+     * the full field parity (CR-8/CR-9 guard). */
+    @Test
+    fun `publishDetails feeds per-second state without re-notifying`() {
+        val store = InMemoryPlayerStore()
+        val machine = playingMachine(store)
+        val service = createdService(store, machine)
+        PlaybackStateHolder.reset()
+        setSegments(service, segmentAnchors)
+        service.baselineOffset = 2.6 // inside anchor 1 -> read-along index 1
+
+        service.publishDetails()
+
+        val state = PlaybackStateHolder.state.value
+        assertEquals("bookId", book.id, state.bookId)
+        assertEquals(
+            "details path keeps full field parity (CR-8/CR-9 guard)",
+            listOf("One"),
+            state.chapters,
+        )
+        assertEquals("G3 read-along feed: segments advance per second", segmentAnchors, state.segments)
+        assertEquals("G1/G3 live playhead per second", 2.6, state.offsetSeconds, 1e-9)
+        assertEquals("read-along index tracks the moving playhead", 1, state.activeSentenceIndex)
+        assertEquals(PlayerPhase.LOADING, state.phase)
+        val notifications = Shadows.shadowOf(
+            context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager,
+        ).allNotifications
+        assertTrue("per-second path must not re-notify (S3)", notifications.isEmpty())
+
+        // The structural path still publishes MediaSession + notification
+        // (one notify per structural change — the S3 contract).
+        setSegments(service, segmentAnchors)
+        service.baselineOffset = 3.0
+        service.pausePlayer(PlaybackService.PauseReason.USER) // command that publishes
+        Thread.sleep(300)
+        val notified = Shadows.shadowOf(
+            context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager,
+        ).allNotifications
+        assertEquals("structural publish notifies once", 1, notified.size)
         PlaybackStateHolder.reset()
     }
 }

@@ -24,19 +24,47 @@ interface PassageOutput {
     fun setVolume(multiplier: Float)
 }
 
-/** Real output: a fresh [AudioTrack] per passage, MODE_STATIC. */
+/** Real output: one MODE_STATIC [AudioTrack] retained across passages
+ * (S4) — the track is re-fed in place when the new passage matches its
+ * format AND static capacity, and rebuilt fresh on any mismatch. */
 class AudioTrackPassageOutput : PassageOutput {
 
     private var track: AudioTrack? = null
 
     override fun play(pcm: ByteArray, sampleRate: Int, speed: Double) {
-        stop()
+        val retained = track
+        if (retained == null || !shouldReuse(retained, sampleRate, pcm.size)) {
+            stop()
+            track = buildTrack(pcm.size, sampleRate)
+        } else {
+            // MODE_STATIC refeed: stop() resets the static head to the buffer
+            // start (AOSP stop() pushes position 0 for static tracks — the
+            // documented head reset). flush() is a native no-op for static
+            // tracks on device but keeps the Robolectric shadow head honest.
+            // write() then copies the new passage over the buffer from
+            // offset 0, so the head counts the NEW passage from 0.
+            retained.stop()
+            retained.flush()
+        }
+        val active = track!!
+        // MODE_STATIC: write the whole buffer, then play. Completion is read
+        // from [positionSamples] reaching the frame count (polled by the
+        // service); static tracks do not loop and hold the head at the end.
+        active.write(pcm, 0, pcm.size, AudioTrack.WRITE_BLOCKING)
+        // Playback rate = sample rate × speed: the buffer's frames stay
+        // book-time; the hardware/SoC converter consumes them at `speed`.
+        runCatching { active.setPlaybackRate((sampleRate * speed.coerceAtLeast(0.1)).toInt().coerceIn(4_000, 192_000)) }
+        active.play()
+    }
+
+    /** MODE_STATIC track sized to exactly one passage's PCM. */
+    private fun buildTrack(pcmBytes: Int, sampleRate: Int): AudioTrack {
         val format = AudioFormat.Builder()
             .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
             .setSampleRate(sampleRate)
             .setChannelMask(AudioFormat.CHANNEL_OUT_MONO)
             .build()
-        val built = AudioTrack.Builder()
+        return AudioTrack.Builder()
             .setAudioAttributes(
                 AudioAttributes.Builder()
                     .setUsage(AudioAttributes.USAGE_MEDIA)
@@ -45,17 +73,8 @@ class AudioTrackPassageOutput : PassageOutput {
             )
             .setAudioFormat(format)
             .setTransferMode(AudioTrack.MODE_STATIC)
-            .setBufferSizeInBytes(maxOf(pcm.size, 1))
+            .setBufferSizeInBytes(maxOf(pcmBytes, 1))
             .build()
-        // MODE_STATIC: write the whole buffer, then play. Completion is read
-        // from [positionSamples] reaching the frame count (polled by the
-        // service); static tracks do not loop and hold the head at the end.
-        built.write(pcm, 0, pcm.size, AudioTrack.WRITE_BLOCKING)
-        track = built
-        // Playback rate = sample rate × speed: the buffer's frames stay
-        // book-time; the hardware/SoC converter consumes them at `speed`.
-        runCatching { built.setPlaybackRate((sampleRate * speed.coerceAtLeast(0.1)).toInt().coerceIn(4_000, 192_000)) }
-        built.play()
     }
 
     override fun stop() {
@@ -75,3 +94,19 @@ class AudioTrackPassageOutput : PassageOutput {
         track?.setVolume(multiplier.coerceIn(0f, 1f))
     }
 }
+
+/**
+ * Reuse decision for a retained [AudioTrack] (S4): keep the track only when
+ * the new passage is identical in every property that defines a MODE_STATIC
+ * track — sample rate, channel config, and the static buffer capacity. A
+ * static track's frame count is fixed at construction and the audio server
+ * plays to it, so a smaller re-write would replay stale tail audio and a
+ * larger one cannot be written at all; only an exact-capacity re-feed is
+ * faithful. [speed] is deliberately NOT part of the identity: the rate is
+ * applied per play via [AudioTrack.setPlaybackRate], so one track serves
+ * every speed of a matching passage (decisions #52).
+ */
+internal fun shouldReuse(current: AudioTrack, sampleRate: Int, pcmBytes: Int): Boolean =
+    current.sampleRate == sampleRate &&
+        current.channelConfiguration == AudioFormat.CHANNEL_OUT_MONO &&
+        pcmBytes == current.bufferSizeInFrames * 2 // mono 16-bit: 2 bytes/frame

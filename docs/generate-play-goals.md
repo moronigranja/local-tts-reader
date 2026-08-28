@@ -156,6 +156,15 @@ device acceptance — kill process → notification Play resumes (L3) — is pen
 The instrumentation probes landed 2026-08-28 (decisions #73 — `AyvuTap`/
 `AyvuGap` debug-gated logcat in PlaybackService); device-number collection
 (L1/L2/L3/GAP1) is PENDING — no device this round.
+The final lean-up batch landed 2026-08-28 (decisions #76-#79): the G2 yield
+reversal now spans the full session window — manual/offline pregen suspends from
+session start through the post-stop fill's completion (`PlaybackActive`, #76) —
+plus S5 engine-dimension + rate-aware prep (#77), the S3 publish
+details/snapshot split and QW4 one-fill-job merge (#78), and the S4 AudioTrack
+reuse micro-lean (#79). Device-leg items remain PENDING on hardware: QW2
+post-death notification resume (L3 acceptance), L1/L2/L3/GAP1 number collection,
+QW4's post-stop self-stop acceptance, and a screen-off sanity pass — a device is
+now available.
 
 Goal-driven deltas to the proposal and the resulting execution order:
 `docs/generate-play-lean-up.md` → **Goals impact (2026-08-28)**.

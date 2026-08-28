@@ -77,6 +77,8 @@ class PregenWorkerTest {
         var outcome: (String) -> SynthesisOutcome = {
             SynthesisOutcome.Audio(ByteArray(1_000), 24_000, 1, listOf(SegmentAnchor(0.0, 1.0)))
         },
+        /** Per-text hook (e.g. to engage [PlaybackActive] mid-run). */
+        var onText: (String) -> Unit = {},
     ) : TTSEngine {
         override val spec = EngineSpec("fake", "Fake", EngineTier.PRIMARY, setOf("en"))
         override val packs: List<TtsPack> = emptyList()
@@ -84,6 +86,7 @@ class PregenWorkerTest {
 
         suspend fun synthesizeText(text: String): SynthesisOutcome {
             synthesized += text
+            onText(text)
             return outcome(text)
         }
 
@@ -148,6 +151,7 @@ class PregenWorkerTest {
     @After
     fun tearDown() {
         database.close()
+        PlaybackActive.markStopped() // the G2 tests drive the global session flag
     }
 
     @Test
@@ -181,7 +185,6 @@ class PregenWorkerTest {
         var now = 0L
         val result = w.runBooks(
             books = listOf(toCached(book)),
-            mode = PregenWorker.MODE_MANUAL,
             budget = PregenBudget(maxTimeMs = 1_000),
             voice = "af_heart",
             speed = 1.0,
@@ -202,7 +205,6 @@ class PregenWorkerTest {
         var now = 999_000L
         val result = w.runBooks(
             books = listOf(toCached(book)),
-            mode = PregenWorker.MODE_MANUAL,
             budget = PregenBudget(),
             voice = "af_heart",
             speed = 1.0,
@@ -211,6 +213,65 @@ class PregenWorkerTest {
         )
         assertTrue(result is ListenableWorker.Result.Success)
         assertEquals("unbounded runs until the book is done", 5, engine.synthesized.size)
+    }
+
+    // ------------------------------------------------------------------
+    // G2 — manual runs yield to an engaged playback session
+    // ------------------------------------------------------------------
+
+    /** G2: the admission window covers manual runs too — with [PlaybackActive]
+     * already engaged (playback live, or the post-stop fill synthesizing), the
+     * run must not synthesize a single passage. */
+    @Test
+    fun `manual pregen breaks before any synthesis while playback is engaged`() = runBlocking {
+        val engine = FakeEngine()
+        val w = worker(manualInput(book.id), engine)
+        PlaybackActive.markStarted()
+        try {
+            val result = w.runBooks(
+                books = listOf(toCached(book)),
+                budget = PregenBudget(), // unbounded — only the session can stop it
+                voice = "af_heart",
+                speed = 1.0,
+                synthesize = engine::synthesizeText,
+            )
+            assertTrue(result is ListenableWorker.Result.Success)
+            assertTrue(
+                "an engaged session must pause the run before any synthesis",
+                engine.synthesized.isEmpty(),
+            )
+        } finally {
+            PlaybackActive.markStopped()
+        }
+    }
+
+    /** G2: playback engaging MID-run yields at the next passage boundary — the
+     * run settles as success (Yielded is a safely bounded terminal, CR-1)
+     * without ever resuming, so manual pregen cannot compete with an active
+     * session for the shared engine. */
+    @Test
+    fun `manual pregen yields mid-book when playback engages and never resumes`() = runBlocking {
+        val engine = FakeEngine(onText = { text ->
+            if (text == "p0") PlaybackActive.markStarted() // playback engages during the first passage
+        })
+        val w = worker(manualInput(book.id), engine)
+        try {
+            val result = w.runBooks(
+                books = listOf(toCached(book)),
+                budget = PregenBudget(), // unbounded — only the session can stop it
+                voice = "af_heart",
+                speed = 1.0,
+                synthesize = engine::synthesizeText,
+            )
+            assertTrue(result is ListenableWorker.Result.Success)
+            assertEquals(
+                "the run yields at the boundary after playback engages",
+                listOf("p0"),
+                engine.synthesized,
+            )
+        } finally {
+            PlaybackActive.markStopped()
+        }
     }
 
     @Test

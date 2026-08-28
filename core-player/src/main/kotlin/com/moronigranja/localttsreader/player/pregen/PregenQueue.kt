@@ -45,8 +45,10 @@ class PregenQueue(
     /** Handed every freshly synthesized [PregenAudio] so the owner can persist
      * it to the disk tier. The default no-ops for host tests. */
     private val onSynthesized: suspend (key: PregenKey, audio: PregenAudio) -> Unit = { _, _ -> },
+    /** Engine whose voice/speed the queue synthesizes — part of the [PregenKey] cache path. */
+    private val engine: String = PregenKey.DEFAULT_ENGINE,
 ) {
-    private val planner = PregenPlanner(book, voice, speed)
+    private val planner = PregenPlanner(book, voice, speed, engine)
     private val lock = Object()
     private val entries = LinkedHashMap<PregenKey, PregenAudio>()
     private val inFlight = mutableSetOf<PregenKey>()
@@ -115,7 +117,7 @@ class PregenQueue(
 
     /** The queued audio for the passage, consumed; null when not pre-generated. */
     fun take(chapterIndex: Int, passageIndex: Int): PregenAudio? =
-        synchronized(lock) { entries.remove(PregenKey(book.id, chapterIndex, passageIndex, voice, speed)) }
+        synchronized(lock) { entries.remove(PregenKey(book.id, chapterIndex, passageIndex, voice, speed, engine)) }
 
     val size: Int get() = synchronized(lock) { entries.size }
 

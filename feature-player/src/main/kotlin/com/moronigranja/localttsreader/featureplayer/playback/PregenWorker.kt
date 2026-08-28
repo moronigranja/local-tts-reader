@@ -28,12 +28,12 @@ import dagger.assisted.AssistedInject
  * [OfflinePregen] core over the library store's cached parses into the
  * shared [PregenCache], so the work is pure scheduling over a tested cache.
  *
- * Modes (input `KEY_MODE`):
- * - `MODE_MANUAL` — one book (`KEY_BOOK_IDS`), unbounded time: the run ends
- *   when the book is fully cached, the tier saturates, or the user cancels.
- * - `MODE_OVERNIGHT` — every book, charging-gated periodic job; yields to an
- *   active playback session ([PlaybackActive]) and keeps a 3h wall budget
- *   per night; re-runs resume from whatever the cache already holds.
+ * Single-mode manual worker: one book (`KEY_BOOK_IDS`), unbounded time — the
+ * run ends when the book is fully cached, the tier saturates, or the user
+ * cancels. The run YIELDS to an engaged playback session ([PlaybackActive],
+ * G2): the signal stays true from session start through the service's
+ * post-stop fill completion, so manual pre-generation never competes with
+ * playback (or the fill) for the shared engine.
  *
  * Runs as a foreground worker (dataSync) — synthesis is minutes-to-hours, so
  * the process must not be reaped; the notification carries progress and the
@@ -43,7 +43,7 @@ import dagger.assisted.AssistedInject
  *
  * CR-1: only safely bounded terminals ([PregenTerminal.Completed],
  * [PregenTerminal.BudgetExhausted], [PregenTerminal.CacheSaturated] and the
- * overnight playback yield) settle as success. Engine failure terminals
+ * playback yield) settle as success. Engine failure terminals
  * ([PregenTerminal.Unavailable], [PregenTerminal.FailureCap]) fail the job
  * with a typed error and the run's progress counts.
  */
@@ -62,14 +62,10 @@ class PregenWorker @AssistedInject constructor(
         val engine = runtime.engine()
             ?: return Result.failure(workDataOf(KEY_ERROR to (runtime.failureReason ?: "engine unavailable")))
 
-        val mode = inputData.getString(KEY_MODE) ?: MODE_MANUAL
-        // Manual runs take the library row's chosen listening-time budget
+        // The run takes the library row's chosen listening-time budget
         // (KEY_BUDGET_TIME_MS); absent → whole book (the pre-budget default).
-        val budget = when (mode) {
-            MODE_OVERNIGHT -> OVERNIGHT_BUDGET
-            else -> inputData.getLong(KEY_BUDGET_TIME_MS, -1L).takeIf { it > 0 }
-                ?.let { PregenBudget(maxTimeMs = it) } ?: MANUAL_BUDGET
-        }
+        val budget = inputData.getLong(KEY_BUDGET_TIME_MS, -1L).takeIf { it > 0 }
+            ?.let { PregenBudget(maxTimeMs = it) } ?: MANUAL_BUDGET
         val voice = inputData.getString(KEY_VOICE) ?: settings.state.value.voice
         val speed = inputData.getDouble(KEY_SPEED, 1.0)
 
@@ -102,7 +98,6 @@ class PregenWorker @AssistedInject constructor(
                             chapter = progress.chaptersDone,
                             totalChapters = progress.totalChapters,
                             percent = percent,
-                            overnight = mode == MODE_OVERNIGHT,
                         ),
                         // Explicit type: implicit MANIFEST resolution is rejected
                         // on some API-34 devices even with the manifest set (#42).
@@ -114,7 +109,6 @@ class PregenWorker @AssistedInject constructor(
 
         return runBooks(
             books = books,
-            mode = mode,
             budget = budget,
             voice = voice,
             speed = speed,
@@ -130,7 +124,6 @@ class PregenWorker @AssistedInject constructor(
      */
     internal suspend fun runBooks(
         books: List<CachedBook>,
-        mode: String,
         budget: PregenBudget,
         voice: String,
         speed: Double,
@@ -141,7 +134,9 @@ class PregenWorker @AssistedInject constructor(
         val startedAt = clock()
         var bookIndex = 0
         for (book in books) {
-            if (mode == MODE_OVERNIGHT && PlaybackActive.isActive) break
+            // G2: engaged playback — session start through post-stop fill
+            // completion — pauses the run before it starts the next book.
+            if (PlaybackActive.isActive) break
             val elapsed = clock() - startedAt
             // CR-1: an absent deadline (whole-book manual) is NOT an expired
             // one. remaining == null → unbounded; break only when non-null and
@@ -151,14 +146,15 @@ class PregenWorker @AssistedInject constructor(
             val runner = OfflinePregen(
                 cache = pregenCache.cache,
                 synthesize = synthesize,
-                shouldContinue = { mode != MODE_OVERNIGHT || !PlaybackActive.isActive },
+                // G2: yield to an engaged playback session (manual runs too).
+                shouldContinue = { !PlaybackActive.isActive },
             )
             bookIndex++
             if (bookIndex == 1) {
                 setForeground(
                     ForegroundInfo(
                         NOTIFICATION_ID,
-                        pregenNotification(book.title, 0, 0, 0, overnight = mode == MODE_OVERNIGHT),
+                        pregenNotification(book.title, 0, 0, 0),
                         ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC,
                     ),
                 )
@@ -216,7 +212,6 @@ class PregenWorker @AssistedInject constructor(
         chapter: Int,
         totalChapters: Int,
         percent: Int,
-        overnight: Boolean,
     ): Notification {
         ensureChannel()
         val body = when {
@@ -226,7 +221,7 @@ class PregenWorker @AssistedInject constructor(
         }
         return NotificationCompat.Builder(applicationContext, CHANNEL_ID)
             .setSmallIcon(android.R.drawable.stat_sys_download)
-            .setContentTitle(if (overnight) "Ayvu — overnight pre-generation" else "Ayvu — pre-generating")
+            .setContentTitle("Ayvu — pre-generating")
             .setContentText(body)
             .setOnlyAlertOnce(true)
             .setOngoing(true)
@@ -243,7 +238,8 @@ class PregenWorker @AssistedInject constructor(
 
     companion object {
         const val MODE_MANUAL = "manual"
-        const val MODE_OVERNIGHT = "overnight"
+        // KEY_MODE is kept as an input key for callers (PregenManager, the
+        // E2E suite) — the worker itself is single-mode and ignores it.
         const val KEY_MODE = "mode"
         const val KEY_BOOK_IDS = "bookIds"
         const val KEY_VOICE = "voice"
@@ -266,9 +262,6 @@ class PregenWorker @AssistedInject constructor(
          * the tier saturates at its byte cap or the user cancels.
          */
         val MANUAL_BUDGET = PregenBudget()
-        /** Overnight: the charger window is finite; the cache resumes next night. */
-        val OVERNIGHT_BUDGET = PregenBudget(maxTimeMs = 3L * 60 * 60 * 1_000)
-
         fun workName(bookId: String) = "offline-pregen-$bookId"
     }
 }

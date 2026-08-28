@@ -26,7 +26,7 @@ class PregenPlannerTest {
     )
     private val planner = PregenPlanner(book, "af_heart", 1.0)
 
-    private fun key(c: Int, p: Int) = PregenKey(book.id, c, p, "af_heart", 1.0)
+    private fun key(c: Int, p: Int) = PregenKey(book.id, c, p, "af_heart", 1.0, engine = PregenKey.DEFAULT_ENGINE)
 
     @Test
     fun `nextAfter walks spine order across chapter boundaries`() = runTest {
@@ -110,6 +110,16 @@ class PregenPlannerTest {
     @Test
     fun `key maps to the executor's PregenKey`() = runTest {
         assertEquals(key(0, 2), planner.key(0, 2))
-        assertEquals("b1/af_heart/1/c0p2", planner.key(0, 2).toString())
+        assertEquals("b1/kokoro/af_heart/1/c0p2", planner.key(0, 2).toString())
+    }
+
+    @Test
+    fun `key carries the planner's engine into the path`() = runTest {
+        val cosy = PregenPlanner(book, "af_heart", 1.0, engine = "cosyvoice3")
+        assertEquals(
+            PregenKey(book.id, 0, 1, "af_heart", 1.0, engine = "cosyvoice3"),
+            cosy.key(0, 1),
+        )
+        assertEquals("b1/cosyvoice3/af_heart/1/c0p1", cosy.key(0, 1).toString())
     }
 }

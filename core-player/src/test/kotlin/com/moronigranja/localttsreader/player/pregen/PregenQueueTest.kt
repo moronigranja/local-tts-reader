@@ -135,12 +135,29 @@ class PregenQueueTest {
     }
 
     @Test
-    fun `PregenKey round-trips through its path form`() {
-        val key = PregenKey("abc123", 2, 5, "af_heart", 1.5)
+    fun `PregenKey round-trips through its path form - engine dimension`() {
+        // V2 layout: <bookId>/<engine>/<voice>/<speed>/c<ch>p<passage>
+        val key = PregenKey("abc123", 2, 5, "af_heart", 1.5, engine = "cosyvoice3")
+        assertEquals("abc123/cosyvoice3/af_heart/1_5/c2p5", key.toString())
         assertEquals(key, PregenKey.parse(key.toString()))
-        val intSpeed = PregenKey("abc123", 0, 0, "pf_dora", 1.0)
+        val intSpeed = PregenKey("abc123", 0, 0, "pf_dora", 1.0, engine = PregenKey.DEFAULT_ENGINE)
+        assertEquals("abc123/kokoro/pf_dora/1/c0p0", intSpeed.toString())
         assertEquals(intSpeed, PregenKey.parse(intSpeed.toString()))
         assertTrue(PregenKey.parse("") == null)
+    }
+
+    @Test
+    fun `PregenKey parses legacy paths without an engine segment as kokoro`() {
+        // V1 layout (pre-engine): <bookId>/<voice>/<speed>/c<ch>p<passage>
+        val expected = PregenKey("abc123", 0, 0, "pf_dora", 1.0, engine = PregenKey.DEFAULT_ENGINE)
+        assertEquals(expected, PregenKey.parse("abc123/pf_dora/1/c0p0"))
+        val fractionalSpeed = PregenKey("abc123", 2, 5, "af_heart", 1.5, engine = PregenKey.DEFAULT_ENGINE)
+        assertEquals(fractionalSpeed, PregenKey.parse("abc123/af_heart/1_5/c2p5"))
+        // ... and the v2 form re-serializes with the explicit engine segment.
+        assertEquals(
+            "abc123/kokoro/pf_dora/1/c0p0",
+            PregenKey.parse("abc123/pf_dora/1/c0p0")?.toString(),
+        )
     }
 
     @Test
@@ -210,5 +227,15 @@ class PregenQueueTest {
         )
         q.ensure(PlayerPosition("b1", 0, 0))
         assertEquals(listOf("0/1", "0/2"), seen)
+    }
+
+    @Test
+    fun `entries are keyed per engine - take matches the queue's engine`() = runTest {
+        val q = PregenQueue(book, "af_heart", 1.0, ::fake, 2, engine = "cosyvoice3")
+        q.ensure(PlayerPosition("b1", 0, 0))
+        val one = q.take(0, 1)
+        assertEquals(2_000, one?.pcm?.size, "take finds the engine-keyed entry")
+        val defaultEngine = PregenQueue(book, "af_heart", 1.0, ::fake, 2)
+        assertNull(defaultEngine.take(0, 1), "a kokoro queue cannot take cosyvoice3 audio")
     }
 }

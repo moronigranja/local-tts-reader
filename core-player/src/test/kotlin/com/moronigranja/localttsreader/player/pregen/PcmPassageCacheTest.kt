@@ -23,7 +23,7 @@ class PcmPassageCacheTest {
     )
 
     private fun key(chapter: Int, passage: Int) =
-        PregenKey("book-$chapter-$passage", chapter, passage, "af_heart", 1.0)
+        PregenKey("book-$chapter-$passage", chapter, passage, "af_heart", 1.0, engine = PregenKey.DEFAULT_ENGINE)
 
     @Test
     fun `put and get round-trip pcm and anchors`() {
@@ -69,10 +69,10 @@ class PcmPassageCacheTest {
         assertNull(cache.get(key(0, 0)))
         assertTrue(cache.get(key(0, 1)) != null)
 
-        cache.put(PregenKey("b2", 0, 0, "af_heart", 1.0), audio(3))
+        cache.put(PregenKey("b2", 0, 0, "af_heart", 1.0, engine = PregenKey.DEFAULT_ENGINE), audio(3))
         cache.deleteBook("book-0-1")
         assertNull(cache.get(key(0, 1)))
-        assertTrue(cache.get(PregenKey("b2", 0, 0, "af_heart", 1.0)) != null, "other book intact")
+        assertTrue(cache.get(PregenKey("b2", 0, 0, "af_heart", 1.0, engine = PregenKey.DEFAULT_ENGINE)) != null, "other book intact")
     }
 
     @Test
@@ -93,16 +93,16 @@ class PcmPassageCacheTest {
     @Test
     fun `usageByBook sums every file per book subtree`() {
         val cache = PcmPassageCache(tempDir, maxBytes = Long.MAX_VALUE)
-        cache.put(PregenKey("b1", 0, 0, "af_heart", 1.0), audio(0)) // 2000 + meta
-        cache.put(PregenKey("b1", 0, 1, "af_heart", 1.0), audio(5)) // 2005 + meta
-        cache.put(PregenKey("b2", 0, 0, "af_heart", 1.0), audio(9)) // 2009 + meta
+        cache.put(PregenKey("b1", 0, 0, "af_heart", 1.0, engine = PregenKey.DEFAULT_ENGINE), audio(0)) // 2000 + meta
+        cache.put(PregenKey("b1", 0, 1, "af_heart", 1.0, engine = PregenKey.DEFAULT_ENGINE), audio(5)) // 2005 + meta
+        cache.put(PregenKey("b2", 0, 0, "af_heart", 1.0, engine = PregenKey.DEFAULT_ENGINE), audio(9)) // 2009 + meta
 
         val usage = cache.usageByBook()
         assertEquals(setOf("b1", "b2"), usage.keys)
         // pcm bytes + the meta sidecars (small, counted but not bit-pinned).
-        val b1Pcm = cache.sizeOf(PregenKey("b1", 0, 0, "af_heart", 1.0))!! +
-            cache.sizeOf(PregenKey("b1", 0, 1, "af_heart", 1.0))!!
-        val b2Pcm = cache.sizeOf(PregenKey("b2", 0, 0, "af_heart", 1.0))!!
+        val b1Pcm = cache.sizeOf(PregenKey("b1", 0, 0, "af_heart", 1.0, engine = PregenKey.DEFAULT_ENGINE))!! +
+            cache.sizeOf(PregenKey("b1", 0, 1, "af_heart", 1.0, engine = PregenKey.DEFAULT_ENGINE))!!
+        val b2Pcm = cache.sizeOf(PregenKey("b2", 0, 0, "af_heart", 1.0, engine = PregenKey.DEFAULT_ENGINE))!!
         assertTrue(usage["b1"]!! > b1Pcm && usage["b1"]!! - b1Pcm in 2..200, "b1 includes sidecars")
         assertTrue(usage["b2"]!! > b2Pcm && usage["b2"]!! - b2Pcm in 2..200, "b2 includes sidecars")
         assertEquals(b1Pcm + (usage["b1"]!! - b1Pcm) + b2Pcm + (usage["b2"]!! - b2Pcm), usage.values.sum())
@@ -177,9 +177,9 @@ class PcmPassageCacheTest {
     @Test
     fun `reopen removes invalid artifacts so passages can be regenerated`() {
         val cacheA = PcmPassageCache(tempDir, maxBytes = Long.MAX_VALUE)
-        val valid = PregenKey("book-invalid", 0, 0, "af_heart", 1.0)
+        val valid = PregenKey("book-invalid", 0, 0, "af_heart", 1.0, engine = PregenKey.DEFAULT_ENGINE)
         cacheA.put(valid, audio(1))
-        val speedDir = File(File(tempDir, "book-invalid"), "af_heart/1")
+        val speedDir = File(File(tempDir, "book-invalid"), "kokoro/af_heart/1")
         File(speedDir, "c0p1.pcm.tmp").writeText("stale")
         File(speedDir, "c0p1.pcm").writeBytes(ByteArray(100)) // no sidecar
         File(speedDir, "c0p2.meta").writeText("24000") // no pcm
@@ -191,9 +191,9 @@ class PcmPassageCacheTest {
         assertFalse(File(speedDir, "c0p1.pcm").exists(), "meta-less pcm removed")
         assertFalse(File(speedDir, "c0p2.meta").exists(), "pcm-less meta removed")
         assertFalse(File(tempDir, "junk.pcm").exists(), "unparseable path removed")
-        assertFalse(reopened.contains(PregenKey("book-invalid", 0, 1, "af_heart", 1.0)))
-        reopened.put(PregenKey("book-invalid", 0, 1, "af_heart", 1.0), audio(2))
-        assertTrue(reopened.contains(PregenKey("book-invalid", 0, 1, "af_heart", 1.0)), "regenerable")
+        assertFalse(reopened.contains(PregenKey("book-invalid", 0, 1, "af_heart", 1.0, engine = PregenKey.DEFAULT_ENGINE)))
+        reopened.put(PregenKey("book-invalid", 0, 1, "af_heart", 1.0, engine = PregenKey.DEFAULT_ENGINE), audio(2))
+        assertTrue(reopened.contains(PregenKey("book-invalid", 0, 1, "af_heart", 1.0, engine = PregenKey.DEFAULT_ENGINE)), "regenerable")
         assertTrue(reopened.get(valid) != null, "valid entries survive reopen")
     }
 
@@ -205,5 +205,64 @@ class PcmPassageCacheTest {
         cache.put(key(0, 0), audio(9)) // pcm alone is ~2 KB > cap
         assertNull(cache.get(key(0, 0)), "oversized entry evicted by the cap policy")
         assertTrue(cache.totalBytes() <= 1_000)
+    }
+
+    /** Engine-dimension migration (decisions #54): pre-engine v1 paths
+     * `<root>/<bookId>/<voice>/<speed>/…` bootstrap as kokoro entries — an
+     * upgrade keeps every existing PCM addressable and never treats it as a
+     * disk artifact (CR-4 deletes only what cannot parse). */
+    @Test
+    fun `legacy pre-engine paths bootstrap as kokoro entries`() {
+        val legacyDir = File(File(File(tempDir, "b1"), "af_heart"), "1")
+        assertTrue(legacyDir.mkdirs(), "test writes the v1 layout by hand")
+        File(legacyDir, "c0p0.pcm").writeBytes(ByteArray(2_000) { 7 })
+        File(legacyDir, "c0p0.meta").writeText("24000\n0.5;1.5")
+
+        val cache = PcmPassageCache(tempDir, maxBytes = Long.MAX_VALUE)
+
+        val expected = PregenKey("b1", 0, 0, "af_heart", 1.0, engine = PregenKey.DEFAULT_ENGINE)
+        assertTrue(cache.contains(expected), "legacy entry stays addressable under the default engine")
+        assertEquals(2_000L, cache.sizeOf(expected), "legacy PCM is served and counted")
+        assertEquals(listOf(SegmentAnchor(0.5, 1.5)), cache.get(expected)?.segments)
+        assertEquals(setOf("b1"), cache.usageByBook().keys, "bookId subtree remains the usage unit")
+    }
+
+    /** CR-4 across the migration: an over-cap v1 tier converges below the cap
+     * at reopen — legacy entries evict as REAL bytes, not phantom keys that
+     * leave [PcmPassageCache.bytesRemaining] stuck at 0 (the pregen gate). */
+    @Test
+    fun `an over-cap legacy tier converges below the cap at reopen`() {
+        repeat(4) { i ->
+            val dir = File(File(File(tempDir, "b1"), "af_heart"), "1")
+            dir.mkdirs()
+            File(dir, "c0p$i.pcm").writeBytes(ByteArray(2_000 + i) { 1 })
+            File(dir, "c0p$i.meta").writeText("24000")
+        }
+
+        val cache = PcmPassageCache(tempDir, maxBytes = 6_000) // ~8 KB of v1 on disk
+
+        assertTrue(cache.totalBytes() <= 6_000, "v1 entries evict as real bytes under the cap")
+        assertTrue(cache.bytesRemaining() > 0, "the pregen gate is not stuck at 0")
+        assertTrue(cache.contains(PregenKey("b1", 0, 3, "af_heart", 1.0, engine = PregenKey.DEFAULT_ENGINE)))
+    }
+
+    /** A put on a legacy-keyed entry overwrites its v1 slot — one file per
+     * logical key, so the byte cap never double-counts a migrated entry. */
+    @Test
+    fun `a put on a legacy key replaces its v1 slot without doubling`() {
+        val legacyDir = File(File(File(tempDir, "b1"), "af_heart"), "1")
+        assertTrue(legacyDir.mkdirs(), "test writes the v1 layout by hand")
+        File(legacyDir, "c0p0.pcm").writeBytes(ByteArray(2_000) { 7 })
+        File(legacyDir, "c0p0.meta").writeText("24000")
+
+        val cache = PcmPassageCache(tempDir, maxBytes = Long.MAX_VALUE)
+        val key = PregenKey("b1", 0, 0, "af_heart", 1.0, engine = PregenKey.DEFAULT_ENGINE)
+        cache.put(key, audio(1)) // 2001 bytes
+
+        assertEquals(2_001L, cache.sizeOf(key), "the put replaced the v1 file, not doubled it")
+        assertFalse(
+            File(File(File(tempDir, "b1"), "kokoro"), "af_heart/1/c0p0.pcm").exists(),
+            "no v2 twin was created",
+        )
     }
 }

@@ -44,7 +44,7 @@ class PregenSpaceEstimatorTest {
     @Test
     fun `cached passages count their exact on-disk bytes`() {
         val cache = cache()
-        val key = PregenKey(book.id, 0, 1, voice, speed)
+        val key = PregenKey(book.id, 0, 1, voice, speed, engine = PregenKey.DEFAULT_ENGINE)
         cache.put(key, PregenAudio(ByteArray(5_000), 24_000, listOf(SegmentAnchor(0.0, 1.0))))
 
         val result = PregenSpaceEstimator(cache).estimate(book, voice, speed)
@@ -55,7 +55,7 @@ class PregenSpaceEstimatorTest {
     @Test
     fun `speed scales the uncached estimate but not the cached part`() {
         val cache = cache()
-        val key = PregenKey(book.id, 0, 1, voice, 2.0)
+        val key = PregenKey(book.id, 0, 1, voice, 2.0, engine = PregenKey.DEFAULT_ENGINE)
         cache.put(key, PregenAudio(ByteArray(5_000), 24_000, listOf(SegmentAnchor(0.0, 1.0))))
 
         val result = PregenSpaceEstimator(cache).estimate(book, voice, 2.0)
@@ -75,5 +75,32 @@ class PregenSpaceEstimatorTest {
         val empty = Book("e", "Empty", emptyList())
         val result = PregenSpaceEstimator(cache()).estimate(empty, voice, speed)
         assertEquals(PregenSpaceEstimate(0L, 0L), result)
+    }
+
+    @Test
+    fun `the per-engine rate map pins kokoro and falls back safely`() {
+        assertEquals(24_000, PregenSpaceEstimator.sampleRateHz(PregenKey.DEFAULT_ENGINE), "kokoro is 24 kHz")
+        assertEquals(
+            PregenSpaceEstimator.sampleRateHz(PregenKey.DEFAULT_ENGINE),
+            PregenSpaceEstimator.sampleRateHz("some-future-engine"),
+            "unknown engines keep the documented safe default",
+        )
+        // An estimate for an unknown engine uses that same safe rate today.
+        val result = PregenSpaceEstimator(cache()).estimate(book, voice, speed, engine = "some-future-engine")
+        assertEquals(expectedUncached(600) + expectedUncached(300) + expectedUncached(150), result.totalBytes)
+    }
+
+    @Test
+    fun `estimates address the per-engine cache key`() {
+        val cache = cache()
+        cache.put(
+            PregenKey(book.id, 0, 1, voice, speed, engine = "cosyvoice3"),
+            PregenAudio(ByteArray(5_000), 24_000, listOf(SegmentAnchor(0.0, 1.0))),
+        )
+
+        val kokoro = PregenSpaceEstimator(cache).estimate(book, voice, speed)
+        assertEquals(0L, kokoro.cachedBytes, "kokoro estimate never sees another engine's bytes")
+        val cosy = PregenSpaceEstimator(cache).estimate(book, voice, speed, engine = "cosyvoice3")
+        assertEquals(5_000L, cosy.cachedBytes, "the engine's own cached bytes are exact")
     }
 }

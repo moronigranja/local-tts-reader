@@ -67,7 +67,7 @@ class OfflinePregenTest {
         for (spine in spineIndexes) {
             val (c, p) = spineToPosition(spine)
             cache.put(
-                PregenKey(book.id, c, p, voice, speed),
+                PregenKey(book.id, c, p, voice, speed, engine = PregenKey.DEFAULT_ENGINE),
                 PregenAudio(ByteArray(bytes), 24_000, listOf(SegmentAnchor(0.0, 1.0))),
             )
         }
@@ -228,5 +228,19 @@ class OfflinePregenTest {
         val percents = events.map { it.percent }
         assertEquals(percents.sorted(), percents, "percent never decreases")
         assertTrue(events.size >= result.processed, "at least one event per processed passage")
+    }
+
+    @Test
+    fun `runs namespace their cache keys per engine`() = runTest {
+        val cache = cache()
+        OfflinePregen(cache, ::fake, 5, engine = "cosyvoice3")
+            .run(book, voice, speed, PregenBudget(maxPassages = 1))
+        val cosyKey = PregenKey(book.id, 0, 0, voice, speed, engine = "cosyvoice3")
+        assertTrue(cache.contains(cosyKey), "run wrote under its engine's path")
+        assertTrue(
+            !cache.contains(PregenKey(book.id, 0, 0, voice, speed, engine = PregenKey.DEFAULT_ENGINE)),
+            "another engine's key does not collide",
+        )
+        assertEquals("b1/cosyvoice3/af_heart/1/c0p0", cosyKey.toString())
     }
 }

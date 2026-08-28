@@ -74,7 +74,28 @@ failure cleared on success; relaxes the decisions #25/#32 once-wording), QW5c
 `PregenPlanner` in core-player consumed by `OfflinePregen.run` + `PregenQueue.ensure`;
 executors kept, behavior-identical, existing tests green). QW4, S1b, S3, S4
 micro-lean, S5 and the G2 admission rule (offline pregen yields while playing,
-goals-doc decided) remain proposed/pending in this doc's sections below.
+goals-doc decided) remained proposed/pending at that point — every one of them
+landed in Batch 3 below.
+**Batch 3 landed (2026-08-28, decisions #76-#79 — the final lean-up batch):** the
+G2 admission rule + S1b (decisions #76) — `PlaybackActive` is now a full-session
+window: set at play/resume, cleared only when the post-stop fill completes
+(`markStopped` moved to the fill's `onDone` before `stopSelf`; `onDestroy` keeps a
+safety-net clear), so the worker stays paused across STOP (edge interaction #1
+resolved); `PregenWorker` is single-mode manual and yields to an engaged session
+for ALL runs (`!PlaybackActive.isActive`); the overnight arm is deleted
+(`ensureOvernightScheduled` + the `MODE_OVERNIGHT` budget/yield/notification
+variants gone; `OVERNIGHT_NAME` kept for the QW5d startup cancel). S5 (decisions
+#77) — `PregenKey` engine dimension + v2 path (legacy v1 resolution, CR-4
+preserved), `PregenSpaceEstimator` per-engine rates (core-tts import dropped),
+rate-aware `liveOffsetSeconds`/`frameMargin` in the service. S3 + QW4 (decisions
+#78) — `publish()` structural snapshot / `publishDetails()` per-second
+StateFlow-only feed through one `stateCopy` parity path; the three fill loops fold
+into one `startFill(from, followPlayhead, deadlineMs, onDone)` — the post-stop
+fill clears the G2 window and self-stops. S4 (decisions #79) — one retained
+MODE_STATIC `AudioTrack`, re-fed on format+capacity match, rebuilt on mismatch.
+**Remaining: nothing structural** — QW4's device acceptance (post-stop self-stop
+timing on the S22) and the device measurement leg (goals L1/L2/L3/GAP1) are
+pending on hardware.
 
 ---
 

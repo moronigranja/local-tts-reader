@@ -113,6 +113,29 @@ shared snippet → normalize → word n-grams → recall vs every indexed passag
 7. **Share result = location** — MatchResult carries (bookId, chapter, passage);
    the player resumes there.
 
+2026-08-28 (final lean-up batch, decisions #76-#79): the G2 admission rule
+lands as a full-session window — `PlaybackActive` (feature-player) spans session
+start through the post-stop fill's completion: `markStopped` fires in the fill's
+`onDone` before `stopSelf`, with an `onDestroy` safety-net; `PregenWorker` is
+single-mode manual (overnight arm deleted — `ensureOvernightScheduled` + the
+`MODE_OVERNIGHT` budget/yield/notification variants gone, `OVERNIGHT_NAME` kept
+for the QW5d startup cancel) and yields to an engaged session for ALL runs (#76).
+S5 (#77): `PregenKey` gains the engine dimension (v2 path
+`<bookId>/<engine>/<voice>/<speed>/…`, legacy v1 paths parse and resolve as
+kokoro — CR-4 preserved, cross-engine collision prevented);
+`PregenSpaceEstimator` keys per-engine sample rates in core-player (core-tts
+import dropped); the service's `liveOffsetSeconds` and completion margin use the
+last rendered sample rate (`frameMargin(rate) = rate/100`). S3+QW4 (#78):
+`publish()` is the structural snapshot (state + MediaSession + notification)
+while `publishDetails()` is the per-second StateFlow-only feed through the single
+`stateCopy` field computation (the CR-8/CR-9 parity guard stays); the three fill
+loops merge into one `startFill(from, followPlayhead, deadlineMs, onDone)` — the
+post-stop fill clears the G2 window and self-stops. S4 (#79):
+`AudioTrackPassageOutput` retains one MODE_STATIC track, re-fed on
+sample-rate+channel+capacity match, rebuilt on mismatch; speed stays out of the
+identity via `setPlaybackRate`. core-player stays pure — the estimator no longer
+imports core-tts.
+
 2026-08-28 (lean-up batch 2, decisions #73/#74/#75): measurement probes —
 `AyvuTap`/`AyvuGap` debug-gated logcat in PlaybackService (goals §Measurement,
 non-blocking, CR-ordering untouched); `KokoroRuntime.engine()` retry seam

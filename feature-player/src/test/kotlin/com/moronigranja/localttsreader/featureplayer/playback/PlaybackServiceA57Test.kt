@@ -1,6 +1,8 @@
 package com.moronigranja.localttsreader.featureplayer.playback
 
 import android.content.Context
+import android.content.ContextWrapper
+import android.support.v4.media.session.MediaSessionCompat
 import androidx.room.Room
 import com.moronigranja.localttsreader.model.Book
 import com.moronigranja.localttsreader.model.Chapter
@@ -25,6 +27,7 @@ import com.moronigranja.localttsreader.tts.SynthesisRequest
 import com.moronigranja.localttsreader.tts.TTSEngine
 import com.moronigranja.localttsreader.tts.TtsPack
 import kotlin.math.abs
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -77,7 +80,7 @@ class PlaybackServiceA57Test {
         ),
     )
 
-    private class FakeEngine(
+    private open class FakeEngine(
         var outcome: (String) -> SynthesisOutcome = {
             SynthesisOutcome.Audio(ByteArray(1_000), 24_000, 1, listOf(SegmentAnchor(0.0, 1.0)))
         },
@@ -117,6 +120,7 @@ class PlaybackServiceA57Test {
     @After
     fun tearDown() {
         database.close()
+        PlaybackActive.markStopped() // the G2 session-window test drives the global flag
     }
 
     private fun playingMachine(store: PlayerStore, pauseAt: Double? = null): PlayerStateMachine {
@@ -365,5 +369,112 @@ class PlaybackServiceA57Test {
         assertEquals(2, PlaybackStateHolder.state.value.chapterIndex)
         assertEquals("forward lands on the neighbor's FIRST passage", 0, PlaybackStateHolder.state.value.passageIndex)
         assertEquals(PlayerPhase.IDLE, PlaybackStateHolder.state.value.phase)
+    }
+
+    // ------------------------------------------------------------------
+    // G2 — the session admission window (STOP → post-stop fill completion)
+    // ------------------------------------------------------------------
+
+    /** Engine that blocks every synthesis on a gate: the harness decides
+     * exactly when the post-stop fill may complete, so the window-end timing
+     * is deterministic (no real-time races). Each passage renders 45 s of
+     * audio, so one synthesis satisfies the post-stop look-ahead target. */
+    private class GatedSessionEngine : FakeEngine() {
+        val release = CompletableDeferred<Unit>()
+        override suspend fun synthesize(request: SynthesisRequest): SynthesisOutcome {
+            synthesized += request.text
+            release.await()
+            return SynthesisOutcome.Audio(
+                ByteArray((45.0 * 24_000 * 2).toInt()),
+                24_000,
+                1,
+                listOf(SegmentAnchor(0.0, 45.0)),
+            )
+        }
+    }
+
+    /** PublishGuard-style priming: Hilt's generated onCreate cannot run under
+     * plain Robolectric, so a service whose openBook/publish paths run needs
+     * base context + the session/audioManager lateinits assigned by hand. */
+    private fun attachServiceContext(service: PlaybackService) {
+        val attach = ContextWrapper::class.java.getDeclaredMethod("attachBaseContext", Context::class.java)
+        attach.isAccessible = true
+        attach.invoke(service, context)
+    }
+
+    private fun setAudioManager(service: PlaybackService) {
+        val field = PlaybackService::class.java.getDeclaredField("audioManager")
+        field.isAccessible = true
+        field.set(service, context.getSystemService(Context.AUDIO_SERVICE))
+    }
+
+    private fun setSession(service: PlaybackService) {
+        val field = PlaybackService::class.java.getDeclaredField("session")
+        field.isAccessible = true
+        field.set(service, MediaSessionCompat(service, "local-tts-reader"))
+    }
+
+    private fun mediaCallback(service: PlaybackService): MediaSessionCompat.Callback {
+        val field = PlaybackService::class.java.getDeclaredField("mediaCallback")
+        field.isAccessible = true
+        return field.get(service) as MediaSessionCompat.Callback
+    }
+
+    private fun await(label: String, timeoutMs: Long = 10_000, condition: () -> Boolean) {
+        val deadline = System.currentTimeMillis() + timeoutMs
+        while (System.currentTimeMillis() < deadline) {
+            if (condition()) return
+            Thread.sleep(20)
+        }
+        throw AssertionError("timed out waiting for: $label")
+    }
+
+    /** G2 (addendum edge #1): the session admission window spans STOP → the
+     * post-stop fill's completion. markStopped moved OUT of stopPlayer (a
+     * yielding pregen worker would resume mid-fill and recreate the engine
+     * contention the yield exists to prevent) and now fires when the fill
+     * finishes. The gated engine makes the window-end deterministic. */
+    @Test
+    fun `session window stays engaged through STOP until the post-stop fill completes`() {
+        val engine = GatedSessionEngine()
+        val service = PlaybackService().apply {
+            attachServiceContext(this)
+            setAudioManager(this)
+            setSession(this)
+            this.store = InMemoryPlayerStore()
+            this.output = FakeOutput()
+            this.runtime = FakeRuntime(context, engine)
+            this.libraryStore = RoomLibraryStore(database, scope)
+            this.settings = AppSettings(SettingsStore(database.settingsDao()))
+            this.pregenCache = PregenCache(context)
+        }
+        PlaybackStateHolder.reset()
+        PlaybackActive.markStarted() // the start/resume command paths mark this
+        try {
+            // The post-stop fill needs the service's queue, which only the
+            // playback command paths build — openBook (a real command) builds
+            // it without starting audio.
+            service.openBook(book.id)
+            // openBook's publish is the happens-before edge: observing the
+            // holder bookId means the command finished (machine + queue built).
+            await("openBook command completes") { PlaybackStateHolder.state.value.bookId == book.id }
+
+            // STOP through the media-session surface — the production
+            // stopPlayer path (the pre-G2 code cleared PlaybackActive here).
+            mediaCallback(service).onStop()
+
+            assertTrue("the session window survives the STOP command", PlaybackActive.isActive)
+
+            // The post-stop fill is in flight but gated — the window stays
+            // open. Release it: the window must close only at fill completion.
+            engine.release.complete(Unit)
+            await("fill completion closes the session window") { !PlaybackActive.isActive }
+            assertTrue(
+                "the post-stop fill synthesized while the window was still open",
+                engine.synthesized.any { it == "Cold light spread across the morning field." },
+            )
+        } finally {
+            PlaybackActive.markStopped()
+        }
     }
 }
