@@ -2124,6 +2124,11 @@ derived `sarah16/24.wav`):
 - All runs finite, audio written (`out_run1–3.wav`); artifacts pulled to
   `/tmp/t3/`. Bundle provenance: HF snapshot + ffmpeg-derived 16/24 k prompt
   wavs; worth revisiting whether the repo should pin the exact URLs.
+Pinned derivation (the reproducibility record, `docs/cosyvoice3-pack.md`):
+`ffmpeg -i sarah.wav -ac 1 -ar 16000 sarah16.wav` (208,078 B,
+sha256 `654497c2…fa2`) and `ffmpeg -i sarah.wav -ac 1 -ar 24000
+sarah24.wav` (312,078 B, sha256 `9f83deef…5360`), source `sarah.wav`
+(312,044 B, sha256 `c590d415…b8`) from the pinned revision.
 ## 50. User-review batch — espeak-ng download, navigation, paging, progress, pre-gen budget (2026-08-27)
 Seven small items from a live review pass on the S22 + the host:
 - **espeak-ng is now a downloadable pack** (was: manual adb staging; the

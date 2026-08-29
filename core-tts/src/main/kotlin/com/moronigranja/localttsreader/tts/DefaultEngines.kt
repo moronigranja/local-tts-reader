@@ -31,7 +31,8 @@ object DefaultEngines {
     val descriptors: List<EngineDescriptor> = listOf(
         EngineDescriptor(kokoro, KokoroPacks.all),
         // CosyVoice3 stays metadata-only until its pack is pinned (gated on the
-        // DiT acceleration finding; decisions #21/#23).
+        // DiT acceleration finding; decisions #21/#23); reproducibility
+        // manifest: docs/cosyvoice3-pack.md.
         EngineDescriptor(cosyVoice3, emptyList()),
     )
 }
