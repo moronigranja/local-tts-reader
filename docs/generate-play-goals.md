@@ -167,14 +167,18 @@ Device-leg results (S22 Ultra, 2026-08-28, decisions #80):
 - **L1 warm tap-to-audio: 230 ms — PASS** (< 300 ms). Cold first-play in a fresh
   process (engine open + disk fetch): 2 563 ms — no target (LOANING documented),
   warm-after is the SLO.
-- **GAP1 (decisions #81-#84): marker-accurate, ~43-66 ms when the pre-armed static
-  track engages (out 11-16 ms vs 29-55 ms rebuild) — improved but still ABOVE the
-  ≤ 50 ms target.** The #80 dispatch probe overstate was the 50 ms poll
-  quantization; the remaining cost is the publish (~20 ms) + advance/write (~13 ms)
-  + pre-arm misses (queue/cache still filling at the boundary). MODE_STREAM output
-  (#83) proved inert on the S22 and was reverted; pre-armed static (#84) is the
-  shipped model. GAP1 remains unmet; further work requires attacking publish/advance
-  or accepting the gap.
+- **GAP1 (decisions #81-#85): final measured steady-state 24-92 ms, median ≈ 68,
+  ~half under the ≤ 50 ms target — improved but NOT reliably met.** The journey:
+  #80 dispatch probe (~95 ms) overstated via 50 ms poll quantization; #81 markers
+  gave the true ~73 ms; #82/#85a removed the per-boundary notification + MediaSession
+  IPCs (verified 1 of each per run — they were never the dominant cost); #83
+  MODE_STREAM proved inert on the S22 (reverted); #84 pre-armed static track cut the
+  output-play rebuild to 11-16 ms on hit; #85 dedicated player thread collapsed the
+  publish stage to 5-11 ms (the real `pub` cost was CPU contention with prefill
+  synthesis on Dispatchers.Default). Remaining drivers: pre-arm misses at the
+  boundary (`out` 17-82 on rebuild) and the Room progress write on the player thread
+  (`adv` 8-35). Candidate next steps recorded in #85; the SLO stays open, with the
+  shipped gap ~2x better than the pre-investigation number.
 - **QW4 post-stop fill: PASS** — fill from the last playhead, self-stopped at
   46 s ahead, no runaway (service record 0 after).
 - **Screen-off sanity: PASS** — Dozing, no 50 ms-poll stall; boundaries advanced
