@@ -467,7 +467,7 @@ class PlaybackService : Service() {
         val active = machine ?: return
         val wasPaused = active.state.value.phase == PlayerPhase.PAUSED
         val live = liveOffsetSeconds()
-        stopEverything()
+        stopEverything(stopFill = false)
         launchCommand { generation ->
             commandLock.lock()
             try {
@@ -484,12 +484,10 @@ class PlaybackService : Service() {
             // machine another command won.
             if (!active(generation)) return@launchCommand
             if (!wasPaused) {
-                // stopEverything cancelled the fill (pregenJob) above; restart
-                // it from the moved position — QW4's bufferForPlayback only
-                // polls, so a loop without a live fill has no ensure owner and
-                // every cold passage pays the full PLAY_BUFFER_TIMEOUT_MS at
-                // 0 s ahead (the cushion-never-builds regression).
-                active.state.value.position?.let { startPrefill(it) }
+                // D1: the long-lived follow-playhead fill SURVIVED
+                // (stopFill=false) — its ensure re-arms from the machine's new
+                // position on the next tick; guard only against an absent fill.
+                if (pregenJob == null) active.state.value.position?.let { startPrefill(it) }
                 startLoop()
             }
         }
@@ -506,7 +504,7 @@ class PlaybackService : Service() {
         val active = machine ?: return
         val wasPaused = active.state.value.phase == PlayerPhase.PAUSED
         val live = liveOffsetSeconds()
-        stopEverything()
+        stopEverything(stopFill = false)
         launchCommand { generation ->
             commandLock.lock()
             try {
@@ -530,12 +528,10 @@ class PlaybackService : Service() {
             // machine another command won.
             if (!active(generation)) return@launchCommand
             if (!wasPaused) {
-                // stopEverything cancelled the fill (pregenJob) above; restart
-                // it from the moved position — QW4's bufferForPlayback only
-                // polls, so a loop without a live fill has no ensure owner and
-                // every cold passage pays the full PLAY_BUFFER_TIMEOUT_MS at
-                // 0 s ahead (the cushion-never-builds regression).
-                active.state.value.position?.let { startPrefill(it) }
+                // D1: the long-lived follow-playhead fill SURVIVED
+                // (stopFill=false) — its ensure re-arms from the machine's new
+                // position on the next tick; guard only against an absent fill.
+                if (pregenJob == null) active.state.value.position?.let { startPrefill(it) }
                 startLoop()
             }
         }
@@ -544,7 +540,7 @@ class PlaybackService : Service() {
     private fun navigateUndo() {
         val active = machine ?: return
         val wasPaused = active.state.value.phase == PlayerPhase.PAUSED
-        stopEverything()
+        stopEverything(stopFill = false)
         launchCommand { generation ->
             commandLock.lock()
             try {
@@ -560,12 +556,10 @@ class PlaybackService : Service() {
             // machine another command won.
             if (!active(generation)) return@launchCommand
             if (!wasPaused) {
-                // stopEverything cancelled the fill (pregenJob) above; restart
-                // it from the moved position — QW4's bufferForPlayback only
-                // polls, so a loop without a live fill has no ensure owner and
-                // every cold passage pays the full PLAY_BUFFER_TIMEOUT_MS at
-                // 0 s ahead (the cushion-never-builds regression).
-                active.state.value.position?.let { startPrefill(it) }
+                // D1: the long-lived follow-playhead fill SURVIVED
+                // (stopFill=false) — its ensure re-arms from the machine's new
+                // position on the next tick; guard only against an absent fill.
+                if (pregenJob == null) active.state.value.position?.let { startPrefill(it) }
                 startLoop()
             }
         }
@@ -1174,7 +1168,11 @@ class PlaybackService : Service() {
                 // stay pruned and the fill tracks the moving position; [from]
                 // is the start (a book opened idle front-loads its opening).
                 val playhead = if (followPlayhead) machine?.state?.value?.position ?: from else from
-                q.ensure(playhead)
+                // D1: the live playhead is re-checked BETWEEN passages inside
+                // ensure, so a seek during a fill does not synthesize the
+                // stale plan (the plan yields once the playhead overtakes the
+                // next planned key).
+                q.ensure(playhead) { machine?.state?.value?.position }
                 if (!followPlayhead && q.aheadSeconds(playhead) >= PREFILL_LOOKAHEAD_SECONDS) {
                     android.util.Log.d("PlaybackService", "postStop: fill done ahead=${q.aheadSeconds(playhead)} self-stopping")
                     break
@@ -1245,7 +1243,7 @@ class PlaybackService : Service() {
     /** The selected Kokoro voice (V1 settings); defaults to af_heart until chosen. */
     private fun activeVoice(): String = settings.state.value.voice
 
-    internal fun stopEverything() {
+    internal fun stopEverything(stopFill: Boolean = true) {
         // CR-5/CR-7: supersede every in-flight command BEFORE cancelling —
         // the generation check is what stops a stale load from publishing at
         // its (otherwise uncancellable) tail.
@@ -1256,8 +1254,14 @@ class PlaybackService : Service() {
         loopJob = null
         tickerJob?.cancel()
         tickerJob = null
-        pregenJob?.cancel()
-        pregenJob = null
+        // D1: in-place navigation (seek/navigate/undo) keeps the long-lived
+        // follow-playhead fill alive so its in-flight ensure survives the
+        // move and re-arms from the new playhead — only queue rebuilds
+        // (book/voice/speed change) and true stops cancel it.
+        if (stopFill) {
+            pregenJob?.cancel()
+            pregenJob = null
+        }
         stopSignal.complete(Unit)
         stopSignal = CompletableDeferred()
         // Measurement probe baseline (goals §Measurement, GAP1): resume/seek/

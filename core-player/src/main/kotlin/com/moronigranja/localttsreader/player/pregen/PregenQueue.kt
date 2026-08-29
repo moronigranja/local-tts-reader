@@ -58,8 +58,16 @@ class PregenQueue(
      *  the plan is a CONTIGUOUS prefix — the walk stops at the first passage
      *  another coroutine is already synthesizing, so a second caller never
      *  queues far-ahead audio past an unsynthesized near gap (a hole at the
-     *  playhead makes the ahead-seconds target lie and stalls playback). */
-    suspend fun ensure(from: PlayerPosition) {
+     *  playhead makes the ahead-seconds target lie and stalls playback).
+     *
+     *  D1 (survive-seek): [rearm] lets the long-lived fill re-check the live
+     *  playhead BETWEEN passages. When the playhead has jumped forward past
+     *  the next planned passage, the plan yields instead of synthesizing the
+     *  stale remainder — the next ensure re-prunes and re-plans from the new
+     *  position, so a seek costs at most one in-flight passage instead of a
+     *  cancelled fill + full restart. A backward (or unchanged) playhead keeps
+     *  the plan: every planned key is still strictly after it. */
+    suspend fun ensure(from: PlayerPosition, rearm: (() -> PlayerPosition?)? = null) {
         val plan = synchronized(lock) {
             entries.keys.removeAll { key -> !isAfter(key, from) }
             shrinkToBound()
@@ -87,6 +95,10 @@ class PregenQueue(
                 // cooperative and synthesize blocks in the engine, so without
                 // this check a cancelled caller finishes its whole plan.
                 currentCoroutineContext().ensureActive()
+                // D1: yield the stale remainder when the playhead overtook the
+                // next planned passage mid-ensure (seek while synthesizing).
+                val current = rearm?.invoke()
+                if (current != null && !isAfter(key, current)) break
                 val text = book.passageText(key.chapterIndex, key.passageIndex) ?: break
                 val audio = convert(synthesize(text)) ?: break
                 onSynthesized(key, audio)
@@ -105,6 +117,7 @@ class PregenQueue(
             synchronized(lock) { plan.forEach { inFlight.remove(it) } }
         }
     }
+
     /** Seconds of audio currently queued strictly after [from]. */
     fun aheadSeconds(from: PlayerPosition): Double =
         synchronized(lock) { queuedSecondsLocked(from) }

@@ -15,6 +15,7 @@ import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
+@OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
 /** T5-core: bounded look-ahead, dedup, stale pruning, failure fallback. */
 class PregenQueueTest {
 
@@ -132,6 +133,46 @@ class PregenQueueTest {
         // 0/1, 0/2, 0/3 each 1 s: fills 3 s, at the time bound (lookahead=20 not the cap).
         assertTrue(q.size in 2..4, "time-bound fill, got size=${q.size}")
         assertTrue(q.take(0, 1) != null)
+    }
+
+    @Test
+    fun `in-flight plan yields when the playhead jumps forward mid-ensure (D1 survive-seek)`() = runTest {
+        val q = queue(lookahead = 3)
+        // The first synthesis flips the playhead far ahead (a seek landed);
+        // ensure must stop synthesizing the stale plan right there.
+        var playhead = PlayerPosition("b1", 0, 0)
+        val jump = PregenQueue(
+            book,
+            "af_heart",
+            1.0,
+            { text ->
+                callCount++
+                if (playhead == PlayerPosition("b1", 0, 0)) {
+                    playhead = PlayerPosition("b1", 1, 0) // seek during the first in-flight passage
+                }
+                val spineIndex = text.drop(1).toInt()
+                SynthesisOutcome.Audio(
+                    ByteArray((spineIndex + 1) * 1_000) { 0 },
+                    24_000,
+                    1,
+                    listOf(SegmentAnchor(0.0, 1.0)),
+                )
+            },
+            3,
+        )
+
+        jump.ensure(PlayerPosition("b1", 0, 0)) { playhead }
+
+        assertEquals(
+            1,
+            callCount,
+            "the plan yields after the playhead overtakes the next planned passage",
+        )
+        // The one in-flight passage (0/1) is queued but stale once the playhead
+        // moved: the NEXT ensure from the new playhead prunes and refills.
+        jump.ensure(PlayerPosition("b1", 1, 0)) { playhead }
+        assertNull(jump.take(0, 1), "stale in-flight result pruned by the re-arm")
+        assertTrue(jump.take(1, 1) != null, "refill from the new playhead")
     }
 
     @Test

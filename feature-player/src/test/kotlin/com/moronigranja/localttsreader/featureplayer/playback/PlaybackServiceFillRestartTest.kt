@@ -220,4 +220,44 @@ class PlaybackServiceFillRestartTest {
             service.stopEverything() // stop the loop/fill/ticker before the test JVM settles
         }
     }
+
+    @Test
+    fun `a seek keeps the fill job alive - in-flight ensure survives (D1)`() {
+        val store = InMemoryPlayerStore()
+        val engine = FakeEngine(healthy = true)
+        val output = RecordingOutput()
+        val service = PlaybackService().apply {
+            attachServiceContext(this)
+            setAudioManager(this)
+            setSession(this)
+            this.store = store
+            this.output = output
+            this.runtime = FakeRuntime(context, engine)
+            this.libraryStore = RoomLibraryStore(database, scope)
+            this.settings = AppSettings(SettingsStore(database.settingsDao()))
+            this.pregenCache = PregenCache(context)
+        }
+        PlaybackStateHolder.reset()
+        val pregenJobField = PlaybackService::class.java.getDeclaredField("pregenJob")
+        pregenJobField.isAccessible = true
+        try {
+            service.openBook(book.id)
+            await("openBook builds the queue") { PlaybackStateHolder.state.value.bookId == book.id }
+            runBlocking { service.machine!!.playFrom(PlayerPosition(book.id, 0, 0)) } // phase LOADING
+
+            val before: kotlinx.coroutines.Job? = pregenJobField.get(service) as kotlinx.coroutines.Job?
+            assertTrue("the openBook fill is running before the seek", before != null)
+
+            service.seekBy(30.0)
+
+            val after: kotlinx.coroutines.Job? = pregenJobField.get(service) as kotlinx.coroutines.Job?
+            assertTrue(
+                "seekBy must NOT cancel/restart the fill — D1 survive-seek",
+                after === before,
+            )
+            assertTrue("the surviving fill is not cancelled", after != null && !after.isCancelled)
+        } finally {
+            service.stopEverything() // stop the loop/fill/ticker before the test JVM settles
+        }
+    }
 }

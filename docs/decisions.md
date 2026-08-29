@@ -1,4 +1,40 @@
 # Decision log
+## 91. D1 — survive-seek prefill (2026-08-29)
+
+The device-measured seek bottleneck (bugs.md: 60 s dead-owner ensure wait,
+fixed in the #78 addendum) had a second half: even with the fill restarted, a
+seek CANCELLED the fill via `stopEverything`, then restarted it from the
+target — the restart's first `ensure` re-planned and re-synthesized from
+scratch, and any in-flight synthesis died mid-passage (cold cache target,
+whole cushion rebuilt). D1 lands the survive-seek half of the roadmap's
+"let in-flight ensure survive" design; the 30 s-horizon re-parameterization
+is a small follow-up.
+
+- **`PregenQueue.ensure(from, rearm)`**: the caller can supply a live-playhead
+  reader; between passages the plan yields the moment the current playhead
+  overtakes the next planned key, so an in-flight ensure stops synthesizing
+  stale audio instead of finishing its old plan. The next tick re-prunes and
+  re-plans from the new position (backward/unchanged playhead keeps the plan —
+  every planned key is still after it).
+- **`stopEverything(stopFill = false)`** (service): seekBy / navigate /
+  navigateUndo pass it, so the long-lived follow-playhead fill is NOT cancelled
+  on in-place navigation; its ensure re-arms from `machine.position` on the
+  next tick (the fill's tick snapshots the playhead; the rearm lambda reads it
+  between passages too). True stops (pause, stop, player rebuild, book/voice
+  change) keep cancelling.
+- **Guarded restart**: the nav paths restart the fill only when it is absent
+  (`pregenJob == null`) — a surviving fill is never double-started.
+
+Evidence: `PregenQueueTest` +`in-flight plan yields when the playhead jumps
+forward mid-ensure (D1 survive-seek)` (1 synthesis total, stale result
+pruned, refill from the new playhead); `PlaybackServiceFillRestartTest`
++`a seek keeps the fill job alive - in-flight ensure survives (D1)` (the same
+`pregenJob` instance before/after `seekBy`, not cancelled); full
+`:feature-player:testDebugUnitTest :core-player:test ktlintCheck
+:app:assembleDebug` green. Device seek-latency re-measurement (S22/HiBreak,
+ten ±30 s seeks resolving from `buffer|pregen|disk` with zero sync synthesis)
+remains the acceptance — pending the next device session.
+
 ## 90. F2 — library search shipped (2026-08-29)
 
 Local title/author search on the library home — no network, no index dependency
