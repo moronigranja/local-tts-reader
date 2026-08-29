@@ -1,4 +1,29 @@
 # Decision log
+## 90. F2 — library search shipped (2026-08-29)
+
+Local title/author search on the library home — no network, no index dependency
+(content matching stays `TextIndex`'s share-and-identify job; F2 is a UI-level
+filter over the Room `books` rows).
+
+- **VM**: `searchResults` = `repository.books` (Room) combined with a
+  `MutableStateFlow<String>` query, filtered case-insensitively on title OR any
+  author, trimmed; blank query = full list. `setQuery` drives it; the
+  continue-list (`recent`) is deliberately NOT filtered — resume stays one tap
+  away while filtering the library section.
+- **UI**: an `OutlinedTextField` ("Search title or author") above the list in
+  `LibraryScreen`, with search/clear icons; the "Library" section renders
+  `searchResults` instead of `library`; a non-blank query with zero matches
+  shows `EmptyState("No books match…")`. `LaunchedEffect(query)` syncs the
+  field to the VM — no debounce needed at this list size (search is
+  host-tested; on-device visual verification pending a device pass).
+- **Tests**: `LibraryViewModelTest` +4 — blank query shows all; title
+  case-insensitive; any-author match; trimming + empty result + clear-restores.
+
+Evidence: `:feature-library:testDebugUnitTest` 13/13 green; `:app:assembleDebug`
++ `ktlintCheck` green (baseline regenerated to match the on-disk file shapes);
+RUN-TIME device verification deferred to the next S22 pass (the library screen
+is exercised there).
+
 ## 89. E1 backup — phase 1: core-backup codec + DTOs (2026-08-29)
 
 First phase of the E1 backup slice (post-v1-plan Slice B): the pure-JVM

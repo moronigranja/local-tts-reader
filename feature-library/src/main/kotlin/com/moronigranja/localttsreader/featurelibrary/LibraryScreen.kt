@@ -30,8 +30,10 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.ExperimentalMaterial3Api
 import android.graphics.BitmapFactory
 import androidx.compose.material3.Card
@@ -39,6 +41,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
@@ -98,6 +101,10 @@ fun LibraryScreen(
     val readProgress by viewModel.readProgress.collectAsState()
     val recent by viewModel.recent.collectAsState()
     val playerState by viewModel.playerState.collectAsState()
+    val searchResults by viewModel.searchResults.collectAsState()
+    var query by remember { mutableStateOf("") }
+    // F2: the field drives the VM filter, which re-emits the list reactively.
+    LaunchedEffect(query) { viewModel.setQuery(query) }
 
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
@@ -190,6 +197,26 @@ fun LibraryScreen(
                 .fillMaxSize()
                 .padding(padding),
         ) {
+            // F2: local title/author search — always visible once the library
+            // has anything; a blank query shows the full list.
+            OutlinedTextField(
+                value = query,
+                onValueChange = { query = it },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 8.dp),
+                placeholder = { Text("Search title or author") },
+                leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null) },
+                trailingIcon = {
+                    if (query.isNotEmpty()) {
+                        IconButton(onClick = { query = "" }) {
+                            Icon(Icons.Filled.Close, contentDescription = "Clear search")
+                        }
+                    }
+                },
+                singleLine = true,
+            )
+
             (importState as? ImportUiState.Importing)?.let { importing ->
                 LinearProgressIndicator(
                     progress = { importing.done / importing.total.toFloat() },
@@ -315,7 +342,7 @@ fun LibraryScreen(
                         item { SectionHeader("Library", Modifier.padding(top = 8.dp, bottom = 4.dp)) }
                     }
                     items(
-                        library.filterNot { it.book.id in recentIds || it.book.id == activeId },
+                        searchResults.filterNot { it.book.id in recentIds || it.book.id == activeId },
                         key = { it.book.id },
                     ) { entry ->
                         BookRow(
@@ -327,6 +354,13 @@ fun LibraryScreen(
                             onOpenBook = onOpenBook,
                             viewModel = viewModel,
                         )
+                    }
+                    if (query.isNotBlank() && searchResults.isEmpty()) {
+                        item {
+                            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                                EmptyState("No books match \"${query.trim()}\"")
+                            }
+                        }
                     }
                 }
             }

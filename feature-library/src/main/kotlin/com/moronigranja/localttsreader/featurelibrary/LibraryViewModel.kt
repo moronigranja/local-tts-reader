@@ -105,7 +105,32 @@ class LibraryViewModel @Inject constructor(
     fun pregenWork(bookId: String): Flow<PregenJobState> =
         pregenScheduler?.observe(bookId) ?: flowOf(PregenJobState())
 
+    /** All library rows, in import order — the F2 search filter source. */
     val library: StateFlow<List<LibraryEntry>> = repository.books
+    /** Live title/author query — filters [library] locally, case-insensitively.
+     * Empty query shows everything (F2). */
+    private val _query = MutableStateFlow("")
+
+    /** The live query text (backing-property pairing for [_query]). */
+    val query: StateFlow<String> = _query.asStateFlow()
+
+    /** Set by the search field; blank resets the list. */
+    fun setQuery(query: String) {
+        _query.value = query
+    }
+
+    /** Books whose title or any author contains the trimmed query (ignoring
+     * case); the continue-list/recent section is NOT filtered (F2 keeps
+     * recent always visible so resume stays one tap away). */
+    val searchResults: StateFlow<List<LibraryEntry>> =
+        combine(repository.books, _query) { books, query ->
+            val q = query.trim()
+            if (q.isEmpty()) books
+            else books.filter { entry ->
+                entry.book.title.contains(q, ignoreCase = true) ||
+                    entry.book.authors.any { it.contains(q, ignoreCase = true) }
+            }
+        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
     /** Recently-active books (resume rows, most recent first) — the library's
      * "Continue listening" section (decisions #50 pass). */
     val recent: StateFlow<List<LibraryEntry>> =

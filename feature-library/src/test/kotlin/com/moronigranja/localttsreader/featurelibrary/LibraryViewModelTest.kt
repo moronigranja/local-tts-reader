@@ -13,6 +13,7 @@ import com.moronigranja.localttsreader.model.InMemoryLibraryStore
 import com.moronigranja.localttsreader.player.PlayerCommands
 import java.io.ByteArrayInputStream
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.advanceTimeBy
@@ -278,4 +279,80 @@ class LibraryViewModelTest {
         assertEquals(1, vm.library.value.size, "durable delete failed → the book survives")
         assertTrue(index.contains(bookId), "the index must stay consistent with the surviving book")
     }
+
+    // ------------------------------------------------------------------
+    // F2 — library search
+    // ------------------------------------------------------------------
+
+    /** Two books with title/author overlap, pre-seeded via the store. */
+    private suspend fun seededStore(): InMemoryLibraryStore =
+        InMemoryLibraryStore().also { store ->
+            store.add(
+                com.moronigranja.localttsreader.model.LibraryEntry(
+                    com.moronigranja.localttsreader.model.Book(
+                        id = "wot",
+                        title = "The Wheel of Time",
+                        authors = listOf("Robert Jordan"),
+                        chapters = emptyList(),
+                    ),
+                    importedAtEpochMillis = 1,
+                ),
+            )
+            store.add(
+                com.moronigranja.localttsreader.model.LibraryEntry(
+                    com.moronigranja.localttsreader.model.Book(
+                        id = "frem",
+                        title = "Dune",
+                        authors = listOf("Frank Herbert", "Brian Herbert"),
+                        chapters = emptyList(),
+                    ),
+                    importedAtEpochMillis = 2,
+                ),
+            )
+        }
+
+    @Test
+    fun `blank query shows every book`() =
+        runTest(mainDispatcherRule.testDispatcher) {
+            val vm = viewModel(store = seededStore())
+
+            assertEquals(2, vm.searchResults.first().size)
+        }
+
+    @Test
+    fun `query filters by title case-insensitively`() =
+        runTest(mainDispatcherRule.testDispatcher) {
+            val vm = viewModel(store = seededStore())
+
+            vm.setQuery("dune")
+            assertEquals(listOf("Dune"), vm.searchResults.first().map { it.book.title })
+
+            vm.setQuery("WHEEL")
+            assertEquals(listOf("The Wheel of Time"), vm.searchResults.first().map { it.book.title })
+        }
+
+    @Test
+    fun `query matches any author`() =
+        runTest(mainDispatcherRule.testDispatcher) {
+            val vm = viewModel(store = seededStore())
+
+            vm.setQuery("frank")
+            assertEquals(listOf("Dune"), vm.searchResults.first().map { it.book.title })
+        }
+
+    @Test
+    fun `unmatched query returns empty and trimming removes padding`() =
+        runTest(mainDispatcherRule.testDispatcher) {
+            val vm = viewModel(store = seededStore())
+
+            vm.setQuery("  wheel  ")
+            assertEquals(listOf("The Wheel of Time"), vm.searchResults.first().map { it.book.title })
+
+            vm.setQuery("zzz")
+            assertTrue(vm.searchResults.first().isEmpty())
+
+            // Clearing the query restores the full list.
+            vm.setQuery("")
+            assertEquals(2, vm.searchResults.first().size)
+        }
 }
