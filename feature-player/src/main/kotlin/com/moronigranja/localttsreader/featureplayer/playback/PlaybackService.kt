@@ -483,7 +483,15 @@ class PlaybackService : Service() {
             // CR-5: a stale command never restarts the loop against the
             // machine another command won.
             if (!active(generation)) return@launchCommand
-            if (!wasPaused) startLoop()
+            if (!wasPaused) {
+                // stopEverything cancelled the fill (pregenJob) above; restart
+                // it from the moved position — QW4's bufferForPlayback only
+                // polls, so a loop without a live fill has no ensure owner and
+                // every cold passage pays the full PLAY_BUFFER_TIMEOUT_MS at
+                // 0 s ahead (the cushion-never-builds regression).
+                active.state.value.position?.let { startPrefill(it) }
+                startLoop()
+            }
         }
     }
 
@@ -521,7 +529,15 @@ class PlaybackService : Service() {
             // CR-5: a stale command never restarts the loop against the
             // machine another command won.
             if (!active(generation)) return@launchCommand
-            if (!wasPaused) startLoop()
+            if (!wasPaused) {
+                // stopEverything cancelled the fill (pregenJob) above; restart
+                // it from the moved position — QW4's bufferForPlayback only
+                // polls, so a loop without a live fill has no ensure owner and
+                // every cold passage pays the full PLAY_BUFFER_TIMEOUT_MS at
+                // 0 s ahead (the cushion-never-builds regression).
+                active.state.value.position?.let { startPrefill(it) }
+                startLoop()
+            }
         }
     }
 
@@ -543,7 +559,15 @@ class PlaybackService : Service() {
             // CR-5: a stale command never restarts the loop against the
             // machine another command won.
             if (!active(generation)) return@launchCommand
-            if (!wasPaused) startLoop()
+            if (!wasPaused) {
+                // stopEverything cancelled the fill (pregenJob) above; restart
+                // it from the moved position — QW4's bufferForPlayback only
+                // polls, so a loop without a live fill has no ensure owner and
+                // every cold passage pays the full PLAY_BUFFER_TIMEOUT_MS at
+                // 0 s ahead (the cushion-never-builds regression).
+                active.state.value.position?.let { startPrefill(it) }
+                startLoop()
+            }
         }
     }
 
