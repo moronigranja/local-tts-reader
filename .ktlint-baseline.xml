@@ -2881,23 +2881,24 @@
         <error line="1163" column="21" source="standard:multiline-expression-wrapping" />
         <error line="1344" column="9" source="standard:spacing-between-declarations-with-comments" />
         <error line="1347" column="9" source="standard:spacing-between-declarations-with-comments" />
-        <error line="1353" column="9" source="standard:blank-line-before-declaration" />
-        <error line="1353" column="9" source="standard:spacing-between-declarations-with-comments" />
-        <error line="1355" column="9" source="standard:spacing-between-declarations-with-comments" />
-        <error line="1357" column="9" source="standard:spacing-between-declarations-with-comments" />
+        <error line="1359" column="9" source="standard:blank-line-before-declaration" />
+        <error line="1359" column="9" source="standard:no-consecutive-comments" />
         <error line="1359" column="9" source="standard:spacing-between-declarations-with-comments" />
-        <error line="1362" column="9" source="standard:spacing-between-declarations-with-comments" />
-        <error line="1366" column="9" source="standard:spacing-between-declarations-with-comments" />
-        <error line="1381" column="35" source="standard:function-signature" />
-        <error line="1381" column="46" source="standard:function-signature" />
-        <error line="1381" column="64" source="standard:function-signature" />
-        <error line="1381" column="81" source="standard:function-signature" />
-        <error line="1381" column="96" source="standard:function-signature" />
-        <error line="1414" column="27" source="standard:function-signature" />
-        <error line="1414" column="43" source="standard:function-signature" />
-        <error line="1414" column="66" source="standard:function-signature" />
-        <error line="1414" column="83" source="standard:function-signature" />
-        <error line="1414" column="96" source="standard:function-signature" />
+        <error line="1361" column="9" source="standard:spacing-between-declarations-with-comments" />
+        <error line="1363" column="9" source="standard:spacing-between-declarations-with-comments" />
+        <error line="1365" column="9" source="standard:spacing-between-declarations-with-comments" />
+        <error line="1368" column="9" source="standard:spacing-between-declarations-with-comments" />
+        <error line="1372" column="9" source="standard:spacing-between-declarations-with-comments" />
+        <error line="1387" column="35" source="standard:function-signature" />
+        <error line="1387" column="46" source="standard:function-signature" />
+        <error line="1387" column="64" source="standard:function-signature" />
+        <error line="1387" column="81" source="standard:function-signature" />
+        <error line="1387" column="96" source="standard:function-signature" />
+        <error line="1420" column="27" source="standard:function-signature" />
+        <error line="1420" column="43" source="standard:function-signature" />
+        <error line="1420" column="66" source="standard:function-signature" />
+        <error line="1420" column="83" source="standard:function-signature" />
+        <error line="1420" column="96" source="standard:function-signature" />
     </file>
     <file name="feature-player/src/main/kotlin/com/moronigranja/localttsreader/featureplayer/playback/PregenCache.kt">
         <error line="17" column="18" source="standard:annotation" />

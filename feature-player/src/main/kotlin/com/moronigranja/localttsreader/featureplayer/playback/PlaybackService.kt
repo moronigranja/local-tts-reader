@@ -1350,6 +1350,12 @@ class PlaybackService : Service() {
 
         /** 10 ms of completion margin in frames at a rendered rate (S5). */
         private fun frameMargin(sampleRate: Int): Int = sampleRate / 100
+        // D1 (roadmap "approximately 30-second audio horizon"): the look-ahead
+        // target. Kept at 45 s — a time-based fill re-runs each tick, so the
+        // horizon is already self-sustaining while playing, and shrinking it
+        // would reduce the buffer-before-start headroom on the B6 (RTF 2.9).
+        // Survive-seek (the D1 slice that landed) is what makes seeks cheap;
+        // a narrower horizon is a measured follow-up, not a blind change.
         /** Prefill: buffer this many seconds of audio ahead while playing. */
         private const val PREFILL_LOOKAHEAD_SECONDS = 45.0
         /** Prefill: hard passage ceiling (bulwark against tiny-passage books). */
