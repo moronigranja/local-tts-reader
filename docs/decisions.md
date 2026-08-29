@@ -27,6 +27,39 @@ notification (the passage ordinal in the notification text forces a re-notify ev
 passage, an IPC to system_server on the player coroutine), and re-measure. Marker support
 is worth keeping regardless of the outcome (completion accuracy).
 
+## 82. Boundary-gap attribution — the AudioTrack rebuild is the cost (2026-08-28)
+
+Follow-up to #81 (marker-accurate gap ≈ 73 ms median, above the ≤ 50 ms SLO). Two
+interventions + stage timing on the S22:
+
+- **Notification IPC ruled out.** Per-boundary re-`notify` (an IPC to system_server
+  on the player coroutine) was skipped via a transport-key gate (`buildNotifyKey` =
+  book + play/pause action; verified: exactly 1 `notify(42)` across an entire run).
+  The gap did NOT move — the notify was never the dominant cost. The skip stays:
+  fewer IPC wakeups for free, with the documented caveat that the shade's passage
+  ordinal lags until the next phase/transport change.
+- **Stage attribution** (`AyvuBoundary adv=… pub=…` + `AyvuPlay out=…`): the
+  marker-to-dispatch gap decomposes into
+  `out` (the `output.play` call: 29-55 ms, avg ≈ 40 ms) +
+  `pub` (structural publish, session updates only: 5-42 ms, avg ≈ 20 ms) +
+  `adv` (machine advance + Room progress write: 4-23 ms, avg ≈ 13 ms).
+  `out` is THE cost: `AudioTrackPassageOutput.play` rebuilds a fresh MODE_STATIC
+  track per passage (release + build + full static write + setPlaybackRate + play).
+  The S4 reuse rarely engages because most passages differ in size, and a static
+  track's capacity is part of its identity (a shorter re-write would replay stale
+  tail audio — AOSP static server plays to the constructed frame count), so the
+  rebuild is paid at nearly every boundary.
+- The probes remain debug-gated (`AyvuBoundary`/`AyvuPlay` join `AyvuGap`/`AyvuTap`).
+
+Evidence: `AyvuPlay out=29/40/49/55`, `AyvuBoundary adv=4-23 pub=5-42`,
+`AyvuGap 54-90 m=1` on the S22; `./tools/docker-build.sh :feature-player:testDebugUnitTest :app:assembleDebug` → BUILD SUCCESSFUL.
+
+**Next (decision pending)**: the fix direction is the output model — (a) pre-arm the
+next passage's track during playback (overlap the rebuild off the critical path),
+(b) a single streaming track per book (reverses the S4 static-track verdict, justified
+by the measured 29-55 ms rebuild), or (c) accept ~70 ms as the shipped boundary until
+a rewrite. Not started — output-model change with real tradeoffs, owner call.
+
 ## 80. Device-leg results — S22 Ultra (2026-08-28)
 
 The measurements the goals doc (G1/G2/G3) and QW2/QW4 acceptance depend on, collected

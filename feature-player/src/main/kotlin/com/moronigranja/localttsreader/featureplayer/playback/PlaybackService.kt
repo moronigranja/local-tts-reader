@@ -40,6 +40,7 @@ import com.moronigranja.localttsreader.player.passageText
 import com.moronigranja.localttsreader.player.pregen.PregenAudio
 import com.moronigranja.localttsreader.player.pregen.PregenKey
 import com.moronigranja.localttsreader.player.pregen.PregenQueue
+import com.moronigranja.localttsreader.player.PlayerState
 import com.moronigranja.localttsreader.player.SleepTimer
 import com.moronigranja.localttsreader.persistence.AppSettings
 import com.moronigranja.localttsreader.persistence.RoomLibraryStore
@@ -144,6 +145,13 @@ class PlaybackService : Service() {
     /** Marker-accurate gap baseline (decisions #81): set when the
      * end-of-buffer marker fires, consumed by the next play dispatch. */
     private var lastMarkerAt = 0L
+    /** The notification key of the last re-`notify` (decisions #82): the
+     * per-boundary re-notify was an IPC to system_server on the player
+     * coroutine, a measurable part of the boundary gap. Skipped when the
+     * transport-relevant visible content (book + play/pause action) is
+     * unchanged — the passage ordinal in the shade may lag until the next
+     * phase/transport change (a fresh notify fires then). */
+    private var lastNotifiedKey: String? = null
     // Media-notification cover art, cached per book (files/covers/<bookId>).
     private var coverArtBookId: String? = null
     private var coverArt: Bitmap? = null
@@ -641,8 +649,15 @@ class PlaybackService : Service() {
             baselineOffset = position.offsetSeconds
             lastSampleRateHz = audio.sampleRateHz
             active.onAudioStarted()
+            val playStart = if (probesActive) clock() else 0L
             val sliced = sliceForSpeed(audio.pcm, baselineOffset, audio.sampleRateHz, current.speed)
             output.play(sliced, audio.sampleRateHz, current.speed)
+            if (probesActive) {
+                probe(
+                    "AyvuPlay",
+                    "out=${clock() - playStart} frames=${sliced.size / 2} passage=${position.chapterIndex}/${position.passageIndex}",
+                )
+            }
             // Measurement probes (goals §Measurement): tap-to-audio at the
             // first frame actually written to AudioTrack, and the boundary
             // gap vs the previous CONSECUTIVE same-loop play. gap-ms is an
@@ -682,7 +697,14 @@ class PlaybackService : Service() {
             android.util.Log.d("PlaybackService", "loop: await returned finished=$finished (pos=${output.positionSamples}/${sliced.size / 2})")
             if (!finished) return
 
+            // Boundary stage-attribution (decisions #82): the marker-accurate
+            // gap is the sum of the advance+write, the structural publish,
+            // and the next dispatch's source resolution. Logged once per
+            // boundary so the ~70 ms residual can be pinned instead of
+            // guessed at.
+            val b0 = if (probesActive) clock() else 0L
             val events = active.onPassageFinished()
+            val b1 = if (probesActive) clock() else 0L
             android.util.Log.d("PlaybackService", "loop: onPassageFinished events=$events")
             if (events.isEmpty()) return
             if (events.any { it is PlayerEvent.PlaybackCompleted || it is PlayerEvent.PauseRequested }) {
@@ -690,6 +712,12 @@ class PlaybackService : Service() {
                 return
             }
             publish()
+            if (probesActive) {
+                probe(
+                    "AyvuBoundary",
+                    "adv=${b1 - b0} pub=${clock() - b1} passage=${position.chapterIndex}/${position.passageIndex}",
+                )
+            }
         }
     }
 
@@ -773,7 +801,16 @@ class PlaybackService : Service() {
                 )
                 .build(),
         )
-        runCatching { NotificationManagerCompat.from(this).notify(NOTIFICATION_ID, buildNotification()) }
+        // Boundary-path optimization (decisions #82): re-notifying every
+        // passage is an IPC to system_server on the player coroutine — a
+        // measurable part of the measured boundary gap. The visible content
+        // (book + play/pause action) only changes on book/phase/transport
+        // transitions, so skip the notify when those are unchanged.
+        val notifyKey = buildNotifyKey(state)
+        if (notifyKey != lastNotifiedKey) {
+            runCatching { NotificationManagerCompat.from(this).notify(NOTIFICATION_ID, buildNotification()) }
+            lastNotifiedKey = notifyKey
+        }
     }
 
     /** Per-second read-along/progress publish (S3, goals G1/G3): StateFlow
@@ -889,6 +926,17 @@ class PlaybackService : Service() {
         override fun onReceive(context: Context?, intent: Intent?) {
             if (intent?.action == AudioManager.ACTION_AUDIO_BECOMING_NOISY) pausePlayer(PauseReason.NOISY)
         }
+    }
+
+    /** The transport-relevant identity of the media notification's visible
+     * content (decisions #82): book + whether the play/pause action shows
+     * play or pause. The passage ordinal is deliberately excluded — it
+     * changes every boundary and is what forced the per-passage IPC; the
+     * shade may show a stale ordinal until the next phase/transport change
+     * (a fresh notify fires then, and the ordinal updates). */
+    private fun buildNotifyKey(state: PlayerState): String? {
+        val phase = state.phase
+        return "${book?.id}|${phase == PlayerPhase.PLAYING || phase == PlayerPhase.LOADING}"
     }
 
     private fun buildNotification(): Notification {
@@ -1112,6 +1160,7 @@ class PlaybackService : Service() {
         playAt = 0L
         prevFrames = 0
         lastMarkerAt = 0L // a cancelled track never fires its marker — no stale gap
+        lastNotifiedKey = null // a fresh command re-notifies with current state
         output.stop()
         focusRequest?.let { audioManager.abandonAudioFocusRequest(it) }
         focusRequest = null
