@@ -74,9 +74,17 @@ class SettingsViewModel @Inject constructor(
     private val errors = MutableStateFlow<Map<String, String>>(emptyMap())
     private val voices = MutableStateFlow<List<String>>(emptyList())
 
+    /** Bumped after each espeak staging so the filesystem-derived status
+     * re-evaluates (staging completes AFTER the registry's ready emission). */
+    private val espeakStageTick = MutableStateFlow(0)
+
+    private val packState = combine(registry.packs, progress, errors) { packs, prog, err ->
+        Triple(packs, prog, err)
+    }
+
     // settings.state is push-based (AppSettings mirrors every write), so the
     // UI reflects a change the moment the store lands — no polling.
-    private val core = combine(registry.packs, progress, errors, voices, settings.state) { packs, prog, err, voices, prefs ->
+    private val core = combine(packState, voices, settings.state, espeakStageTick) { (packs, prog, err), voices, prefs, _ ->
         SettingsUiState(
             packs = packs.map { packRow(it, prog[it.pack.id], err[it.pack.id]) },
             voices = voices,
@@ -203,6 +211,7 @@ class SettingsViewModel @Inject constructor(
     private suspend fun stageEspeak(packId: String) {
         val pack = registry.packs.value.firstOrNull { it.pack.id == packId }?.pack ?: return
         runCatching { EspeakStager.stage(filesDir, cache, pack) }
+            .onSuccess { staged -> if (staged) espeakStageTick.value += 1 }
             .onFailure { errors.update(packId, "staging failed: ${it.message}") }
     }
 
