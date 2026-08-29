@@ -161,10 +161,26 @@ reversal now spans the full session window — manual/offline pregen suspends fr
 session start through the post-stop fill's completion (`PlaybackActive`, #76) —
 plus S5 engine-dimension + rate-aware prep (#77), the S3 publish
 details/snapshot split and QW4 one-fill-job merge (#78), and the S4 AudioTrack
-reuse micro-lean (#79). Device-leg items remain PENDING on hardware: QW2
-post-death notification resume (L3 acceptance), L1/L2/L3/GAP1 number collection,
-QW4's post-stop self-stop acceptance, and a screen-off sanity pass — a device is
-now available.
+reuse micro-lean (#79).
+
+Device-leg results (S22 Ultra, 2026-08-28, decisions #80):
+- **L1 warm tap-to-audio: 230 ms — PASS** (< 300 ms). Cold first-play in a fresh
+  process (engine open + disk fetch): 2 563 ms — no target (LOANING documented),
+  warm-after is the SLO.
+- **GAP1 probe (dispatch-to-dispatch): p50 ≈ 95 ms, p95 ≈ 111 ms on-screen;
+  ≈ 80 ms screen-off — ABOVE the ≤ 50 ms target.** Caveat: the probe measures
+  play-dispatch to play-dispatch and includes the 50 ms completion-poll latency +
+  loop re-entry, so the true audible gap is lower than reported; adjudicating the
+  SLO needs marker-based measurement (existing probe overstates; the historical
+  20 ms steady-state was measured differently). Flagged for a marker follow-up.
+- **QW4 post-stop fill: PASS** — fill from the last playhead, self-stopped at
+  46 s ahead, no runaway (service record 0 after).
+- **Screen-off sanity: PASS** — Dozing, no 50 ms-poll stall; boundaries advanced
+  normally (gaps 61-97 ms), resolves the long-standing deep-sleep [INFERENCE].
+- **QW2/L3 post-death notification tap: NOT REPRODUCIBLE on-device** — a
+  force-stopped process removes the FGS notification with it (nothing to tap);
+  the in-process rebuild halves are Robolectric-proven (#72). Headset/media
+  buttons after death remain a system limitation (no live session).
 
 Goal-driven deltas to the proposal and the resulting execution order:
 `docs/generate-play-lean-up.md` → **Goals impact (2026-08-28)**.

@@ -1,5 +1,41 @@
 # Decision log
 
+## 80. Device-leg results — S22 Ultra (2026-08-28)
+
+The measurements the goals doc (G1/G2/G3) and QW2/QW4 acceptance depend on, collected
+on the S22 Ultra (`SM_S908U1`) with the probe-enabled debug build.
+
+- **L1 warm tap-to-audio: 230 ms — PASS** (`< 300 ms`; `AyvuTap ms=230 source=disk
+  action=play`). Cold first-play in a fresh process (engine open + disk fetch):
+  2 563 ms — informational, no target; the SLO is the warm path.
+- **GAP1 probe: ABOVE target.** Dispatch-to-dispatch boundary gap (logcat `AyvuGap`
+  avg over consecutive same-loop plays): on-screen p50 ≈ 95 ms / p95 ≈ 111 ms,
+  screen-off ≈ 80 ms — over the `≤ 50 ms` SLO. **Measurement caveat**: the probe
+  measures play-dispatch to play-dispatch and includes the 50 ms completion-poll
+  latency and loop re-entry, so the TRUE audible gap is lower than the probe reports
+  (the historical 20 ms steady-state was measured differently). Adjudicating the
+  SLO requires marker-based completion (not the polling approximation). Flagged:
+  marker-based gap measurement is the follow-up before calling G2 met or missed.
+- **QW4 post-stop fill: PASS** — STOP dispatched via the media session; the merged
+  fill job started at the last playhead, found 46.0 s already queued, logged
+  `postStop: fill done … self-stopping`, and the service record dropped to 0 — no
+  runaway, exactly the QW4 acceptance (the merged fill + G2 session-window mark
+  both work on-device).
+- **Screen-off sanity: PASS** — `mWakefulness=Dozing`, playback continued, boundary
+  gaps 61-97 ms with no 50 ms-poll stall; resolves the deep-sleep poll [INFERENCE]
+  that had been open since the overview (structure §5).
+- **QW2/L3 post-death notification tap: NOT REPRODUCIBLE on-device.** A
+  force-stopped process removes the FGS notification with it (notification list
+  empty after `am force-stop`), so there is nothing to tap after death on this
+  Android build. The in-process halves (action intents carry `EXTRA_BOOK_ID`;
+  `onPlay` rebuilds the machine from the holder id) remain Robolectric-proven
+  (#72); the headset/media-button post-death path remains a system limitation (no
+  live MediaSession after process death). The L3 `< 5 s` number therefore stands
+  as the code-path contract, not a device-observed measurement.
+
+Evidence: the logcat probe lines quoted above; `dumpsys power`/`dumpsys audio`/
+`cmd notification list` observations during the run.
+
 ## 79. S4 — AudioTrack reuse (2026-08-28)
 
 S4 lands the micro-lean the structural verdict kept open (lean-up §4): `AudioTrackPassageOutput` now retains ONE MODE_STATIC `AudioTrack` across passages instead of building a fresh track per boundary.
