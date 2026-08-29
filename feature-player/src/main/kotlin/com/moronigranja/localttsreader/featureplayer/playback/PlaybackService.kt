@@ -60,6 +60,8 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.selects.onTimeout
+import kotlinx.coroutines.selects.select
 
 /**
  * T4-2 playback: foreground service running the [PlayerStateMachine] against
@@ -139,6 +141,9 @@ class PlaybackService : Service() {
     private var tapAction: String? = null
     private var playAt = 0L
     private var prevFrames = 0
+    /** Marker-accurate gap baseline (decisions #81): set when the
+     * end-of-buffer marker fires, consumed by the next play dispatch. */
+    private var lastMarkerAt = 0L
     // Media-notification cover art, cached per book (files/covers/<bookId>).
     private var coverArtBookId: String? = null
     private var coverArt: Bitmap? = null
@@ -647,9 +652,20 @@ class PlaybackService : Service() {
             if (probesActive) {
                 val frames = sliced.size / 2
                 val now = clock()
-                val gapMs = computeGapMs(now, playAt, prevFrames, audio.sampleRateHz)
+                val markerUsed = lastMarkerAt > 0L
+                val gapMs = if (markerUsed) {
+                    // Marker-accurate audible gap (decisions #81): audio N's
+                    // exact end (marker callback) to this play's dispatch —
+                    // no poll quantization. Falls back to [computeGapMs] when
+                    // the marker did not fire (unreliable-device concern).
+                    val g = now - lastMarkerAt
+                    lastMarkerAt = 0L
+                    g.takeIf { it >= 0 }
+                } else {
+                    computeGapMs(now, playAt, prevFrames, audio.sampleRateHz)
+                }
                 if (gapMs != null) {
-                    probe("AyvuGap", "gap-ms=$gapMs passage=${position.chapterIndex}/${position.passageIndex}")
+                    probe("AyvuGap", "gap-ms=$gapMs m=${if (markerUsed) 1 else 0} passage=${position.chapterIndex}/${position.passageIndex}")
                 }
                 playAt = now
                 prevFrames = frames
@@ -678,19 +694,29 @@ class PlaybackService : Service() {
     }
 
     private suspend fun awaitPlaybackOrStop(totalFrames: Int, sampleRate: Int, active: PlayerStateMachine): Boolean {
-        // Static tracks park the head at the end without a marker callback on
-        // some devices; poll the head position (10 ms of margin, from the
-        // rendered rate — S5 kills the kokoro 24 kHz constant).
+        // Marker-based completion (decisions #81): an exact end-of-buffer
+        // marker removes the 50 ms poll quantization from the boundary gap —
+        // the poll stays as the fallback for devices where static markers
+        // never fire. 10 ms margin from the rendered rate (S5).
+        val marker = CompletableDeferred<Unit>()
+        output.setCompletionMarker(totalFrames) {
+            if (probesActive) lastMarkerAt = clock()
+            marker.complete(Unit)
+        }
         val target = totalFrames - frameMargin(sampleRate)
         while (true) {
             if (stopSignal.isCompleted) return false
-            if (output.positionSamples >= target) return true
+            if (marker.isCompleted || output.positionSamples >= target) return true
             // CR-2: throttled live-playhead checkpoint while playing — abrupt
             // process death loses at most one interval, not a whole passage.
             // Runs in the player coroutine, so it cannot race the machine's
             // own passage transitions (single-player-writer edge).
             if (dueCheckpoint(clock())) active.notePlaybackOffset(liveOffsetSeconds())
-            delay(50)
+            // Wake on the marker (immediate end) or the poll tick (fallback).
+            select<Unit> {
+                marker.onAwait { Unit }
+                onTimeout(50) { Unit }
+            }
         }
     }
 
@@ -1085,6 +1111,7 @@ class PlaybackService : Service() {
         // survive to the first play dispatch.
         playAt = 0L
         prevFrames = 0
+        lastMarkerAt = 0L // a cancelled track never fires its marker — no stale gap
         output.stop()
         focusRequest?.let { audioManager.abandonAudioFocusRequest(it) }
         focusRequest = null

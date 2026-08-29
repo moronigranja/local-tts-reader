@@ -3,13 +3,17 @@ package com.moronigranja.localttsreader.featureplayer.playback
 import android.media.AudioAttributes
 import android.media.AudioFormat
 import android.media.AudioTrack
+import android.os.Handler
+import android.os.Looper
 
 /**
  * One passage's audio output — the seam the service plays through and tests
- * fake. [play] is non-blocking; the CALLER detects completion by polling
- * [positionSamples] against the buffer's frame count (static tracks park the
- * head at the end without a reliable marker on some devices), and [stop]
- * cancels playback, after which [positionSamples] reads 0.
+ * fake. [play] is non-blocking; the CALLER detects completion either via an
+ * exact end marker armed with [setCompletionMarker] (verified reliable on the
+ * S22, decisions #81) or by polling [positionSamples] against the frame count
+ * as a fallback (the historical "static markers unreliable on some devices"
+ * concern — kept because the marker path is device-dependent); [stop] cancels
+ * playback, after which [positionSamples] reads 0.
  *
  * [speed] is applied via [AudioTrack.setPlaybackRate] — the audio system's
  * rate converter (no manual resampling, no interpolation artifacts). The
@@ -22,6 +26,11 @@ interface PassageOutput {
     fun stop()
     val positionSamples: Int
     fun setVolume(multiplier: Float)
+    /** One-shot end-of-buffer marker (decisions #81): [onReached] fires when
+     * playback passes [frames]. Where MODE_STATIC markers are unreliable the
+     * platform never fires it and the caller's [positionSamples] polling is
+     * the fallback. Default no-op so test fakes compile unchanged. */
+    fun setCompletionMarker(frames: Int, onReached: () -> Unit) = Unit
 }
 
 /** Real output: one MODE_STATIC [AudioTrack] retained across passages
@@ -30,12 +39,27 @@ interface PassageOutput {
 class AudioTrackPassageOutput : PassageOutput {
 
     private var track: AudioTrack? = null
+    private var markerCallback: (() -> Unit)? = null
+    private var markerListenerAttached = false
+
+    private val markerListener = object : AudioTrack.OnPlaybackPositionUpdateListener {
+        override fun onMarkerReached(track: AudioTrack) {
+            // One-shot per passage: captured and cleared after firing.
+            markerCallback?.let { cb ->
+                markerCallback = null
+                cb()
+            }
+        }
+
+        override fun onPeriodicNotification(track: AudioTrack) = Unit
+    }
 
     override fun play(pcm: ByteArray, sampleRate: Int, speed: Double) {
         val retained = track
         if (retained == null || !shouldReuse(retained, sampleRate, pcm.size)) {
             stop()
             track = buildTrack(pcm.size, sampleRate)
+            markerListenerAttached = false // fresh track: re-attach the listener
         } else {
             // MODE_STATIC refeed: stop() resets the static head to the buffer
             // start (AOSP stop() pushes position 0 for static tracks — the
@@ -84,6 +108,8 @@ class AudioTrackPassageOutput : PassageOutput {
             current.release()
         }
         track = null
+        markerListenerAttached = false
+        markerCallback = null
     }
 
     /** Monotonic played samples; 0 when idle. Safe for UI polling. */
@@ -92,6 +118,16 @@ class AudioTrackPassageOutput : PassageOutput {
 
     override fun setVolume(multiplier: Float) {
         track?.setVolume(multiplier.coerceIn(0f, 1f))
+    }
+
+    override fun setCompletionMarker(frames: Int, onReached: () -> Unit) {
+        markerCallback = onReached
+        val t = track ?: return
+        if (!markerListenerAttached) {
+            runCatching { t.setPlaybackPositionUpdateListener(markerListener, Handler(Looper.getMainLooper())) }
+            markerListenerAttached = true
+        }
+        runCatching { t.setNotificationMarkerPosition(frames.coerceAtLeast(1)) }
     }
 }
 
