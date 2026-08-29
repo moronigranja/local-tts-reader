@@ -49,8 +49,11 @@ import com.moronigranja.localttsreader.tts.SynthesisOutcome
 import com.moronigranja.localttsreader.tts.SynthesisRequest
 import dagger.hilt.android.AndroidEntryPoint
 import java.io.File
+import java.util.concurrent.Executors
 import javax.inject.Inject
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.asCoroutineDispatcher
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -82,6 +85,16 @@ class PlaybackService : Service() {
     @Inject lateinit var pregenCache: PregenCache
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    /** Dedicated player thread (decisions #85): the loop + ticker run on their
+     * own single-thread dispatcher so the boundary path (advance → publish →
+     * next dispatch) never queues behind the prefill's synthesis on
+     * [Dispatchers.Default] — the boundary gap's `pub` stage was measured at
+     * 7-45 ms of CPU-contention time with the session/notify already gated.
+     * Single-threaded also hardens the machine's single-writer edge (ticker
+     * and loop share one thread). */
+    private val playerDispatcher = Executors.newSingleThreadExecutor { r ->
+        Thread(r, "AyvuPlayer").apply { priority = Thread.MAX_PRIORITY }
+    }.asCoroutineDispatcher()
     /** CR-2 host-test seam: the current machine (set by tests directly). */
     internal var machine: PlayerStateMachine? = null
     /** Active book (internal for host tests that drive commands directly). */
@@ -157,6 +170,9 @@ class PlaybackService : Service() {
      * unchanged — the passage ordinal in the shade may lag until the next
      * phase/transport change (a fresh notify fires then). */
     private var lastNotifiedKey: String? = null
+    /** MediaSession content key (decisions #85): book + phase — the session
+     * is updated only when this changes, not at every passage boundary. */
+    private var lastSessionKey: String? = null
     // Media-notification cover art, cached per book (files/covers/<bookId>).
     private var coverArtBookId: String? = null
     private var coverArt: Bitmap? = null
@@ -595,7 +611,14 @@ class PlaybackService : Service() {
 
     private suspend fun startLoop() {
         loopJob = coroutineContext[Job]
-        tickerJob = scope.launch { ticker() }
+        tickerJob = scope.launch { withContext(playerDispatcher) { ticker() } }
+        withContext(playerDispatcher) {
+            runLoop()
+        }
+    }
+
+    /** The playback loop body, on the dedicated player thread (decisions #85). */
+    private suspend fun runLoop() {
         while (true) {
             val active = machine ?: return
             val current = active.state.value
@@ -809,32 +832,44 @@ class PlaybackService : Service() {
     private fun publish() {
         val active = machine ?: run { PlaybackStateHolder.reset(); return }
         val state = active.state.value
+        // The reader's per-second progress/read-along surface (StateFlow
+        // only) is always kept current — cheap, no IPC.
         PlaybackStateHolder.update { stateCopy(it, active) }
-        session.setMetadata(
-            MediaMetadataCompat.Builder()
-                .putString(MediaMetadataCompat.METADATA_KEY_TITLE, book?.title ?: "")
-                .putString(MediaMetadataCompat.METADATA_KEY_ARTIST, "local-tts-reader")
-                .build(),
-        )
-        session.setPlaybackState(
-            PlaybackStateCompat.Builder()
-                .setActions(
-                    PlaybackStateCompat.ACTION_PLAY or PlaybackStateCompat.ACTION_PAUSE or
-                        PlaybackStateCompat.ACTION_SKIP_TO_PREVIOUS or PlaybackStateCompat.ACTION_SKIP_TO_NEXT or
-                        PlaybackStateCompat.ACTION_STOP,
-                )
-                .setState(
-                    when (state.phase) {
-                        PlayerPhase.PLAYING, PlayerPhase.LOADING -> PlaybackStateCompat.STATE_PLAYING
-                        PlayerPhase.PAUSED -> PlaybackStateCompat.STATE_PAUSED
-                        PlayerPhase.COMPLETED -> PlaybackStateCompat.STATE_STOPPED
-                        PlayerPhase.IDLE -> PlaybackStateCompat.STATE_NONE
-                    },
-                    PlaybackStateCompat.PLAYBACK_POSITION_UNKNOWN,
-                    1f,
-                )
-                .build(),
-        )
+        // MediaSession-boundary gate (decisions #85): the session carries only
+        // the book title + play/pause state, NEITHER of which changes at a
+        // passage boundary — so per-boundary setMetadata/setPlaybackState is
+        // pure IPC churn (a measurable part of the boundary gap, like the
+        // notify that #82 already gated). Update the session only when its
+        // content actually changes (book or phase).
+        val sessionKey = "${book?.id}|${state.phase}"
+        if (sessionKey != lastSessionKey) {
+            session.setMetadata(
+                MediaMetadataCompat.Builder()
+                    .putString(MediaMetadataCompat.METADATA_KEY_TITLE, book?.title ?: "")
+                    .putString(MediaMetadataCompat.METADATA_KEY_ARTIST, "local-tts-reader")
+                    .build(),
+            )
+            session.setPlaybackState(
+                PlaybackStateCompat.Builder()
+                    .setActions(
+                        PlaybackStateCompat.ACTION_PLAY or PlaybackStateCompat.ACTION_PAUSE or
+                            PlaybackStateCompat.ACTION_SKIP_TO_PREVIOUS or PlaybackStateCompat.ACTION_SKIP_TO_NEXT or
+                            PlaybackStateCompat.ACTION_STOP,
+                    )
+                    .setState(
+                        when (state.phase) {
+                            PlayerPhase.PLAYING, PlayerPhase.LOADING -> PlaybackStateCompat.STATE_PLAYING
+                            PlayerPhase.PAUSED -> PlaybackStateCompat.STATE_PAUSED
+                            PlayerPhase.COMPLETED -> PlaybackStateCompat.STATE_STOPPED
+                            PlayerPhase.IDLE -> PlaybackStateCompat.STATE_NONE
+                        },
+                        PlaybackStateCompat.PLAYBACK_POSITION_UNKNOWN,
+                        1f,
+                    )
+                    .build(),
+            )
+            lastSessionKey = sessionKey
+        }
         // Boundary-path optimization (decisions #82): re-notifying every
         // passage is an IPC to system_server on the player coroutine — a
         // measurable part of the measured boundary gap. The visible content
@@ -1210,6 +1245,7 @@ class PlaybackService : Service() {
         prevFrames = 0
         lastMarkerAt = 0L // a cancelled track never fires its marker — no stale gap
         lastNotifiedKey = null // a fresh command re-notifies with current state
+        lastSessionKey = null // a fresh command re-publishes the session
         output.stop()
         focusRequest?.let { audioManager.abandonAudioFocusRequest(it) }
         focusRequest = null
@@ -1249,6 +1285,7 @@ class PlaybackService : Service() {
         session.release()
         runCatching { unregisterReceiver(noisyReceiver) }
         scope.cancel()
+        playerDispatcher.close() // the dedicated player thread (decisions #85)
         super.onDestroy()
     }
 

@@ -27,6 +27,34 @@ notification (the passage ordinal in the notification text forces a re-notify ev
 passage, an IPC to system_server on the player coroutine), and re-measure. Marker support
 is worth keeping regardless of the outcome (completion accuracy).
 
+## 85. Dedicated player thread + session gate — boundary pub collapse (2026-08-28)
+
+The remaining boundary gap after #82/#84 was `pub` (7-45 ms) — but with the notify
+(#82) AND the MediaSession updates both gated (only book+phase changes re-publish;
+verified 1 session update across a full run), the cost was NOT the IPCs. It was CPU
+CONTENTION: the play loop and the prefill's synthesis share [Dispatchers.Default]
+(Default runs on min(2, cores) threads, so the boundary path queues behind
+inference). Fix: a dedicated single-thread `playerDispatcher` (max priority) runs
+the loop + ticker (`runLoop` + `withContext(playerDispatcher)`); synthesis and
+persists stay on Default; the dispatcher closes in onDestroy.
+
+- **Measured (S22): `pub` collapsed to 5-11 ms** (was 7-45 ms) — the contention
+  was real. The call-site is `startLoop` → `runLoop` (the loop body) + the ticker,
+  both on the player thread; the machine's single-writer edge is hardened by the
+  single thread.
+- The session gate (#85a) + notify gate (#82) are kept: they eliminate IPC churn
+  (1 session update, 1 notify per run) even though the gap post-thread is now
+  dominated elsewhere.
+- **Remaining**: steady-state gap 24-92 ms (median ≈ 68, ~half under 50) — the
+  SLO is still not reliably met. Drivers: pre-arm misses at the boundary (the
+  rebuilds: `out` 17-82) and the Room progress write on the player thread (`adv`
+  8-35, a slow write directly stalls the boundary). Next candidates: raise the
+  pre-arm hit rate (arm from the disk tier + queue more aggressively) and/or move
+  the progress write off the hot thread (harder — CR-2 ordering).
+
+Evidence: `AyvuBoundary pub=5/7/7/8/6/11/7/5/5` + `AyvuGap 24-92` on the S22;
+`./tools/docker-build.sh :feature-player:testDebugUnitTest` → BUILD SUCCESSFUL.
+
 ## 84. Pre-armed static track — boundary handoff (2026-08-28)
 
 The fallback per the owner's clause ("we have the option to go back to a"): the
