@@ -61,9 +61,15 @@ adb install -r -t spike-tts/build/outputs/apk/androidTest/debug/spike-tts-debug-
 adb push <dir>/kokoro-v1.0.onnx /data/local/tmp/kokoro-model
 adb push <dir>/voices-v1.0.bin /data/local/tmp/kokoro-voices
 adb push <dir>/kokoro-device-corpus.tsv /data/local/tmp/corpus.tsv
+# precision candidates (D3 spike; q8 is generated host-side from the pinned fp32):
+python3 tools/quantize_kokoro_q8.py <dir>/kokoro-v1.0.onnx <dir>/kokoro-v1.0.q8.onnx
+adb push <dir>/kokoro-v1.0.fp16.onnx /data/local/tmp/kokoro-model-fp16
+adb push <dir>/kokoro-v1.0.int8.onnx /data/local/tmp/kokoro-model-int8
+adb push <dir>/kokoro-v1.0.q8.onnx   /data/local/tmp/kokoro-model-q8
 adb shell "run-as com.moronigranja.localttsreader.spiketts sh -c \\
-  'mkdir -p files/models && cp /data/local/tmp/kokoro-model files/models/ && \\
-   cp /data/local/tmp/kokoro-voices files/models/ && cp /data/local/tmp/corpus.tsv files/'"
+  'cp /data/local/tmp/kokoro-model-fp16 files/models/ && \\
+   cp /data/local/tmp/kokoro-model-int8 files/models/ && \\
+   cp /data/local/tmp/kokoro-model-q8 files/models/'"
 # run: locked/off screen is fine — instrumented tests are exempt from the
 # process freezer (a launched-but-keyguarded Activity freezes in __refrigerator):
 adb logcat -c
@@ -72,6 +78,9 @@ adb logcat -d -s KokoroSpike   # per-run RTF + DONE
 # pull results (external files dir):
 adb exec-out run-as com.moronigranja.localttsreader.spiketts cat \
   /sdcard/Android/data/com.moronigranja.localttsreader.spiketts/files/kokoro_results.json
+# precision JSONs + A/B WAVs (kokoro_<label>_run1_<lang>.wav vs _oracle_<lang>.wav):
+adb exec-out run-as com.moronigranja.localttsreader.spiketts cat \
+  /sdcard/Android/data/com.moronigranja.localttsreader.spiketts/files/kokoro_precision_fp16.json
 ```
 
 ## espeak-ng Android bundle (decision #32)

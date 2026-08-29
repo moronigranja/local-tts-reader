@@ -1,4 +1,85 @@
 # Decision log
+## 86. D3 — Kokoro precision measurement: fp16 / int8 / q8 (2026-08-28)
+
+Measured three quantized precisions against the pinned fp32 CPU oracle on
+the S22 — the D2 follow-up #67 deferred ("needs X to adopt: a measured
+INT8/fp16 candidate that beats CPU RTF without sampling divergence, with
+`max_abs_diff <= 0.001`"). Measurement slice only: the harness gained a
+model-precision axis (`KokoroBenchmarkRunner.ModelPrecision` +
+`runPrecision` → a shared `measure` body), a host-side q8 generator
+(`tools/quantize_kokoro_q8.py`, dynamic QUInt8 with the load-bearing
+`conv_post` exclusion from kokoro-onnx-export), and per-precision
+oracle-gated result JSONs **+ candidate/oracle WAV pairs** for A/B
+listening. **No production pack or engine path changed.**
+
+Artifacts (thewh1teagle `model-files-v1.1`, same lineage as the pinned fp32;
+q8 generated host-side from the pinned fp32):
+
+| label | source | size (B) | sha256 |
+|---|---|---|---|
+| fp32 (oracle/pinned) | kokoro-v1.0.onnx | 325 505 369 | beb0d184… |
+| fp16 | kokoro-v1.0.fp16.onnx | 163 527 961 | f3a290d3… |
+| int8 | kokoro-v1.0.int8.onnx | 114 119 327 | ae315a79… |
+| q8 | kokoro-v1.0.q8.onnx (host-generated) | 114 176 961 | a259cd9f… |
+
+Results (S22 Ultra SM-S908U1, freshly rebooted — see device context; all
+candidates on CPU EP, oracle = the pinned fp32; corpus = P&P en-us 40.4 s +
+Dom Casmurro pt-br 22.8 s):
+
+| device | precision | engine-open ms | RTF (en/pt) | totalPss kB | VmHWM kB | max_abs_diff | mean_abs_diff |
+|---|---|---|---|---|---|---|---|
+| S22 Ultra | fp32 (baseline) | 1632 | 1.19 / 1.17 | 1 356 299 | 1 405 448 | — | — |
+| S22 Ultra | fp16 | 4793 | broken (0.25s) / 1.16 | 2 548 022 | 2 619 480 | 0.723 | 0.041 |
+| S22 Ultra | int8 | — | **unavailable** | — | — | — | — |
+| S22 Ultra | q8 | 3754 | 1.79 / 1.73 | 2 454 217 | 2 619 480 | 0.700 | 0.044 |
+
+Findings:
+- **fp16 — REJECTED.** The en-us passage synthesized as a **0.25 s stub of
+  pure silence** (pulled + analyzed on host: peak 0.0, zero nonzero samples);
+  pt-br produced full audio but `max_abs_diff = 0.723`, ~3 orders over the
+  0.001 gate.
+- **q8 — REJECTED.** Full audible output (no truncation), but
+  `max_abs_diff = 0.700` fails the oracle gate AND RTF 1.73–1.79 is *slower*
+  than the fp32 baseline's 1.16–1.20 (dynamic quant pays runtime re-quant).
+- **int8 — CANNOT RUN on the CPU execution provider.** Fails at open with
+  ORT `not_implemented`: `Could not find an implementation for ConvInteger(10)`
+  node `/text_encoder/cnn.0/cnn.0.0/Conv_quant`. The same-lineage int8 graph
+  is pre-quantized (static `ConvInteger`), which ORT's CPU EP does not
+  implement for this graph — this is the exact "int8 was regressed to fp32
+  on-device" class of loss decision #26 already hit, and #67's "(i) a
+  quantized graph that actually beats CPU RTF" remains unmet. Non-fatal:
+  `measure` caught it, logged `candidate int8 unavailable`, and the rest of
+  the batch completed.
+- **Device context / why two earlier runs died:** the first instrumented and
+  first foreground runs were reaped by Samsung's lmkd (SigKill) midway —
+  device uptime was ~256 days with load 12–23 and triplicated SIM/EPDG
+  background churn. After a reboot (load settled to ~6.4) the full six-pass
+  batch — CPU, XNNPACK, NNAPI, then fp16, int8, q8 — **completed with no
+  kill.** PSS/VmHWM here are cumulative across the whole batch in one process,
+  so the per-candidate memory delta is the difference from the CPU baseline
+  pass (~+1.1-1.2 GB), consistent with #67's "/roughly double resident
+  memory".
+
+Decision per the D2.3 hard rule (adopt only if it beats CPU RTF +
+`max_abs_diff <= 0.001` + PSS/thermal not worse):
+- **No precision candidate satisfies the rule. Keep production on the pinned
+  fp32. No pack change in this slice.**
+- fp16 fails the oracle gate (0.723) and is outright broken (silent en-us).
+- q8 fails the gate (0.700) AND is slower than fp32.
+- int8 is non-runnable on the CPU EP (no `ConvInteger` implementation).
+- This is consistent with, and conclusively re-confirms, decisions #26/#67:
+  the quantized family is too lossy for the 0.001 oracle gate, and none beats
+  the fp32 CPU baseline on this device. The host q8 generator and the
+  precision harness axis remain in-repo for any future quantized candidate
+  (e.g. a full static-quant INT8 whose graph the CPU EP can actually run) —
+  the same measurement leg reapplies.
+
+Evidence: `tools/quantize_kokoro_q8.py` ran (excluded
+`/decoder/generator/conv_post/Conv`, 114 176 961 B); `:spike-tts:assembleDebug
+:assembleDebugAndroidTest :core-player:test :feature-player:compileDebugKotlin
+:app:assembleDebug` BUILD SUCCESSFUL; S22 instrumented+foreground run wrote all
+six result JSONs + candidate/oracle WAV pairs (fp16/q8); WAVs pulled and
+analyzed on host (RMS/peak + diff).
 
 ## 81. Marker-based boundary-gap measurement — S22 verified, GAP1 unmet (2026-08-28)
 

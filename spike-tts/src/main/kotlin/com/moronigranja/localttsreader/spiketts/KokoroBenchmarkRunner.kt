@@ -37,8 +37,12 @@ import org.json.JSONObject
  * amplitude deltas across the corpus are reported; a candidate whose max
  * abs diff exceeds [ORACLE_REJECT_THRESHOLD] or any passage errors is recorded
  * as rejected. Cold engine-open ms (the D1 metric) is captured per provider.
- * A candidate that cannot initialize logs `provider <label> unavailable` and
+ * A candidate that cannot initialize logs `candidate <label> unavailable` and
  * is skipped while CPU still completes. Default deployment stays CPU.
+ *
+ * D3 — model-precision spike (measurement only): fp16 / int8 / q8 models run on
+ * CPU EP, each oracle-gated against the pinned fp32, writing
+ * `kokoro_precision_<label>.json`.
  */
 class KokoroBenchmarkRunner(private val context: Context) {
 
@@ -47,6 +51,12 @@ class KokoroBenchmarkRunner(private val context: Context) {
         CPU("cpu", {}),
         XNNPACK("xnnpack", { it.addXnnpack(mapOf("intra_op_num_threads" to "6")) }),
         NNAPI("nnapi", { it.addNnapi() }),
+    }
+    /** Model precisions for the D3 spike (all run on CPU EP). */
+    enum class ModelPrecision(val label: String, val fileName: String) {
+        FP16("fp16", "kokoro-model-fp16"),
+        INT8("int8", "kokoro-model-int8"),
+        Q8("q8", "kokoro-model-q8"),
     }
 
     companion object {
@@ -65,19 +75,34 @@ class KokoroBenchmarkRunner(private val context: Context) {
             val ok = run(provider, log)
             if (provider == OrtProvider.CPU && ok) cpuOk = true
         }
+        for (precision in ModelPrecision.entries) {
+            runPrecision(precision, log)
+        }
         return cpuOk
     }
 
     /**
-     * Runs a single provider pass; returns true when its own runs completed.
-     * A candidate that fails to initialize logs unavailable and returns false
-     * without aborting the batch.
+     * Runs a single candidate pass (provider or precision); returns true when
+     * its own runs completed. A candidate that fails to initialize logs
+     * unavailable and returns false without aborting the batch.
      */
-    fun run(provider: OrtProvider, log: (String) -> Unit): Boolean {
+    private fun measure(
+        label: String,
+        modelFileName: String,
+        options: (OrtSession.SessionOptions) -> Unit,
+        oracleModelFileName: String?,   // null → no oracle (CPU EP baseline pass)
+        runs: Int,                       // CPU EP baseline → RUNS, else 1
+        capstone: Boolean,               // true only for CPU EP baseline (espeak full-pipeline block)
+        resultFileName: String,
+        log: (String) -> Unit,
+    ): Boolean {
         val outDir = context.getExternalFilesDir(null) ?: context.filesDir
         return try {
-            check(File(models, "kokoro-model").isFile && File(models, "kokoro-voices").isFile) {
+            check(File(models, modelFileName).isFile && File(models, "kokoro-voices").isFile) {
                 "models not found under ${models.absolutePath} — stage them first (see build.md)"
+            }
+            if (oracleModelFileName != null && oracleModelFileName != modelFileName) {
+                check(File(models, oracleModelFileName).isFile) { "oracle model not staged: $oracleModelFileName" }
             }
             check(corpusFile.isFile) { "corpus not found at ${corpusFile.absolutePath}" }
 
@@ -88,7 +113,7 @@ class KokoroBenchmarkRunner(private val context: Context) {
             check(entries.isNotEmpty()) { "corpus.tsv is empty or malformed" }
             val lookup = entries.associate { it.first to it.third }
             val languages = entries.map { it.second }.toSet()
-            log("provider=${provider.label} device: ${Build.MANUFACTURER} ${Build.MODEL}, sdk ${Build.VERSION.SDK_INT}")
+            log("candidate=$label device: ${Build.MANUFACTURER} ${Build.MODEL}, sdk ${Build.VERSION.SDK_INT}")
             log("corpus: ${entries.size} passages (${languages.sorted()}); phonemization = host-precomputed")
 
             // Cold engine-open (D1 metric) on this provider's factory.
@@ -96,23 +121,23 @@ class KokoroBenchmarkRunner(private val context: Context) {
             val engine = KokoroEngine.open(
                 spec = DefaultEngines.kokoro,
                 packs = KokoroPacks.all,
-                modelFile = File(models, "kokoro-model"),
+                modelFile = File(models, modelFileName),
                 voicesFile = File(models, "kokoro-voices"),
                 phonemizer = CorpusPhonemizer(lookup, languages),
                 progress = { log("open stage: $it (${System.currentTimeMillis() - tOpen} ms)") },
-                sessionFactory = provider.options,
+                sessionFactory = options,
             )
             val engineOpenMs = System.currentTimeMillis() - tOpen
-            log("engine open: $engineOpenMs ms (provider=${provider.label})")
+            log("engine open: $engineOpenMs ms (candidate=$label)")
 
-            // Oracle engine: opened only for non-CPU candidates.
+            // Oracle engine: opened only for oracle-gated candidates.
             var oracle: KokoroEngine? = null
-            if (provider != OrtProvider.CPU) {
+            if (oracleModelFileName != null) {
                 val tO = System.currentTimeMillis()
                 oracle = KokoroEngine.open(
                     spec = DefaultEngines.kokoro,
                     packs = KokoroPacks.all,
-                    modelFile = File(models, "kokoro-model"),
+                    modelFile = File(models, oracleModelFileName),
                     voicesFile = File(models, "kokoro-voices"),
                     phonemizer = CorpusPhonemizer(lookup, languages),
                     progress = {},
@@ -125,7 +150,7 @@ class KokoroBenchmarkRunner(private val context: Context) {
             thermal.start()
             val results = JSONObject()
             val runsJson = JSONArray()
-            val passes = if (provider == OrtProvider.CPU) RUNS else 1
+            val passes = runs
             var maxAbsDiff = 0f
             var meanAbsDiffSum = 0.0
             var diffCount = 0
@@ -153,8 +178,8 @@ class KokoroBenchmarkRunner(private val context: Context) {
                                 .put("rtf", rtf)
                                 .put("samples", result.pcm.size / 2))
                             log("run $run [$language/$voice]: ${"%.2f".format(seconds)}s audio in " +
-                                "$millis ms, RTF=${"%.3f".format(rtf)} (provider=${provider.label})")
-                            Wav.write(File(outDir, "kokoro_run${run}_${language}.wav"),
+                                "$millis ms, RTF=${"%.3f".format(rtf)} (candidate=$label)")
+                            Wav.write(File(outDir, "kokoro_${label}_run${run}_${language}.wav"),
                                 pcmToFloats(result.pcm), KokoroEngine.SAMPLE_RATE)
                             // Oracle gate (D2): candidate vs CPU on the same corpus.
                             if (oracle != null) {
@@ -169,6 +194,8 @@ class KokoroBenchmarkRunner(private val context: Context) {
                                     oracleErrors++
                                     log("  oracle [${language}]: FAILED (${oracleOutcome})")
                                 } else {
+                                    Wav.write(File(outDir, "kokoro_${label}_oracle_${language}.wav"),
+                                        pcmToFloats(oRes.pcm), KokoroEngine.SAMPLE_RATE)
                                     val (peak, mean) = pcmDiff(
                                         pcmToFloats(result.pcm), pcmToFloats(oRes.pcm))
                                     maxAbsDiff = maxOf(maxAbsDiff, peak)
@@ -192,7 +219,7 @@ class KokoroBenchmarkRunner(private val context: Context) {
             val mem = Debug.MemoryInfo()
             Debug.getMemoryInfo(mem)
             val meanAbsDiff = if (diffCount > 0) (meanAbsDiffSum / diffCount).toFloat() else 0f
-            results.put("provider", provider.label)
+            results.put("provider", label)
             results.put("runs", runsJson)
             results.put("vm_hwm_kb", readVmHwm())
             results.put("total_pss_kb", mem.totalPss)
@@ -218,7 +245,7 @@ class KokoroBenchmarkRunner(private val context: Context) {
             // espeak-ng bundle is staged, phonemize ON the device and verify byte
             // parity against the host corpus, then re-run one full round with the
             // real phonemizer for the end-to-end RTF.
-            if (provider == OrtProvider.CPU) {
+            if (capstone) {
                 val espeakLib = File(context.filesDir, "espeak/libespeak-ng.so")
                 val espeakData = File(context.filesDir, "espeak/espeak-ng-data")
                 if (espeakLib.isFile && espeakData.isDirectory) {
@@ -272,19 +299,48 @@ class KokoroBenchmarkRunner(private val context: Context) {
                     log("espeak bundle not staged — skipping full-pipeline run")
                 }
             }
-            File(outDir, "kokoro_results_${provider.label}.json").writeText(results.toString(2))
-            log("kokoro_results_${provider.label}.json written to $outDir")
+            File(outDir, resultFileName).writeText(results.toString(2))
+            log("$resultFileName written to $outDir")
             log("peak status: ${thermal.maxStatus}, headroom: ${thermal.maxHeadroom}")
             log("VmHWM: ${readVmHwm()} kB, totalPss: ${mem.totalPss} kB")
-            log("DONE (provider=${provider.label})")
+            log("DONE (candidate=$label)")
             engine.close()
             oracle?.close()
             true
         } catch (e: Throwable) {
-            log("provider ${provider.label} unavailable: $e")
+            log("candidate $label unavailable: $e")
             false
         }
     }
+
+    fun run(provider: OrtProvider, log: (String) -> Unit): Boolean =
+        measure(
+            label = provider.label,
+            modelFileName = "kokoro-model",
+            options = provider.options,
+            oracleModelFileName = if (provider == OrtProvider.CPU) null else "kokoro-model",
+            runs = if (provider == OrtProvider.CPU) RUNS else 1,
+            capstone = provider == OrtProvider.CPU,
+            resultFileName = "kokoro_results_${provider.label}.json",
+            log = log,
+        )
+
+    /**
+     * Runs a single precision candidate (D3 spike) on CPU EP, oracle-gated
+     * against the pinned fp32. All precisions use the default session factory —
+     * precision is a model-file axis, not an execution provider.
+     */
+    fun runPrecision(precision: ModelPrecision, log: (String) -> Unit): Boolean =
+        measure(
+            label = precision.label,
+            modelFileName = precision.fileName,
+            options = {},
+            oracleModelFileName = "kokoro-model",
+            runs = 1,
+            capstone = false,
+            resultFileName = "kokoro_precision_${precision.label}.json",
+            log = log,
+        )
 
     private fun readVmHwm(): Long {
         val line = File("/proc/self/status").readLines().firstOrNull { it.startsWith("VmHWM:") } ?: return -1
