@@ -471,6 +471,6 @@ player state machinery.
 
 - Verify Android Auto controls on real or emulator-backed Auto hardware; MediaSession
   wiring alone is not device evidence.
-- Configure the promised `ktlintCheck` task or remove it from the definition of done.
+- ~~Configure the promised `ktlintCheck` task or remove it from the definition of done.~~ **Done (2026-08-29):** baseline-gated `ktlintCheck` (ktlint 1.7.2, committed baseline, CI `jvm-tests` lane).
 - Continue physical-device acceptance on the S22 and HiBreak for behavior or performance
   claims affecting playback.
