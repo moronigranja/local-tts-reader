@@ -166,9 +166,9 @@ class PregenE2eTest {
         val audio = cache.get(key) ?: throw AssertionError("first passage not on disk")
         assertTrue(audio.pcm.isNotEmpty())
         assertEquals(
-            PregenSpaceEstimator.sampleRateHz(PregenKey.DEFAULT_ENGINE),
-            audio.sampleRateHz,
             "disk audio at the estimator's kokoro rate (24 kHz)",
+            PregenSpaceEstimator.sampleRateHz(PregenKey.DEFAULT_ENGINE).toLong(),
+            audio.sampleRateHz.toLong(),
         )
         assertTrue("sentence anchors persisted", !audio.segments.isNullOrEmpty())
         for (chapter in book.chapters) {
