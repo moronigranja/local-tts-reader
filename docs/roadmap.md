@@ -138,6 +138,13 @@ must not introduce another one-off visual language.
 Completion means the product surfaces use the shared tokens/components and have been
 visually exercised on both devices—not merely that a theme file exists.
 
+**Status (2026-08-29):** the S22 font-scale leg is under way — the 1.0×/1.3×/2.0×
+reader pass found and closed the px-as-dp chapter-title gap, and the settings
+espeak live-status fix was verified in the same pass (decisions #87); the B3
+reader-bottom-crop re-verification is done at those scales. Remaining: light/dark
+contrast + 48 dp + TalkBack + reduced-motion checks, the HiBreak low-motion pass,
+and the approved reference screenshots.
+
 ## Phase C — fresh install and voice selection
 
 A clean installation currently has no books or engine assets: Kokoro model, voices and
@@ -238,6 +245,19 @@ Acceptance on both reference devices:
 - Record latency separately on the S22 and Bigme HiBreak. Current baselines are
   5–25 seconds and about 58 seconds respectively.
 
+**Measurement status (2026-08-29):** cross-boundary ±30 s seek to an *uncached*
+passage measured S22 **79.6 s** / HiBreak **107.0 s** (build af431c4+), decomposing
+identically on both: ~1 s command + **60 s dead-owner ensure wait** (the fill was
+cancelled with `stopEverything` on loop-restart commands and never restarted, so
+`bufferForPlayback` polled `ahead=0.0s` for the full budget, then sync-synthesized)
++ RTF-scaled cold synthesis (S22 ~19 s @ 0.69; HiBreak ~46 s @ 2.9). The 60 s
+dead-owner wait was fixed 2026-08-29 (`fix(player)` 7d27226, decisions #78
+addendum — `startPrefill` restarts on every loop-restart command): re-measured
+with the fill building cushion again (`ahead=5.79s after 60023ms` on the HiBreak,
+seek target `source=pregen`). Full record in `bugs.md` (2026-08-27/29 entries).
+Remaining cost is the cold target's synchronous synthesis — exactly what the
+survive-seek `ensure` + 30 s horizon below targets; D1's design is unchanged.
+
 ### D2 — Accelerator, quantization and power research — promoted from ideas
 
 A measurement slice, not an assumed implementation. Reuse the existing TTS spike
@@ -257,6 +277,19 @@ Required evidence:
 The HiBreak baselines—about 25 seconds to first audio and roughly 834 MB PSS—make this a
 real performance gate. Flow-DiT acceleration for CosyVoice remains a separate research
 question; do not generalize a Kokoro result to it.
+
+**Measurement results (2026-08-28/29):** the CPU-EP + pinned-fp32 decision stands.
+Execution providers (#67) kept the CPU default after measured comparison. Kokoro
+precision (#86): fp16/int8/q8 all rejected against the fp32 oracle — fp16 produced
+a silent en-us stub and `max_abs_diff` 0.723, q8 failed the 0.001 gate at 0.700 and
+was *slower* (RTF 1.73–1.79 vs 1.16–1.20), int8 is non-runnable on the CPU EP
+(`ConvInteger` not implemented). RTF baselines now measured on both devices on
+comparable corpora: S22 1.16–1.20 (#86 harness) and 0.66–0.76 (hard-facts
+listening corpus), HiBreak 2.84–3.12 (`bugs.md` B6 — live synthesis cannot sustain
+playback; pre-generation is the HiBreak's requirement). Peak/resident PSS and
+Choreographer-skip counts are recorded (#67/#86/bugs.md). Still open from the
+required-evidence list: retained PSS/RSS 60 s after pause, thermal behavior and
+power draw.
 
 ## Phase E — data safety
 

@@ -1,4 +1,31 @@
 # Decision log
+## 87. B4 device-pass finds — espeak live status + chapter-title px-as-dp gap (2026-08-29)
+
+Three small fixes from the S22 acceptance pass (B4 font-scale leg + settings pack
+verification), each device-verified:
+
+- **espeak-ng status flips live** (`fix(settings)` 533f2a4): the readiness line was
+  computed inside the settings `combine` but only re-evaluated when a preference
+  changed — the pack registry emits `ready` BEFORE `EspeakStager.stage()` finishes,
+  so the filesystem check ran too early and the UI stayed "not staged" until an
+  unrelated state change. `espeakStageTick` bumps after successful staging (folded
+  into the combine via a nested `packState` to stay within the 5-flow overload);
+  verified on-device (S22, API 36): wipe pack + bundle → Download → ready + staged
+  without re-entry.
+- **chapter-title gap px-as-dp unit bug** (`fix(reader)` 8d7870c): the first-page
+  title reservation computed `titleGapPx = 12.dp.toPx()` but the rendered padding
+  used `titleGapPx.dp` — at density 2.8125 the rendered gap (~93 px) was ~3× the
+  reserved (~33 px), pushing the page body down ~60 px, so the B3 bottom-crop fix
+  reappeared at 2.0× font scale. Render `12.dp` directly (reserved == rendered);
+  verified on-device at 1.0×/1.3×/2.0× — last line fully visible, and the page
+  gains back the phantom-gap line.
+- **PregenE2eTest assertion overloads** (`fix(test)` 1961c7d): the sampleRateHz
+  check asserted `(Int, Int, String)`; JUnit4 has no such overload. Now
+  `(String, Long, Long)` — the rate is 24 kHz integer PCM.
+
+Evidence: the on-device S22 sessions cited above; `SettingsViewModel.kt` /
+`ReaderScreen.kt` changes as committed.
+
 ## 86. D3 — Kokoro precision measurement: fp16 / int8 / q8 (2026-08-28)
 
 Measured three quantized precisions against the pinned fp32 CPU oracle on
