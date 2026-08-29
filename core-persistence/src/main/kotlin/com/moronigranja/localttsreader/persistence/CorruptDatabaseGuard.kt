@@ -28,7 +28,6 @@ import java.util.Locale
  * this guard closes the app-side failure class the fragment exposed.
  */
 object CorruptDatabaseGuard {
-
     private const val TAG = "CorruptDatabaseGuard"
 
     /** SQLite 1.x header is 100 bytes; a shorter file cannot be a valid database. */
@@ -42,7 +41,10 @@ object CorruptDatabaseGuard {
      * returns the moved file. Returns null when the path is absent, empty, or a
      * valid SQLite file — nothing to quarantine.
      */
-    fun quarantineIfCorrupt(context: Context, databaseName: String): File? {
+    fun quarantineIfCorrupt(
+        context: Context,
+        databaseName: String,
+    ): File? {
         val dbFile = context.getDatabasePath(databaseName)
         if (!dbFile.isFile) return null
         if (dbFile.length() == 0L) return null // SQLite initializes an empty file itself

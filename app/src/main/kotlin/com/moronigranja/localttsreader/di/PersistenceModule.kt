@@ -20,8 +20,8 @@ import dagger.Provides
 import dagger.hilt.InstallIn
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.components.SingletonComponent
-import javax.inject.Singleton
 import kotlinx.coroutines.CoroutineScope
+import javax.inject.Singleton
 
 /**
  * A6 composition root: the Room persistence layer bindings (formerly
@@ -33,15 +33,17 @@ import kotlinx.coroutines.CoroutineScope
 @Module
 @InstallIn(SingletonComponent::class)
 object PersistenceModule {
-
     @Provides
     @Singleton
-    fun provideDatabase(@ApplicationContext context: Context): LibraryDatabase {
+    fun provideDatabase(
+        @ApplicationContext context: Context,
+    ): LibraryDatabase {
         // S22 2026-08-29: an `install -r` left a 68 B fragment at the db path;
         // Room would crash the launch-time rebuild on it forever. Quarantine
         // corrupt files first so the app opens fresh instead of crash-looping.
         CorruptDatabaseGuard.quarantineIfCorrupt(context, DATABASE_NAME)
-        return Room.databaseBuilder(context, LibraryDatabase::class.java, DATABASE_NAME)
+        return Room
+            .databaseBuilder(context, LibraryDatabase::class.java, DATABASE_NAME)
             .addMigrations(MIGRATION_1_2)
             .build()
     }

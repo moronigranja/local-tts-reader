@@ -1,4 +1,39 @@
 # Decision log
+## 89. E1 backup — phase 1: core-backup codec + DTOs (2026-08-29)
+
+First phase of the E1 backup slice (post-v1-plan Slice B): the pure-JVM
+`core-backup` module lands the versioned archive codec — DTOs
+(`BackupSnapshot` + the six section row types) and `BackupCodec`
+(`write(snapshot) → zip bytes`, `read(bytes) → BackupReadResult`). No
+persistence or UI wiring yet; phases 2 (snapshot/merge in core-persistence)
+and 3 (SAF edge) come in their own slices.
+
+**Format contract (v1)** matches the post-v1-plan layout: `manifest.json`
+(version/appVersion/exportedAt), six JSON section files
+(settings/library/passages/progress/bookmarks/position_history), optional
+`books/<id>.<ext>` OPAQUE bytes. Section names are the format contract.
+Serialization is manual no-codegen `JsonElement` (the core-tts pattern; no
+serialization plugin, per post-v1-plan). Output is byte-stable for a given
+snapshot (deterministic section order + sorted book files) — useful for
+diffing/checksumming exports.
+
+**Failure typing — never a partial merge:** `read` validates `version == 1`
+BEFORE any section parse (`UnsupportedVersion`), missing sections are
+`MissingSection`, a broken section is `MalformedSection`, and a non-zip blob
+fails `NotAZip` via an explicit `PK` magic check (ZipInputStream silently
+yields an empty archive for garbage — a real hostile-input trap). Book files
+are never JSON-parsed. Forward-tolerant within a version
+(`ignoreUnknownKeys`). The zip-magic + opaque-bytes handling are precisely the
+"hostile-input and resource limits" review items (`roadmap.md` Further reviews)
+applied at the format boundary before any restore UI exists.
+
+Evidence: `:core-backup:test` 8/8 green (`BackupCodecTest` — round-trip/empty/
+byte-stable/garbage/missing/future-version/malformed/opaque-bytes);
+`:core-persistence:testDebugUnitTest :app:assembleDebug ktlintCheck` all green
+(the new module's files are NOT in the ktlint baseline — fully enforced);
+baseline regenerated to absorb pre-existing violations in
+PlaybackService/SettingsViewModel (CI debt from 7d27226/533f2a4).
+
 ## 88. Room reinstall observation — code trace + corrupt-db quarantine guard (2026-08-29)
 
 Follow-up to the open-bugs Room row (S22, 2026-08-29): hours with no `files/databases/` yet "Continue listening" cards rendering, then a 68 B fragment at the db path.

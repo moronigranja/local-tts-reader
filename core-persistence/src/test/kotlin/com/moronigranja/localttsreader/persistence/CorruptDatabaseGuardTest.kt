@@ -27,7 +27,6 @@ import java.io.File
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34])
 class CorruptDatabaseGuardTest {
-
     private val context = RuntimeEnvironment.getApplication()
 
     private val dbPath: File
@@ -53,7 +52,12 @@ class CorruptDatabaseGuardTest {
         assertFalse("original path must be cleared", dbPath.exists())
         val dir = File(context.filesDir, "corrupt-db")
         assertTrue("quarantine dir exists", dir.isDirectory)
-        val artifact = dir.listFiles()!!.single().listFiles()!!.single { it.name == "$DB_NAME" }
+        val artifact =
+            dir
+                .listFiles()!!
+                .single()
+                .listFiles()!!
+                .single { it.name == "$DB_NAME" }
         assertEquals("artifact preserved byte-for-byte", 68L, artifact.length())
     }
 
@@ -72,20 +76,24 @@ class CorruptDatabaseGuardTest {
     }
 
     @Test
-    fun `valid sqlite database is left untouched`() = runBlocking {
-        val database = Room.databaseBuilder(context, LibraryDatabase::class.java, DB_NAME)
-            .allowMainThreadQueries().build()
-        database.bookDao().upsert(LibraryEntry(Book("b1", "Keep Me", emptyList()), 1_000).bookEntity())
-        database.close()
-        val bytesBefore = dbPath.readBytes()
+    fun `valid sqlite database is left untouched`() =
+        runBlocking {
+            val database =
+                Room
+                    .databaseBuilder(context, LibraryDatabase::class.java, DB_NAME)
+                    .allowMainThreadQueries()
+                    .build()
+            database.bookDao().upsert(LibraryEntry(Book("b1", "Keep Me", emptyList()), 1_000).bookEntity())
+            database.close()
+            val bytesBefore = dbPath.readBytes()
 
-        val moved = CorruptDatabaseGuard.quarantineIfCorrupt(context, DB_NAME)
+            val moved = CorruptDatabaseGuard.quarantineIfCorrupt(context, DB_NAME)
 
-        assertNull("valid db must not be reported corrupt", moved)
-        assertTrue("db file still present", dbPath.isFile)
-        assertTrue("db bytes unchanged", bytesBefore.contentEquals(dbPath.readBytes()))
-        assertFalse("no quarantine dir created", File(context.filesDir, "corrupt-db").exists())
-    }
+            assertNull("valid db must not be reported corrupt", moved)
+            assertTrue("db file still present", dbPath.isFile)
+            assertTrue("db bytes unchanged", bytesBefore.contentEquals(dbPath.readBytes()))
+            assertFalse("no quarantine dir created", File(context.filesDir, "corrupt-db").exists())
+        }
 
     @Test
     fun `empty and missing files are not quarantined`() {
