@@ -69,6 +69,8 @@ import com.moronigranja.localttsreader.ui.PlayerCard
 import com.moronigranja.localttsreader.player.PlayerPhase
 import com.moronigranja.localttsreader.player.PlayerPosition
 import com.moronigranja.localttsreader.player.SleepTimer
+import com.moronigranja.localttsreader.player.chapterMenuLabel
+import kotlin.math.ceil
 import com.moronigranja.localttsreader.player.TextPagination
 
 /**
@@ -139,7 +141,7 @@ fun ReaderScreen(
                         DropdownMenu(expanded = chapterMenu, onDismissRequest = { chapterMenu = false }) {
                             state.chapters.forEachIndexed { index, title ->
                                 DropdownMenuItem(
-                                    text = { Text("${index + 1}. $title") },
+                                    text = { Text(chapterMenuLabel(index, title)) },
                                     onClick = {
                                         chapterMenu = false
                                         viewModel.playPosition(bookId, index, 0)
@@ -259,7 +261,7 @@ private fun PaginatedChapter(
     val bodyStyle = MaterialTheme.typography.bodyLarge.copy(lineHeight = 30.sp)
     val titleStyle = MaterialTheme.typography.titleLarge
     val density = LocalDensity.current
-    val lineHeightPx = with(density) { bodyStyle.lineHeight.toPx() }.toInt()
+    val lineHeightPx = with(density) { ceil(bodyStyle.lineHeight.toPx()) }.toInt()
     val titleGapPx = with(density) { 12.dp.toPx() }.toInt()
     val horizontalPadPx = with(density) { 20.dp.toPx() }.toInt()
     var page by remember(state.chapterIndex) { mutableIntStateOf(0) }
@@ -272,13 +274,22 @@ private fun PaginatedChapter(
             state.chapterPassages.joinToString("\n\n")
         }
         val passageOffsets = remember(state.chapterPassages) { computePassageOffsets(state.chapterPassages) }
-        val bodyLayout = remember(chapterText, pageWidth, bodyStyle) {
-            textMeasurer.measure(
-                text = AnnotatedString(chapterText),
-                style = bodyStyle,
-                constraints = Constraints(maxWidth = pageWidth),
-            )
-        }
+        val activeSpan = activeSentenceRange(passageOffsets, state.passageIndex, state.passageText, state.activeSentenceIndex)
+        val bodyLayout =
+            remember(chapterText, pageWidth, bodyStyle, activeSpan) {
+                val annotated =
+                    buildAnnotatedString {
+                        append(chapterText)
+                        if (activeSpan != null) {
+                            addStyle(SpanStyle(fontWeight = FontWeight.Bold), activeSpan.first, activeSpan.second)
+                        }
+                    }
+                textMeasurer.measure(
+                    text = annotated,
+                    style = bodyStyle,
+                    constraints = Constraints(maxWidth = pageWidth),
+                )
+            }
         val titleHeightPx = remember(chapterTitle, pageWidth, titleStyle) {
             if (chapterTitle.isBlank()) 0
             else textMeasurer.measure(
@@ -325,26 +336,23 @@ private fun PaginatedChapter(
         }
 
         val pageSlice = chapterText.substring(startChar.coerceIn(0, chapterText.length), endChar.coerceIn(startChar, chapterText.length))
-        val pageText = remember(pageSlice, state, startChar, endChar, passageOffsets) {
-            buildAnnotatedString {
-                append(pageSlice)
-                val passageOffset = passageOffsets.getOrNull(state.passageIndex)
-                val sentence = passageOffset?.let { offset ->
-                    sentenceSpans(state.passageText).getOrNull(state.activeSentenceIndex)
-                }
-                if (passageOffset != null && sentence != null) {
-                    val from = maxOf(passageOffset + sentence.offset, startChar)
-                    val to = minOf(passageOffset + sentence.offset + sentence.length, endChar)
-                    if (from < to) {
-                        addStyle(
-                            SpanStyle(background = highlightColor, fontWeight = FontWeight.Bold),
-                            from - startChar,
-                            to - startChar,
-                        )
+        val pageText =
+            remember(pageSlice, startChar, endChar, activeSpan, highlightColor) {
+                buildAnnotatedString {
+                    append(pageSlice)
+                    if (activeSpan != null) {
+                        val from = maxOf(activeSpan.first, startChar)
+                        val to = minOf(activeSpan.second, endChar)
+                        if (from < to) {
+                            addStyle(
+                                SpanStyle(background = highlightColor, fontWeight = FontWeight.Bold),
+                                from - startChar,
+                                to - startChar,
+                            )
+                        }
                     }
                 }
             }
-        }
 
         Column(
             modifier = Modifier
@@ -450,6 +458,18 @@ private fun sentenceSpans(text: String): List<SentenceSpan> {
     return spans
 }
 
+/** Global char range [start, endExclusive) of the active sentence in the joined chapter text. */
+private fun activeSentenceRange(
+    passageOffsets: IntArray,
+    passageIndex: Int,
+    passageText: String,
+    activeSentenceIndex: Int,
+): Pair<Int, Int>? {
+    val passageOffset = passageOffsets.getOrNull(passageIndex) ?: return null
+    val sentence = sentenceSpans(passageText).getOrNull(activeSentenceIndex) ?: return null
+    val start = passageOffset + sentence.offset
+    return start to (start + sentence.length)
+}
 
 /** Horizontal drag distance that turns a page. */
 private val SWIPE_PAGE_THRESHOLD = 64.dp

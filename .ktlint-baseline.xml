@@ -2952,37 +2952,33 @@
     </file>
     <file name="feature-player/src/main/kotlin/com/moronigranja/localttsreader/featureplayer/ui/ReaderScreen.kt">
         <error line="3" column="1" source="standard:import-ordering" />
-        <error line="89" column="5" source="standard:function-naming" />
-        <error line="117" column="28" source="standard:multiline-expression-wrapping" />
-        <error line="123" column="32" source="standard:multiline-expression-wrapping" />
-        <error line="188" column="32" source="standard:multiline-expression-wrapping" />
-        <error line="201" column="24" source="standard:multiline-expression-wrapping" />
-        <error line="230" column="13" source="standard:multiline-expression-wrapping" />
-        <error line="249" column="13" source="standard:function-naming" />
-        <error line="271" column="27" source="standard:multiline-expression-wrapping" />
-        <error line="275" column="26" source="standard:multiline-expression-wrapping" />
-        <error line="282" column="29" source="standard:multiline-expression-wrapping" />
-        <error line="283" column="41" source="standard:if-else-wrapping" />
-        <error line="283" column="41" source="standard:multiline-if-else" />
-        <error line="284" column="18" source="standard:if-else-wrapping" />
-        <error line="284" column="18" source="standard:multiline-if-else" />
-        <error line="284" column="30" source="standard:chain-method-continuation" />
-        <error line="294" column="21" source="standard:multiline-expression-wrapping" />
-        <error line="296" column="38" source="standard:if-else-wrapping" />
-        <error line="296" column="38" source="standard:multiline-if-else" />
-        <error line="297" column="18" source="standard:if-else-wrapping" />
-        <error line="297" column="18" source="standard:multiline-if-else" />
-        <error line="302" column="33" source="standard:multiline-expression-wrapping" />
-        <error line="328" column="24" source="standard:multiline-expression-wrapping" />
-        <error line="332" column="32" source="standard:multiline-expression-wrapping" />
-        <error line="350" column="24" source="standard:multiline-expression-wrapping" />
-        <error line="389" column="51" source="standard:multiline-expression-wrapping" />
-        <error line="389" column="68" source="standard:chain-method-continuation" />
-        <error line="431" column="33" source="standard:class-signature" />
-        <error line="431" column="50" source="standard:class-signature" />
-        <error line="431" column="65" source="standard:class-signature" />
-        <error line="453" column="1" source="standard:no-consecutive-blank-lines" />
-        <error line="455" column="40" source="standard:final-newline" />
+        <error line="91" column="5" source="standard:function-naming" />
+        <error line="119" column="28" source="standard:multiline-expression-wrapping" />
+        <error line="125" column="32" source="standard:multiline-expression-wrapping" />
+        <error line="190" column="32" source="standard:multiline-expression-wrapping" />
+        <error line="203" column="24" source="standard:multiline-expression-wrapping" />
+        <error line="232" column="13" source="standard:multiline-expression-wrapping" />
+        <error line="251" column="13" source="standard:function-naming" />
+        <error line="273" column="27" source="standard:multiline-expression-wrapping" />
+        <error line="293" column="29" source="standard:multiline-expression-wrapping" />
+        <error line="294" column="41" source="standard:if-else-wrapping" />
+        <error line="294" column="41" source="standard:multiline-if-else" />
+        <error line="295" column="18" source="standard:if-else-wrapping" />
+        <error line="295" column="18" source="standard:multiline-if-else" />
+        <error line="295" column="30" source="standard:chain-method-continuation" />
+        <error line="305" column="21" source="standard:multiline-expression-wrapping" />
+        <error line="307" column="38" source="standard:if-else-wrapping" />
+        <error line="307" column="38" source="standard:multiline-if-else" />
+        <error line="308" column="18" source="standard:if-else-wrapping" />
+        <error line="308" column="18" source="standard:multiline-if-else" />
+        <error line="313" column="33" source="standard:multiline-expression-wrapping" />
+        <error line="358" column="24" source="standard:multiline-expression-wrapping" />
+        <error line="397" column="51" source="standard:multiline-expression-wrapping" />
+        <error line="397" column="68" source="standard:chain-method-continuation" />
+        <error line="439" column="33" source="standard:class-signature" />
+        <error line="439" column="50" source="standard:class-signature" />
+        <error line="439" column="65" source="standard:class-signature" />
+        <error line="475" column="40" source="standard:final-newline" />
     </file>
     <file name="feature-player/src/main/kotlin/com/moronigranja/localttsreader/featureplayer/ui/ReaderViewModel.kt">
         <error line="3" column="1" source="standard:import-ordering" />
