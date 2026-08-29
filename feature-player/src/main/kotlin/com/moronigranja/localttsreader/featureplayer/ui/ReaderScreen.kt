@@ -411,7 +411,7 @@ private fun PaginatedChapter(
                 Text(
                     chapterTitle,
                     style = titleStyle,
-                    modifier = Modifier.padding(bottom = titleGapPx.dp, start = 20.dp, end = 20.dp),
+                    modifier = Modifier.padding(bottom = 12.dp, start = 20.dp, end = 20.dp),
                 )
             }
             if (pageSlice.isNotBlank()) {
