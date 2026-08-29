@@ -35,6 +35,22 @@ pruned, refill from the new playhead); `PlaybackServiceFillRestartTest`
 ten ±30 s seeks resolving from `buffer|pregen|disk` with zero sync synthesis)
 remains the acceptance — pending the next device session.
 
+**Device addendum (S22 Ultra, 2026-08-29, commit ff46673+):** the seek
+acceptance is now measured on-device with the probe build:
+`AyvuTap tap-to-audio ms=266 source=pregen action=seek_forward` (first +30 s),
+`ms=237 source=disk action=seek_backward` (−30 s), `ms=192 source=pregen
+action=seek_forward` (third). All three resolve from the D1 `pregen|disk`
+tiers with **zero synchronous synthesis at seek time** — no `buffer: waiting`
+log appears on any seek — and consecutive `loop: source=pregen` after each
+seek shows the surviving fill still serving the cushion (the pre-#91 path
+paid ~1 s command + 60 s dead-owner wait + RTF-scaled cold synthesis, 79.6 s
+on the S22). Cold first-play after process start measured 73.5 s
+(`AyvuTap ms=73539 source=synthesized action=resume`) — the full 45 s cushion
+synthesis the G1 start policy buys; that path is explicitly not an SLO
+(cold-path principle). `PregenE2eTest` also green on-device (43 s) covering
+the whole-book pregen → playback-over-cache path. HiBreak leg pending the
+actual HiBreak hardware.
+
 ## 90. F2 — library search shipped (2026-08-29)
 
 Local title/author search on the library home — no network, no index dependency
