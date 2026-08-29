@@ -189,7 +189,7 @@ class KokoroEngine internal constructor(
             packs: List<TtsPack>,
             modelFile: File,
             voicesFile: File,
-            phonemizer: Phonemizer = EspeakPhonemizer.load(),
+            phonemizer: Phonemizer = NormalizingPhonemizer(EspeakPhonemizer.load()),
             progress: (String) -> Unit = {},
             sessionFactory: (OrtSession.SessionOptions) -> Unit = {},
         ): KokoroEngine {

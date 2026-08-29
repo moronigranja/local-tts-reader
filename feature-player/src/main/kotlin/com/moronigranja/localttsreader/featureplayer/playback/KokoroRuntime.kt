@@ -7,6 +7,7 @@ import com.moronigranja.localttsreader.tts.TTSEngine
 import com.moronigranja.localttsreader.tts.kokoro.EspeakPhonemizer
 import com.moronigranja.localttsreader.tts.kokoro.KokoroEngine
 import com.moronigranja.localttsreader.tts.kokoro.KokoroPacks
+import com.moronigranja.localttsreader.tts.kokoro.NormalizingPhonemizer
 import dagger.hilt.android.qualifiers.ApplicationContext
 import java.io.File
 import javax.inject.Inject
@@ -93,10 +94,10 @@ open class KokoroRuntime @Inject constructor(
             packs = KokoroPacks.all,
             modelFile = model,
             voicesFile = voices,
-            phonemizer = EspeakPhonemizer(
+            phonemizer = NormalizingPhonemizer(EspeakPhonemizer(
                 libraryPath = espeakLib.absolutePath,
                 dataPath = espeakData.absolutePath,
-            ),
+            )),
         )
     }
 
