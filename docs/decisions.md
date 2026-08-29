@@ -27,6 +27,52 @@ notification (the passage ordinal in the notification text forces a re-notify ev
 passage, an IPC to system_server on the player coroutine), and re-measure. Marker support
 is worth keeping regardless of the outcome (completion accuracy).
 
+## 84. Pre-armed static track — boundary handoff (2026-08-28)
+
+The fallback per the owner's clause ("we have the option to go back to a"): the
+streaming experiment (#83) proved MODE_STREAM inert on the S22, so playback stays on
+the static model WITH PRE-ARMING.
+
+- **Pre-arm**: [PassageOutput.prearm] (default no-op; implemented in
+  [AudioTrackPassageOutput] as a staged spare track) is called by the play loop right
+  after `output.play(...)`, targeting the NEXT passage (peeked from `PregenQueue.peek`
+  — new non-consuming accessor — then the `PcmPassageCache` disk tier). At the next
+  boundary, `play` swaps to the staged track when it matches (rate + exact static
+  capacity) — no rebuild on the critical path.
+- **Measured (S22)**: the swap path's `out` (the `output.play` call) dropped to
+  11-16 ms (was 29-55 ms rebuild); boundary gaps 43-66 ms when the pre-arm had the
+  next passage, with rebuilds on a pre-arm miss (queue/cache still filling). The gap
+  improved but the SLO is still not met — the ~20 ms publish + ~13 ms advance +
+  miss-rebuilds remain.
+- **Cleanup**: the MODE_STREAM implementation and its test were deleted (dead; the
+  finding lives in #83); the loop's stall diagnostic was simplified to a generic
+  pos/target probe.
+
+Evidence: `AyvuPlay out=11/12/16` on swaps, `AyvuGap 43/60/66` when engaged, on the
+S22; `PassageOutputReuseTest` prearm-swap + mismatch-fallback tests;
+`./tools/docker-build.sh :core-player:test :feature-player:testDebugUnitTest :app:assembleDebug` → BUILD SUCCESSFUL.
+
+## 83. MODE_STREAM output — inert on the S22, reverted (2026-08-28)
+
+Per the owner's decision, implemented a one-MODE_STREAM-track-per-session output to
+kill the measured 29-55 ms per-passage rebuild: FAT FIFO (first 2.88 MB, then 1 MB),
+relative-head/absolute-marker translation for the cumulative stream, write guard +
+debug state.
+
+- **Fails on-device**: the stream track is created and reports `state=started`
+  (PLAYING) at the audio-server level, but `playbackHeadPosition` stays 0 forever —
+  the server never pulls. Two FIFO sizes (2.88 MB, 1 MB) stall identically, so it is
+  MODE_STREAM itself (or this Samsung's stream handling of the config: mono, 24 kHz,
+  USAGE_MEDIA/CONTENT_TYPE_SPEECH), not the buffer size. `dumpsys audio` confirmed a
+  registered, started track with a frozen head. Reverted to the static model (which
+  has played correctly across every earlier run) and pursued pre-arming (#84).
+- The write/play guard logged nothing — the writes succeeded; the track was simply
+  never drained. This is a device-level behavior, not a logic bug in the streaming
+  implementation.
+
+Evidence: `AyvuStall pos=0 … out=state=3 head=0` repeating on the S22 with both FIFO
+configs; `dumpsys audio` `AudioPlaybackConfiguration … state:started … sampleRate=24000`.
+
 ## 82. Boundary-gap attribution — the AudioTrack rebuild is the cost (2026-08-28)
 
 Follow-up to #81 (marker-accurate gap ≈ 73 ms median, above the ≤ 50 ms SLO). Two

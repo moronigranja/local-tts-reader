@@ -167,13 +167,14 @@ Device-leg results (S22 Ultra, 2026-08-28, decisions #80):
 - **L1 warm tap-to-audio: 230 ms — PASS** (< 300 ms). Cold first-play in a fresh
   process (engine open + disk fetch): 2 563 ms — no target (LOANING documented),
   warm-after is the SLO.
-- **GAP1, marker-accurate (decisions #81): ≈ 46-98 ms, median ≈ 73 ms — ABOVE the
-  ≤ 50 ms target.** The #80 dispatch probe's ~95 ms overstatement was the 50 ms poll
-  quantization; `AudioTrack` end markers fire reliably on this device's MODE_STATIC
-  tracks, so this is the TRUE audible boundary cost. Residual is real per-boundary
-  processing (notification IPC + MediaSession reset + track rebuild + progress
-  write). Flagged: boundary-path optimization (defer/async the per-boundary
-  notification) before calling GAP1 met.
+- **GAP1 (decisions #81-#84): marker-accurate, ~43-66 ms when the pre-armed static
+  track engages (out 11-16 ms vs 29-55 ms rebuild) — improved but still ABOVE the
+  ≤ 50 ms target.** The #80 dispatch probe overstate was the 50 ms poll
+  quantization; the remaining cost is the publish (~20 ms) + advance/write (~13 ms)
+  + pre-arm misses (queue/cache still filling at the boundary). MODE_STREAM output
+  (#83) proved inert on the S22 and was reverted; pre-armed static (#84) is the
+  shipped model. GAP1 remains unmet; further work requires attacking publish/advance
+  or accepting the gap.
 - **QW4 post-stop fill: PASS** — fill from the last playhead, self-stopped at
   46 s ahead, no runaway (service record 0 after).
 - **Screen-off sanity: PASS** — Dozing, no 50 ms-poll stall; boundaries advanced

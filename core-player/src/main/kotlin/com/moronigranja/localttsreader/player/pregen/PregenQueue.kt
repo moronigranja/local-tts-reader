@@ -119,6 +119,11 @@ class PregenQueue(
     fun take(chapterIndex: Int, passageIndex: Int): PregenAudio? =
         synchronized(lock) { entries.remove(PregenKey(book.id, chapterIndex, passageIndex, voice, speed, engine)) }
 
+    /** The queued audio for the passage, NON-consuming — the boundary pre-arm
+     * peeks the next passage's size/rate without dequeuing it. */
+    fun peek(chapterIndex: Int, passageIndex: Int): PregenAudio? =
+        synchronized(lock) { entries[PregenKey(book.id, chapterIndex, passageIndex, voice, speed, engine)] }
+
     val size: Int get() = synchronized(lock) { entries.size }
 
     private fun shrinkToBound() {

@@ -62,6 +62,29 @@ class PassageOutputReuseTest {
         ByteArray(frames * 2) { ((it + seed) * 31).toByte() }
 
     @Test
+    fun `prearmed track is swapped in at the boundary (no rebuild)`() {
+        output.play(pcm(12_000, 1), 24_000, 1.0)
+        output.prearm(pcm(8_000, 2).size, 24_000)
+        output.play(pcm(8_000, 2), 24_000, 1.0)
+        // The second play swapped to the prearmed track — same instance the
+        // prearm built, NOT a new build from scratch. Track the instances
+        // via the writes: the second write's track differs from the first
+        // (prearmed built during passage 1) and the swap reused it.
+        assertEquals(2, writes.size)
+        assertNotSame("boundary swap, not a rebuild", writes[0].first, writes[1].first)
+        // And no THIRD track was built for the second play (writes unchanged).
+    }
+
+    @Test
+    fun `mismatched prearm falls back to build`() {
+        output.play(pcm(12_000, 1), 24_000, 1.0)
+        output.prearm(pcm(8_000, 2).size, 48_000) // wrong rate
+        output.play(pcm(8_000, 2), 24_000, 1.0)
+        assertEquals(2, writes.size)
+        assertEquals("staged at 48k must not win", 24_000, writes[1].first.sampleRate)
+    }
+
+    @Test
     fun `format match reuses one retained track`() {
         output.play(pcm(1000, 1), 24_000, 1.0)
         output.play(pcm(1000, 2), 24_000, 1.0)

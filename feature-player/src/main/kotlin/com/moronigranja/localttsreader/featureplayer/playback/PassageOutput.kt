@@ -31,6 +31,13 @@ interface PassageOutput {
      * platform never fires it and the caller's [positionSamples] polling is
      * the fallback. Default no-op so test fakes compile unchanged. */
     fun setCompletionMarker(frames: Int, onReached: () -> Unit) = Unit
+    /** Pre-builds the NEXT passage's track (decisions #84): the caller arms
+     * the upcoming passage's size/rate while the current one plays, so the
+     * boundary [play] swaps to a staged track instead of rebuilding on the
+     * critical path (the measured 29-55 ms rebuild). The staging track is
+     * used only when it matches the [play] arguments; a mismatch falls back
+     * to a build. Default no-op so test fakes compile unchanged. */
+    fun prearm(pcmBytes: Int, sampleRate: Int) = Unit
 }
 
 /** Real output: one MODE_STATIC [AudioTrack] retained across passages
@@ -39,6 +46,11 @@ interface PassageOutput {
 class AudioTrackPassageOutput : PassageOutput {
 
     private var track: AudioTrack? = null
+    /** The pre-armed next track (decisions #84): built by [prearm] during the
+     * current passage's playback so the boundary [play] swaps instead of
+     * rebuilding on the critical path. Used only when it matches the [play]
+     * arguments (rate + capacity); otherwise the standard build path runs. */
+    private var staged: AudioTrack? = null
     private var markerCallback: (() -> Unit)? = null
     private var markerListenerAttached = false
 
@@ -54,29 +66,46 @@ class AudioTrackPassageOutput : PassageOutput {
         override fun onPeriodicNotification(track: AudioTrack) = Unit
     }
 
+    override fun prearm(pcmBytes: Int, sampleRate: Int) {
+        val existing = staged
+        // Rebuild only when the staged track doesn't already match the
+        // upcoming passage — pre-arming twice for the same passage must be a
+        // no-op (the loop re-arms after every play).
+        if (existing == null || existing.sampleRate != sampleRate || existing.bufferSizeInFrames * 2 != pcmBytes) {
+            staged?.let { it.release() }
+            staged = buildTrack(pcmBytes, sampleRate)
+        }
+    }
+
     override fun play(pcm: ByteArray, sampleRate: Int, speed: Double) {
-        val retained = track
-        if (retained == null || !shouldReuse(retained, sampleRate, pcm.size)) {
-            stop()
-            track = buildTrack(pcm.size, sampleRate)
-            markerListenerAttached = false // fresh track: re-attach the listener
+        val staged = staged
+        // The staged track wins when it exactly matches this passage (rate +
+        // static capacity) — the fast boundary handoff, no build here.
+        if (staged != null && staged.sampleRate == sampleRate && staged.bufferSizeInFrames * 2 == pcm.size) {
+            track?.let { it.pause(); it.flush(); it.release() }
+            this.staged = null
+            track = staged
         } else {
-            // MODE_STATIC refeed: stop() resets the static head to the buffer
-            // start (AOSP stop() pushes position 0 for static tracks — the
-            // documented head reset). flush() is a native no-op for static
-            // tracks on device but keeps the Robolectric shadow head honest.
-            // write() then copies the new passage over the buffer from
-            // offset 0, so the head counts the NEW passage from 0.
-            retained.stop()
-            retained.flush()
+            // A mismatched staging is discarded (released) — the current
+            // track stays and the standard reuse/build path runs.
+            this.staged?.let { it.release() }
+            this.staged = null
+            val retained = track
+            if (retained == null || !shouldReuse(retained, sampleRate, pcm.size)) {
+                track?.let { it.pause(); it.flush(); it.release() }
+                track = buildTrack(pcm.size, sampleRate)
+                markerListenerAttached = false
+            } else {
+                retained.stop()
+                retained.flush()
+            }
         }
         val active = track!!
-        // MODE_STATIC: write the whole buffer, then play. Completion is read
-        // from [positionSamples] reaching the frame count (polled by the
-        // service); static tracks do not loop and hold the head at the end.
+        if (!markerListenerAttached) {
+            runCatching { active.setPlaybackPositionUpdateListener(markerListener, Handler(Looper.getMainLooper())) }
+            markerListenerAttached = true
+        }
         active.write(pcm, 0, pcm.size, AudioTrack.WRITE_BLOCKING)
-        // Playback rate = sample rate × speed: the buffer's frames stay
-        // book-time; the hardware/SoC converter consumes them at `speed`.
         runCatching { active.setPlaybackRate((sampleRate * speed.coerceAtLeast(0.1)).toInt().coerceIn(4_000, 192_000)) }
         active.play()
     }
@@ -107,6 +136,8 @@ class AudioTrackPassageOutput : PassageOutput {
             current.flush()
             current.release()
         }
+        staged?.let { it.release() }
+        staged = null
         track = null
         markerListenerAttached = false
         markerCallback = null

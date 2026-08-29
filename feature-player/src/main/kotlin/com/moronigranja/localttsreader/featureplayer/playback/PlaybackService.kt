@@ -86,7 +86,12 @@ class PlaybackService : Service() {
     internal var machine: PlayerStateMachine? = null
     /** Active book (internal for host tests that drive commands directly). */
     internal var book: Book? = null
-    /** CR-2 host-test seam: the passage output (tests inject a fake). */
+    /** CR-2 host-test seam: the passage output (tests inject a fake).
+     * Default: the static track (decisions #84) — MODE_STREAM proved inert
+     * on the S22 (PLAYING with a frozen head, #83), so playback stays on
+     * the static model with PRE-ARMING: the next passage's track is built
+     * while the current one plays, so the boundary swap is a fast handoff
+     * instead of a rebuild on the critical path. */
     internal var output: PassageOutput = AudioTrackPassageOutput()
     private var tickerJob: Job? = null
     private var pregenJob: Job? = null
@@ -658,6 +663,18 @@ class PlaybackService : Service() {
                     "out=${clock() - playStart} frames=${sliced.size / 2} passage=${position.chapterIndex}/${position.passageIndex}",
                 )
             }
+            // Pre-arm (decisions #84): while the current passage plays, stage
+            // the NEXT passage's track so the boundary swaps instead of
+            // rebuilding (the measured 29-55 ms critical-path cost). Peek the
+            // queue, then the disk tier, for the next passage's size/rate; a
+            // miss just skips the pre-arm (the boundary falls back to build).
+            runCatching {
+                val next = nextPosition(position, activeBook) ?: return@runCatching
+                val nextPcm = queue
+                    ?.peek(next.chapterIndex, next.passageIndex)
+                    ?: pregenCache.cache.get(PregenKey(activeBook.id, next.chapterIndex, next.passageIndex, voice, current.speed))
+                if (nextPcm != null) output.prearm(nextPcm.pcm.size, nextPcm.sampleRateHz)
+            }
             // Measurement probes (goals §Measurement): tap-to-audio at the
             // first frame actually written to AudioTrack, and the boundary
             // gap vs the previous CONSECUTIVE same-loop play. gap-ms is an
@@ -732,9 +749,26 @@ class PlaybackService : Service() {
             marker.complete(Unit)
         }
         val target = totalFrames - frameMargin(sampleRate)
+        var lastSeen = output.positionSamples
+        var stallLoggedAt = 0L
         while (true) {
             if (stopSignal.isCompleted) return false
-            if (marker.isCompleted || output.positionSamples >= target) return true
+            val pos = output.positionSamples
+            if (marker.isCompleted || pos >= target) return true
+            // Stall diagnostic (probes only): if the head has not advanced for
+            // 5 s, log the output's live state once — the streaming track on
+            // the S22 stalled silently (no head movement, no error), and the
+            // loop cannot tell why without this.
+            if (probesActive && pos == lastSeen) {
+                val now = clock()
+                if (stallLoggedAt == 0L || now - stallLoggedAt >= 5_000) {
+                    stallLoggedAt = now
+                    probe("AyvuStall", "pos=$pos target=$target frames=$totalFrames")
+                }
+            } else {
+                lastSeen = pos
+                stallLoggedAt = 0L
+            }
             // CR-2: throttled live-playhead checkpoint while playing — abrupt
             // process death loses at most one interval, not a whole passage.
             // Runs in the player coroutine, so it cannot race the machine's
@@ -975,6 +1009,21 @@ class PlaybackService : Service() {
             .setStyle(MediaStyle().setMediaSession(session.sessionToken).setShowActionsInCompactView(1))
             .build()
         }
+
+    /** The passage after [position] in spine order, or null at the book's end
+     * (decisions #84 — the boundary pre-arm target). */
+    private fun nextPosition(position: PlayerPosition, book: Book): PlayerPosition? {
+        var chapter = position.chapterIndex
+        var passage = position.passageIndex + 1
+        while (chapter < book.chapters.size) {
+            if (passage < book.chapters[chapter].passages.size) {
+                return PlayerPosition(book.id, chapter, passage)
+            }
+            chapter += 1
+            passage = 0
+        }
+        return null
+    }
 
     /** The book's cover bitmap for the media notification, cached per book
      * and downsampled to ≤ ~512 px (album-art only — full res is overkill). */
