@@ -32,6 +32,8 @@ jobs:
           ./gradlew --no-daemon \
             :core-model:test :core-ebook:test :core-locate:test \
             :core-tts:test :core-player:test :core-ocr:test
+      - name: ktlint (baseline-gated)
+        run: ./gradlew --no-daemon ktlintCheck
 
   android-build:
     runs-on: ubuntu-latest

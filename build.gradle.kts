@@ -2,6 +2,37 @@
 // scripts own their builds. This file only hosts the cross-module boundary
 // check (A6).
 
+import org.gradle.api.attributes.Bundling
+
+val ktlint by configurations.creating {
+    attributes {
+        attribute(Bundling.BUNDLING_ATTRIBUTE, objects.named(Bundling.SHADOWED))
+    }
+}
+dependencies {
+    ktlint(libs.ktlint.cli)
+}
+
+val ktlintCheck by tasks.registering(JavaExec::class) {
+    group = "verification"
+    description = "Run ktlint over all module Kotlin sources; baseline-gated (only NEW violations fail)."
+    val baseline = rootProject.layout.projectDirectory.file(".ktlint-baseline.xml")
+    inputs.files(fileTree(rootProject.projectDir) { include("**/src/**/*.kt"); exclude("**/build/**") })
+    workingDir = rootProject.projectDir
+    classpath = ktlint
+    mainClass.set("com.pinterest.ktlint.Main")
+    jvmArgs(
+        "--add-opens", "java.base/java.lang=ALL-UNNAMED",
+        "--add-opens", "java.base/java.util=ALL-UNNAMED",
+    )
+    args(
+        "--relative",
+        "--baseline=${baseline.asFile.absolutePath}",
+        "**/src/**/*.kt",
+        "!**/build/**/*.kt",
+    )
+}
+
 tasks.register("checkFeatureBoundaries") {
     group = "verification"
     description = "Fails if any feature-* module gains a dependency on another feature-* module (architecture.md §2, CR-6/A6)."
