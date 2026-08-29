@@ -5,6 +5,7 @@ import androidx.room.Room
 import com.moronigranja.localttsreader.model.LibraryStore
 import com.moronigranja.localttsreader.persistence.AppSettings
 import com.moronigranja.localttsreader.persistence.BookDao
+import com.moronigranja.localttsreader.persistence.CorruptDatabaseGuard
 import com.moronigranja.localttsreader.persistence.LibraryDatabase
 import com.moronigranja.localttsreader.persistence.MIGRATION_1_2
 import com.moronigranja.localttsreader.persistence.PassageDao
@@ -35,10 +36,15 @@ object PersistenceModule {
 
     @Provides
     @Singleton
-    fun provideDatabase(@ApplicationContext context: Context): LibraryDatabase =
-        Room.databaseBuilder(context, LibraryDatabase::class.java, "local-tts-reader.db")
+    fun provideDatabase(@ApplicationContext context: Context): LibraryDatabase {
+        // S22 2026-08-29: an `install -r` left a 68 B fragment at the db path;
+        // Room would crash the launch-time rebuild on it forever. Quarantine
+        // corrupt files first so the app opens fresh instead of crash-looping.
+        CorruptDatabaseGuard.quarantineIfCorrupt(context, DATABASE_NAME)
+        return Room.databaseBuilder(context, LibraryDatabase::class.java, DATABASE_NAME)
             .addMigrations(MIGRATION_1_2)
             .build()
+    }
 
     @Provides
     fun provideBookDao(database: LibraryDatabase): BookDao = database.bookDao()
@@ -81,4 +87,6 @@ object PersistenceModule {
     @Provides
     @Singleton
     fun providePlayerStore(database: LibraryDatabase): PlayerStore = RoomPlayerStore(database)
+
+    private const val DATABASE_NAME = "local-tts-reader.db"
 }

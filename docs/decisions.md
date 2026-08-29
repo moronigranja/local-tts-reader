@@ -1,4 +1,14 @@
 # Decision log
+## 88. Room reinstall observation — code trace + corrupt-db quarantine guard (2026-08-29)
+
+Follow-up to the open-bugs Room row (S22, 2026-08-29): hours with no `files/databases/` yet "Continue listening" cards rendering, then a 68 B fragment at the db path.
+
+**Trace result — no app-side non-Room book path exists.** `LibraryViewModel` sources `library` (`repository.books`), `recent` (`progressDao.observeAll()` ⊗ books) and `readProgress` (`passageDao.chapterCounts()` ⊗ progress) exclusively from Room DAOs; the only `LibraryStore` binding in the composition root is `RoomLibraryStore` (`PersistenceModule`); the provider is a standard `Room.databaseBuilder(..., "local-tts-reader.db")` with `MIGRATION_1_2`; the DB's first open happens at app start (the `LocalTtsReaderApp` index rebuild reads `cachedBooks()`). The cards' render therefore required an open, valid database — the file absence at 17:44 is a filesystem/samsung-data-dir layer event, not an app data-flow defect (the FS-side deletion mechanism was never reproduced on the host; it stays open).
+
+**App-side fragility found + shipped:** a corrupt/truncated file at the db path crashes the launch-time rebuild on every start (Room throws at first DAO access — `LocalTtsReaderApp` reads `cachedBooks()` at app start, with no recovery path). `CorruptDatabaseGuard` (core-persistence, called from `PersistenceModule.provideDatabase` before the builder) moves a non-SQLite file — plus its `-wal`/`-shm` siblings — to `files/corrupt-db/<timestamp>/` (preserved, never deleted: not a destructive fallback, decisions #22), so Room creates a fresh database and the app starts empty but recoverable (re-import, or the backup slice) instead of crash-looping on a 68 B artifact. Valid SQLite files (header + ≥ 100 B) and 0-byte files (SQLite initializes those itself) pass through untouched.
+
+Evidence: `CorruptDatabaseGuardTest` ×4 green (garbage quarantined + path cleared, wal/shm move with main, valid db untouched, empty/missing untouched); `:core-persistence:testDebugUnitTest :app:compileDebugKotlin` BUILD SUCCESSFUL. Any later reproduction on-device should pull the preserved artifact from `files/corrupt-db/`.
+
 ## 87. B4 device-pass finds — espeak live status + chapter-title px-as-dp gap (2026-08-29)
 
 Three small fixes from the S22 acceptance pass (B4 font-scale leg + settings pack
