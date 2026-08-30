@@ -68,6 +68,22 @@ Kitten as blank (both confirmed by the measurement data below).
   benchmarking shifted Kokoro +1–16%, MOSS −11…+42% (one outlier), Kitten ±5%
   — same orderings, wider spreads under thermal load. HiBreak column stays
   pending; the comparison table is explicitly the **S22 column** of D3.
+  Follow-up recheck: the pack's **premade** `classic-zh` voice on the same
+  English probe produced distinct, finite audio (3.72 s vs the collapsed
+  9.52 s clone) but is unintelligible for English as the language mismatch
+  predicts — the pinned pack ships no English premade beyond sarah, so the
+  cloned-probe duplication finding stands as the CosyVoice3 quality record.
+  RTF ~17–20 on the premade pass, consistent with the loop numbers.
+- **sherpa-onnx as-is spot check** (user-requested): their stock Android TTS
+  demo (v1.13.6, unmodified `SherpaOnnxTts` app, bundled
+  `kokoro-en-v0_19` fp32 + their own libonnxruntime) on the same S22 and the
+  same probe text synthesized 4.99 s audio in **9.1 s wall → RTF ≈ 1.83**
+  (UI-app measurement, includes AudioTrack streaming; their export is Kokoro
+  **v0.19**, not our v1.0 packs). Our core-tts port on the pinned v1.0 fp32
+  measures **RTF 0.70** on the same text — ~2.6× faster wall-clock under the
+  same 6-thread CPU condition. The comparison is indicative, not
+  harness-identical (their graph revision, frontend and runtime differ), but
+  no evidence that switching runtimes would beat the shipped pipeline.
 
 ## 92. D3 — MOSS-TTS-Nano promoted to a comparison leg (2026-08-29)
 
