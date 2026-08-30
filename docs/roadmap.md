@@ -302,9 +302,20 @@ MOSS-TTS-Nano's promotion is decisions #92.
 | Engine | Role in the comparison | Measured status |
 |---|---|---|
 | **Kokoro-82M fp32** (pinned packs, `model-files-v1.1`) | Baseline — the shipped v1 primary; every contender must beat it on a *measured* bottleneck or offer a distinct capability | S22 RTF 1.16–1.20 (#86 harness) / 0.66–0.76 (hard-facts corpus); HiBreak RTF 2.84–3.12 (`bugs.md` B6 — live synthesis cannot sustain playback, pre-generation mandatory); ~834 MB PSS on the HiBreak |
-| **KittenTTS Nano v0.8** (KittenML, Apache-2.0) | Low-footprint / weak-device candidate: ~15M params, ~25 MB fp32 ONNX, 8 voices, 24 kHz, CPU-only; community export `onnx-community/KittenTTS-Nano-v0.8-ONNX` | Never run on-device; English-only v0.x |
+| **KittenTTS Nano v0.8** (KittenML, Apache-2.0) | Low-footprint / weak-device candidate: ~15M params, ~56 MB fp32 ONNX (the ~25 MB variant is int8, reported broken upstream — use fp32), 8 voices, 24 kHz, CPU-only; pinned pack `KittenML/kitten-tts-nano-0.8-fp32` (community export `onnx-community/KittenTTS-Nano-v0.8-ONNX` exists but only as fallback) | Never run on-device; English-only v0.x |
 | **CosyVoice3 0.5B ONNX** | Quality / voice-cloning fallback candidate: multilingual (en/zh/ja voices in the pinned manifest) and prompt-based voice cloning — a capability class Kokoro and Nano do not have | Pinned reproducibility record in [cosyvoice3-pack.md](cosyvoice3-pack.md) (3.47 GiB, 26 files); T3 device spike (#49) measured RTF far from realtime — disk-only playback; gated on the Flow-DiT acceleration finding (decisions #21/#23) |
 | **MOSS-TTS-Nano** (OpenMOSS, Apache-2.0) | Coverage/cloning/streaming candidate at a 0.1B footprint: 20 languages (incl. es/it/pt — the app's advertised set), streaming output, prompt-based voice cloning (a CosyVoice3-class capability at a quarter of its size); 48 kHz stereo output resampled into the 24 kHz pipeline | Standalone ONNX CPU packs pinned at the HF revisions: `MOSS-TTS-Nano-100M-ONNX` @ `f52645cb467506d8e18e746ddd59482685b74e58` (671.9 MB) + `MOSS-Audio-Tokenizer-Nano-ONNX` @ `ceff0d0749bfb3fa2d61149794ec6feef0d1e1ae` (90.6 MB) ≈ **0.75 GiB total** — a coverage/cloning play, not a footprint play; official Android ONNX Runtime Kotlin example in-repo; not in the Picovoice benchmark, never run on-device — pure-AR decode RTF on HiBreak-class CPU is the open question (#92) |
+
+**Measurement status (S22, 2026-08-30):** the S22 column of the table is
+measured — decisions #93. Kokoro baseline avg RTF **0.77** (0.67–0.99, all
+finite); KittenTTS Nano runs at RTF 0.31 but **every output is NaN on
+ORT-android** (1.23.2 + 1.29.0, all session-option profiles swept; x86 is
+finite) — measured drop for on-device use; MOSS-TTS-Nano RTF **~3.5** avg
+(decode-dominated AR, 375-frame cap truncates long passages) with the blind
+quality gate ranking it **first** — pregen-gated candidate; CosyVoice3 RTF
+**12.5–31.1** (matches #49 on blobs, degrades on short probes) with
+wrong-language/duplicated audio on the honorific probes — stays DiT-gated.
+HiBreak column pending (device deferred, #91 pattern).
 
 The comparison runs in the `spike-tts` harness on the S22 and HiBreak: the CosyVoice3
 leg reuses the existing T3 staging path (`cosyvoice3-pack.md` §Verify); the Nano leg is

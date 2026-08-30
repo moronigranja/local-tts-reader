@@ -1,5 +1,74 @@
 # Decision log
 
+## 93. D3 — first device column: the four-engine comparison on the S22 (2026-08-30)
+
+The D3 comparison ran on the S22 (SM-S908U1, SDK 36, locked/off screen,
+instrumented, 6 ORT intra-op threads, CPU EP) over the shared 8-row corpus
+(`d3_corpus.tsv`: the two #30/#31 passage blobs + 6 narration probes covering
+honorifics/numbers, dialogue, a long compound sentence, scene-break furniture
+and one pt-BR row). Tokenization/phonemization is host-precomputed into the
+TSV (espeak-ng for Kokoro; espeak-ng + the upstream `TextCleaner` table for
+Kitten; sentencepiece ids for MOSS, validated against the manifest's own
+gold `text_token_ids`) — the table compares inference only. One blind A/B/C/D
+listening pass on the "Ms. Rivera…" probe is the quality gate; the owner
+ranked **MOSS > Kokoro**, flagged CosyVoice3 as wrong-language/duplicated and
+Kitten as blank (both confirmed by the measurement data below).
+
+| Engine | Engine open | Corpus RTF (per row) | Memory | Quality gate |
+|---|---|---|---|---|
+| **Kokoro-82M fp32** (baseline) | 1992 ms | 0.67–0.99, avg **0.77**, all rows finite | in line with #86 | **2nd of 4** |
+| **KittenTTS Nano 0.8 fp32** | 754–942 ms | 0.28–0.36, avg **0.31** — but **every output contains NaN samples** | session ~60 MB | **4th — blank audio** |
+| **MOSS-TTS-Nano 100M** | 6255 ms (4 sessions) | 2.75–4.96 (standalone pass; 6 non-truncated), 3.2–5.4 (unified pass) — **decode-dominated AR**; 375-frame cap truncated both blobs | sessions open ~0.95 GB PSS, decode plateau ~1.4 GB | **1st of 4** |
+| **CosyVoice3 0.5B int4** | prompt path 7.4 s | **RTF 12.5–31.1** (first entry ×3: 12.5/13.4/13.8; rest mean 18.5) — flow stage dominates (68–75%), matches #49's 12.6–14.4 on the blobs | VmHWM **3.22 GB**, total PSS 377 MB | **3rd — wrong-language/duplicated audio** on the honorific probes |
+
+- **KittenTTS Nano — measured DROP for on-device use.** The pinned fp32 pack
+  (`KittenML/kitten-tts-nano-0.8-fp32`, sha256 `320564d2…`/`8aa7cee2…`,
+  byte-identical to the `onnx-community` export) produces deterministic NaN
+  audio on the S22's ARM CPU while the identical inputs/bytes are finite on
+  x86 (ORT 1.23.2 and 1.24.3 host). Swept and ruled out: ORT-android
+  1.23.2 **and** 1.29.0, ALL_OPT/BASIC_OPT, memory-pattern on/off, CPU arena
+  on/off, 1/6 intra-op threads. Two harness findings recorded with it: the
+  graph's hard sequence cap is **509 tokens incl. framing** (longer inputs
+  fail in `/bert/Expand` — the runner now chunks at punctuation boundaries
+  like upstream `generate()`), and the `.npy` magic is 6 bytes (`\x93NUMPY`).
+  RTF numbers are recorded but the audio is unusable — size never substitutes
+  for the oracle (#92 rule). Nano stays never-on-device; HiBreak column
+  untested (deferred with the device, #91 pattern).
+- **MOSS-TTS-Nano — measured keep-as-candidate, pregen-gated.** Realtime
+  fails by 3–5× (RTF ~3.5 avg; decode is ~70–85% of the wall), so it cannot
+  do live synthesis — but the quality gate ranks it **first**, pt-BR
+  synthesized cleanly (73 frames, finite — coverage measured, not claimed),
+  and streaming output fits the pre-generation queue shape. Memory needs one
+  recorded deviation from the demo engine: **`setMemoryPatternOptimization(false)`
+  + `setCPUArenaAllocator(false)`** — with them the AR decode plateaus at
+  ~1.4 GB; without them RSS balloons to 6.6 GB and lmkd kills the process
+  (thrashing 305%). Voice `Ava` (first English-group builtin, female, to
+  match af_heart). 48 kHz output written as mono (channel-averaged, the demo
+  engine's own rule). Adoption decision moves to the pre-generation budget
+  slice; the 0.75 GiB pack is a coverage/cloning play, as pinned in #92.
+- **CosyVoice3 — stays DiT-gated (#21/#23), now also quality-flagged.** The
+  corpus loop reproduces #49's blob RTF (12.5–13.8) but degrades on short
+  probes (RTF 15.6–31.1) and the blind gate heard wrong-language/duplicated
+  audio: the `probe-miss-rivera` and `probe-dr-chen` outputs are byte-identical
+  (same peak 0.70185685, same 9.52 s) — the sarah-cloned pipeline collapsed
+  both honorific probes to the same synthesis. Disk-only playback constraint
+  unchanged; not an adoption candidate.
+- **Kokoro baseline stands.** 0.77 corpus RTF on the merged corpus, finite
+  everywhere, 2nd in the blind gate behind MOSS. No adoption signal moves:
+  the shipped v1 primary keeps its position.
+- **Provenance** (sha256 at staging, full list in the runner log):
+  Kitten `kitten_tts_nano_v0_8.onnx` `320564d2…`, `voices.npz` `8aa7cee2…`;
+  MOSS TTS repo @ `f52645cb…` (9 files incl. `browser_poc_manifest.json`
+  `097d80e9…`), codec repo @ `ceff0d07…` (4 files); CosyVoice3 pack re-staged
+  from the `cosyvoice3-pack.md` pinned revision — derived `sarah16/24.wav`
+  hashes match the recorded values exactly. Artifacts: `d3_results.json`
+  (merged), `d3_results_{kitten,moss,cosyvoice}.json` + per-engine WAVs on
+  host and device; corpus + probe WAVs persisted for future gates.
+- **Run-to-run variance note**: a second full pass after ~2 h of sustained
+  benchmarking shifted Kokoro +1–16%, MOSS −11…+42% (one outlier), Kitten ±5%
+  — same orderings, wider spreads under thermal load. HiBreak column stays
+  pending; the comparison table is explicitly the **S22 column** of D3.
+
 ## 92. D3 — MOSS-TTS-Nano promoted to a comparison leg (2026-08-29)
 
 The candidate sweep for the D3 engine comparison (landscape.md §"D3 comparison

@@ -83,6 +83,43 @@ adb exec-out run-as com.moronigranja.localttsreader.spiketts cat \
   /sdcard/Android/data/com.moronigranja.localttsreader.spiketts/files/kokoro_precision_fp16.json
 ```
 
+## D3 engine comparison staging (decisions #92/#93, `spike-tts`)
+
+Stages the Kitten Nano + MOSS-TTS-Nano packs and the shared `d3_corpus.tsv`
+alongside the existing Kokoro packs; the CosyVoice3 leg reuses the T3 staging
+(see §"T3 CosyVoice3 spike" — 3.5 GB into `files/models`). Pinned sources:
+`KittenML/kitten-tts-nano-0.8-fp32` (fp32 only — the int8 variant is broken
+upstream) and `OpenMOSS-Team/MOSS-TTS-Nano-100M-ONNX` @ `f52645cb…` +
+`MOSS-Audio-Tokenizer-Nano-ONNX` @ `ceff0d07…` (note: the `OpenMOSS` org does
+not serve the repos; it is `OpenMOSS-Team`). The MOSS pack merges under one
+root keeping the repo-dir names the demo engine's manifest aliases expect.
+Corpus columns (`id \t lang \t raw_text \t kokoro_phonemes \t kitten_tokens \t
+moss_token_ids`) are host-generated: espeak-ng (repo `EspeakPhonemizer`) +
+the upstream `TextCleaner`/framing for Kitten, sentencepiece for MOSS
+(validated against the manifest's gold `text_token_ids`).
+
+```bash
+adb push /tmp/d3/models /data/local/tmp/d3-models
+adb push /tmp/d3/d3_corpus.tsv /data/local/tmp/d3_corpus.tsv
+adb shell "run-as com.moronigranja.localttsreader.spiketts sh -c \\
+  'mkdir -p files/models && cp -r /data/local/tmp/d3-models/. files/models/ && \\
+   cp /data/local/tmp/d3_corpus.tsv files/d3_corpus.tsv'"
+adb shell "run-as com.moronigranja.localttsreader.spiketts ls files/models/kitten \\
+  files/models/moss/MOSS-TTS-Nano-100M-ONNX"
+adb logcat -c
+adb shell am instrument -w com.moronigranja.localttsreader.spiketts.test/androidx.test.runner.AndroidJUnitRunner
+adb logcat -d -s D3Compare:V KittenSpike:V MossSpike:V
+adb exec-out run-as com.moronigranja.localttsreader.spiketts cat \\
+  /sdcard/Android/data/com.moronigranja.localttsreader.spiketts/files/d3_results.json
+```
+
+Measurement notes carried from #93: MOSS sessions require
+`setMemoryPatternOptimization(false)` + `setCPUArenaAllocator(false)` (lmkd
+kills at 6.6 GB RSS otherwise) and the Kitten graph caps at 509 tokens incl.
+framing (the runner chunks). During long CosyVoice3 activity runs keep the
+screen on (`svc power stayon true`) — a dozed display lets the Samsung freezer
+pause the benchmark thread mid-stage.
+
 ## espeak-ng Android bundle (decision #32)
 
 Cross-compiles `libespeak-ng.so` (arm64-v8a) at the pinned espeak-ng release tag

@@ -152,7 +152,17 @@ Two corrections to the 2026-08-26 entries:
   streaming output** (full-audio-then-play). The 25 MB disk size is real, but the
   assumed HiBreak RTF win over Kokoro (1.28× there, 2.0 GB peak) is **not
   supported** by this data point. D3's Nano leg must treat the RTF question as
-  open and device-measured, not as a premise.
+  open and device-measured, not as a premise. **S22 measured (#93): the engine
+  runs at RTF 0.28–0.36 but every output is NaN on ORT-android (1.23.2 + 1.29.0,
+  all session-option profiles swept; identical bytes are finite on x86) — blank
+  audio, blind quality gate fail. Measured drop for on-device use.**
+- **MOSS-TTS-Nano S22 evidence** (#93): RTF ~3.5 avg (2.75–4.96,
+  decode-dominated AR; the 375-frame manifest cap truncates long passages),
+  48 kHz mono out, sessions ~0.95 GB PSS with a ~1.4 GB decode plateau —
+  `setMemoryPatternOptimization(false)` + `setCPUArenaAllocator(false)` are
+  required or lmkd kills the process at 6.6 GB RSS. pt-BR attempted fine
+  (coverage measured, not claimed). **Blind quality gate rank 1/4 — pregen-gated
+  candidate; live synthesis ruled out.**
 - **Supertonic 3 maintenance risk**: the vendor **announced 2026-07-23 that the
   repo will be archived with no further development or official support** for the
   open-source models (Voice Builder closed 2026-08-31). Weights stay downloadable

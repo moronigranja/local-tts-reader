@@ -103,64 +103,29 @@ class MainActivity : Activity() {
 
             val results = JSONObject()
             val runs = org.json.JSONArray()
-            val thermal = ThermalProbe(this)
+            val thermal = ThermalProbe(this, TAG)
             thermal.start()
-            for (run in 1..RUNS) {
-                val rng = Random(1234L + run)
-                val tLlm0 = System.currentTimeMillis()
-                val (flowTokens, _) = pipeline.llmGenerate(tok, TEXT, prompt, rng)
-                val llmMs = System.currentTimeMillis() - tLlm0
-                sessions.release(Sessions.LLM_GROUP)
-                val tFlow0 = System.currentTimeMillis()
-                val mel = pipeline.flowGenerate(flowTokens, prompt, rng)
-                val flowMs = System.currentTimeMillis() - tFlow0
-                sessions.release(Sessions.FLOW_GROUP)
-                val tHift0 = System.currentTimeMillis()
-                val (audio, hiftStats) = pipeline.hiftGenerate(mel, mel.size / 80)
-                val hiftMs = System.currentTimeMillis() - tHift0
-                sessions.release(Sessions.HIFT_GROUP)
-                var fSum = 0.0
-                for (v in mel) fSum += v
-                val fMean = fSum / mel.size
-                var fVar = 0.0
-                for (v in mel) fVar += (v - fMean) * (v - fMean)
-                val fMax = mel.max()
-                log("  flow mel: mean=${"%.3f".format(fMean)} std=${"%.3f".format(Math.sqrt(fVar / mel.size))} " +
-                    "max=${"%.3f".format(fMax)} | f0: mean=${"%.1f".format(hiftStats.f0Mean)} " +
-                    "std=${"%.1f".format(hiftStats.f0Std)} | src: rms=${"%.4f".format(hiftStats.srcRms)} len=${hiftStats.srcLen}")
-                val synthMs = llmMs + flowMs + hiftMs
-                val dur = audio.size.toDouble() / Pipeline.SAMPLE_RATE
-                var peak = 0.0f
-                var rms = 0.0
-                for (v in audio) {
-                    peak = maxOf(peak, kotlin.math.abs(v))
-                    rms += v * v
+            // D3 corpus mode (decisions #93): when d3_corpus.tsv is staged
+            // in filesDir, loop the corpus (first entry RUNS=3, rest RUNS=1)
+            // and write d3_results_cosyvoice.json with the same per-run
+            // field names; otherwise the legacy single-TEXT run. The sarah
+            // prompt is processed once above, shared by every entry.
+            val corpusFile = File(filesDir, "d3_corpus.tsv")
+            val corpus = if (corpusFile.isFile) parseCorpus(corpusFile) else null
+            if (corpus == null) log("no d3_corpus.tsv — legacy single-sentence run")
+            results.put("mode", if (corpus != null) "d3_corpus" else "legacy_single_text")
+            val entries: List<Triple<String, String, String>> =
+                corpus ?: listOf(Triple("", "", TEXT))
+            for ((index, entry) in entries.withIndex()) {
+                val (id, lang, text) = entry
+                val runsForEntry = if (index == 0) RUNS else 1
+                for (run in 1..runsForEntry) {
+                    runs.put(synthesizeOnce(
+                        pipeline, tok, prompt, sessions, text, run, id, lang, outDir))
                 }
-                rms = Math.sqrt(rms / audio.size)
-                val finite = audio.all { it.isFinite() }
-                val runJson = JSONObject()
-                    .put("run", run)
-                    .put("llm_ms", llmMs)
-                    .put("flow_ms", flowMs)
-                    .put("hift_ms", hiftMs)
-                    .put("flow_mel_mean", fMean)
-                    .put("flow_mel_max", fMax)
-                    .put("f0_mean", hiftStats.f0Mean)
-                    .put("src_rms", hiftStats.srcRms)
-                    .put("synth_ms", synthMs)
-                    .put("audio_seconds", dur)
-                    .put("rtf", synthMs / 1000.0 / dur)
-                    .put("samples", audio.size)
-                    .put("peak_abs", peak)
-                    .put("rms", rms)
-                    .put("finite", finite)
-                runs.put(runJson)
-                log("run $run: llm=${llmMs} ms flow=${flowMs} ms hift=${hiftMs} ms, " +
-                    "audio=${"%.2f".format(dur)} s, RTF=${"%.3f".format(synthMs / 1000.0 / dur)}, " +
-                    "peak=${peak}, rms=${"%.4f".format(rms)}, finite=$finite")
-                Wav.write(File(outDir, "out_run$run.wav"), audio, Pipeline.SAMPLE_RATE)
             }
             thermal.stop()
+            // run rows were appended above; the shared result block follows.
             val mem = Debug.MemoryInfo()
             Debug.getMemoryInfo(mem)
             results.put("prompt_ms", promptMs)
@@ -171,8 +136,9 @@ class MainActivity : Activity() {
             results.put("thermal_headroom_max", thermal.maxHeadroom)
             results.put("device", "${Build.MANUFACTURER} ${Build.MODEL}")
             results.put("threads", THREADS)
-            File(outDir, "results.json").writeText(results.toString(2))
-            log("results.json written to $outDir")
+            val resultFileName = if (corpus != null) "d3_results_cosyvoice.json" else "results.json"
+            File(outDir, resultFileName).writeText(results.toString(2))
+            log("$resultFileName written to $outDir")
             log("peak status: ${thermal.maxStatus}, headroom: ${thermal.maxHeadroom}")
             log("VmHWM: ${readVmHwm()} kB, totalPss: ${mem.totalPss} kB")
             log("DONE")
@@ -188,41 +154,93 @@ class MainActivity : Activity() {
         return line.split(Regex("\\s+"))[1].toLongOrNull() ?: -1
     }
 
-    private class ThermalProbe(private val activity: Activity) {
-        var maxStatus = -1
-        var maxHeadroom = 0.0f
-        @Volatile private var running = false
-        private var thread: Thread? = null
-
-        fun start() {
-            if (Build.VERSION.SDK_INT < 29) return
-            running = true
-            thread = Thread {
-                try {
-                    // android.os.ThermalManager is missing from the android-36
-                    // compile jar; the class exists at runtime on API 29+.
-                    val cls = Class.forName("android.os.ThermalManager")
-                    val tm = activity.getSystemService("thermalservice")!!
-                    val statusM = cls.getMethod("getCurrentThermalStatus")
-                    val headroomM = cls.getMethod("getThermalHeadroom", Int::class.javaPrimitiveType)
-                    while (running) {
-                        try {
-                            val s = statusM.invoke(tm) as Int
-                            if (s > maxStatus) maxStatus = s
-                            val h = headroomM.invoke(tm, 0) as Float
-                            if (h > maxHeadroom) maxHeadroom = h
-                        } catch (e: Exception) { /* sample skipped */ }
-                        Thread.sleep(500)
-                    }
-                } catch (e: ClassNotFoundException) {
-                    // API < 29 or class absent: thermal stays at defaults
-                }
-            }.also { it.isDaemon = true; it.start() }
+    /**
+     * One CosyVoice3 synthesis round: llm → flow → hift with per-stage
+     * session release, WAV written per run. [id] empty = legacy single-TEXT
+     * run (`out_run$run.wav`); otherwise a D3 corpus row
+     * (`d3_cosyvoice_run$run_$id.wav`) and the row id/language land in the
+     * run JSON.
+     */
+    private fun synthesizeOnce(
+        pipeline: Pipeline,
+        tok: Bpe.Tokenizer,
+        prompt: Pipeline.VoicePrompt,
+        sessions: Sessions,
+        text: String,
+        run: Int,
+        id: String,
+        lang: String,
+        outDir: File,
+    ): JSONObject {
+        val rng = Random(1234L + run)
+        val tLlm0 = System.currentTimeMillis()
+        val (flowTokens, _) = pipeline.llmGenerate(tok, text, prompt, rng)
+        val llmMs = System.currentTimeMillis() - tLlm0
+        sessions.release(Sessions.LLM_GROUP)
+        val tFlow0 = System.currentTimeMillis()
+        val mel = pipeline.flowGenerate(flowTokens, prompt, rng)
+        val flowMs = System.currentTimeMillis() - tFlow0
+        sessions.release(Sessions.FLOW_GROUP)
+        val tHift0 = System.currentTimeMillis()
+        val (audio, hiftStats) = pipeline.hiftGenerate(mel, mel.size / 80)
+        val hiftMs = System.currentTimeMillis() - tHift0
+        sessions.release(Sessions.HIFT_GROUP)
+        var fSum = 0.0
+        for (v in mel) fSum += v
+        val fMean = fSum / mel.size
+        var fVar = 0.0
+        for (v in mel) fVar += (v - fMean) * (v - fMean)
+        val fMax = mel.max()
+        log("  flow mel: mean=${"%.3f".format(fMean)} std=${"%.3f".format(Math.sqrt(fVar / mel.size))} " +
+            "max=${"%.3f".format(fMax)} | f0: mean=${"%.1f".format(hiftStats.f0Mean)} " +
+            "std=${"%.1f".format(hiftStats.f0Std)} | src: rms=${"%.4f".format(hiftStats.srcRms)} len=${hiftStats.srcLen}")
+        val synthMs = llmMs + flowMs + hiftMs
+        val dur = audio.size.toDouble() / Pipeline.SAMPLE_RATE
+        var peak = 0.0f
+        var rms = 0.0
+        for (v in audio) {
+            peak = maxOf(peak, kotlin.math.abs(v))
+            rms += v * v
         }
-
-        fun stop() {
-            running = false
-            thread?.join(2000)
+        rms = Math.sqrt(rms / audio.size)
+        val finite = audio.all { it.isFinite() }
+        val runJson = JSONObject()
+            .put("run", run)
+            .put("llm_ms", llmMs)
+            .put("flow_ms", flowMs)
+            .put("hift_ms", hiftMs)
+            .put("flow_mel_mean", fMean)
+            .put("flow_mel_max", fMax)
+            .put("f0_mean", hiftStats.f0Mean)
+            .put("src_rms", hiftStats.srcRms)
+            .put("synth_ms", synthMs)
+            .put("audio_seconds", dur)
+            .put("rtf", synthMs / 1000.0 / dur)
+            .put("samples", audio.size)
+            .put("peak_abs", peak)
+            .put("rms", rms)
+            .put("finite", finite)
+        if (id.isNotEmpty()) {
+            runJson.put("id", id).put("language", lang)
         }
+        val label = if (id.isEmpty()) "run $run" else "run $run [$id]"
+        log("$label: llm=${llmMs} ms flow=${flowMs} ms hift=${hiftMs} ms, " +
+            "audio=${"%.2f".format(dur)} s, RTF=${"%.3f".format(synthMs / 1000.0 / dur)}, " +
+            "peak=${peak}, rms=${"%.4f".format(rms)}, finite=$finite")
+        val wavName = if (id.isEmpty()) "out_run$run" else "d3_cosyvoice_run${run}_$id"
+        Wav.write(File(outDir, "$wavName.wav"), audio, Pipeline.SAMPLE_RATE)
+        return runJson
+    }
+
+    /** `id \t lang \t raw_text \t …` — only the first three columns are used. */
+    private fun parseCorpus(corpusFile: File): List<Triple<String, String, String>> {
+        val entries = ArrayList<Triple<String, String, String>>()
+        for ((index, line) in corpusFile.readLines().withIndex()) {
+            if (index == 0 || line.isBlank()) continue
+            val parts = line.split('\t')
+            if (parts.size < 3) continue
+            entries += Triple(parts[0], parts[1], parts[2])
+        }
+        return entries
     }
 }
