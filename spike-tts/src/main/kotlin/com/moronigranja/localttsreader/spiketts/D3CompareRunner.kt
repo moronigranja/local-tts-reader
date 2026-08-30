@@ -45,10 +45,21 @@ class D3CompareRunner(private val context: Context) {
     fun run(corpusFile: File, outDir: File, log: (String) -> Unit): JSONObject {
         val merged = JSONObject()
         log("D3 compare: ${Build.MANUFACTURER} ${Build.MODEL}, sdk ${Build.VERSION.SDK_INT}")
+        val outFile = File(outDir, "d3_results.json")
+
+        // Write the merged file after every completed leg: on low-RAM devices
+        // lmkd can kill the process mid-pass and the finished legs must
+        // survive on disk (HiBreak: kokoro leg done, killed in kitten).
+        fun flush() {
+            File(outDir, "d3_results.json.tmp").writeText(merged.toString(2))
+            outFile.delete()
+            File(outDir, "d3_results.json.tmp").renameTo(outFile)
+        }
 
         // Baseline first, and it must complete.
         val kokoro = runKokoro(corpusFile, outDir, log)
         merged.put("kokoro", kokoro)
+        flush()
 
         val kitten = try {
             KittenBenchmarkRunner(context).run(corpusFile, outDir, log = { log("[kitten] $it") })
@@ -57,6 +68,7 @@ class D3CompareRunner(private val context: Context) {
             JSONObject().put("unavailable", e.message ?: e.toString())
         }
         merged.put("kitten", kitten)
+        flush()
 
         val moss = try {
             MossBenchmarkRunner(context).run(corpusFile, outDir) { log("[moss] $it") }
@@ -65,13 +77,14 @@ class D3CompareRunner(private val context: Context) {
             JSONObject().put("unavailable", e.message ?: e.toString())
         }
         merged.put("moss", moss)
+        flush()
 
         val mem = Debug.MemoryInfo()
         Debug.getMemoryInfo(mem)
         merged.put("device", "${Build.MANUFACTURER} ${Build.MODEL}")
         merged.put("vm_hwm_kb", readVmHwm())
         merged.put("total_pss_kb", mem.totalPss)
-        File(outDir, "d3_results.json").writeText(merged.toString(2))
+        flush()
         log("d3_results.json written to $outDir")
         return merged
     }

@@ -124,6 +124,39 @@ class MainActivity : Activity() {
                         pipeline, tok, prompt, sessions, text, run, id, lang, outDir))
                 }
             }
+
+            // Premade-voice recheck (#93 follow-up): the blind gate heard
+            // wrong-language/duplicated audio from the sarah-cloned probes.
+            // Generate the same honorific probe with the pack's premade
+            // classic-zh voice (its own prompt wav + transcript) for a
+            // like-for-like listen, writing
+            // d3_results_cosyvoice_premade.json.
+            val classicWav = File(models, "voices/classic-zh.wav")
+            if (classicWav.isFile && corpus != null) {
+                log("premade-voice pass: classic-zh prompt")
+                val cPrompt = pipeline.processPrompt(
+                    tok,
+                    Wav.read(File(models, "voices/classic-zh16.wav")),
+                    Wav.read(File(models, "voices/classic-zh24.wav")),
+                    File(models, "voices/classic-zh.txt").readText().trim())
+                val premade = JSONObject().put("voice", "classic-zh")
+                val premadeRuns = org.json.JSONArray()
+                val rivera = corpus!!.firstOrNull { it.first == "probe-miss-rivera" }
+                if (rivera != null) {
+                    premadeRuns.put(synthesizeOnce(
+                        pipeline, tok, cPrompt, sessions,
+                        rivera.third, 1, rivera.first + "-premade", "zh", outDir))
+                }
+                premadeRuns.put(synthesizeOnce(
+                    pipeline, tok, cPrompt, sessions,
+                    "你好，这是预置音色的听感测试，希望它比克隆音色更自然。", 1,
+                    "probe-zh-premade", "zh", outDir))
+                premade.put("runs", premadeRuns)
+                File(outDir, "d3_results_cosyvoice_premade.json")
+                    .writeText(premade.toString(2))
+                log("d3_results_cosyvoice_premade.json written")
+            }
+
             thermal.stop()
             // run rows were appended above; the shared result block follows.
             val mem = Debug.MemoryInfo()

@@ -315,7 +315,16 @@ finite) — measured drop for on-device use; MOSS-TTS-Nano RTF **~3.5** avg
 quality gate ranking it **first** — pregen-gated candidate; CosyVoice3 RTF
 **12.5–31.1** (matches #49 on blobs, degrades on short probes) with
 wrong-language/duplicated audio on the honorific probes — stays DiT-gated.
-HiBreak column pending (device deferred, #91 pattern).
+
+**Measurement status (HiBreak, 2026-08-30):** the HiBreak column is measured
+(MT6765 8×A53, 3.97 GB RAM — decisions #93). Kokoro RTF **2.83–3.65, avg
+3.01**, all finite (~3.9× the S22; confirms B6 — pre-generation mandatory);
+KittenTTS Nano RTF 1.37–1.49 but **NaN again with identical output sizes** —
+the ARM NaN bug is ORT-android-wide, drop reinforced; MOSS-TTS-Nano
+**unavailable — lmkd kills the decode at ~2.5 GB RSS** (the 3.97 GB device
+cannot hold the AR plateau; the wall is memory, not speed); CosyVoice3
+skipped (3.22 GB VmHWM exceeds device RAM). D3's device matrix is complete:
+both devices measured on every leg that physically fits.
 
 The comparison runs in the `spike-tts` harness on the S22 and HiBreak: the CosyVoice3
 leg reuses the existing T3 staging path (`cosyvoice3-pack.md` §Verify); the Nano leg is

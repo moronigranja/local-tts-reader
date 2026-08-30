@@ -66,8 +66,8 @@ Kitten as blank (both confirmed by the measurement data below).
   host and device; corpus + probe WAVs persisted for future gates.
 - **Run-to-run variance note**: a second full pass after ~2 h of sustained
   benchmarking shifted Kokoro +1–16%, MOSS −11…+42% (one outlier), Kitten ±5%
-  — same orderings, wider spreads under thermal load. HiBreak column stays
-  pending; the comparison table is explicitly the **S22 column** of D3.
+  — same orderings, wider spreads under thermal load. The HiBreak column is
+  measured below; this table is the **S22 column** of D3.
   Follow-up recheck: the pack's **premade** `classic-zh` voice on the same
   English probe produced distinct, finite audio (3.72 s vs the collapsed
   9.52 s clone) but is unintelligible for English as the language mismatch
@@ -84,6 +84,27 @@ Kitten as blank (both confirmed by the measurement data below).
   same 6-thread CPU condition. The comparison is indicative, not
   harness-identical (their graph revision, frontend and runtime differ), but
   no evidence that switching runtimes would beat the shipped pipeline.
+- **HiBreak column measured (2026-08-30, Bigme HiBreak, MT6765 8×A53, SDK 34,
+  3.97 GB RAM, 14 GB free, same corpus/harness):**
+  - **Kokoro**: 8/8 rows finite, RTF **2.83–3.65, avg 3.01** (open 8477 ms,
+    total PSS 960 MB) — ~3.9× slower than the S22 on the same harness, in
+    line with the B6 expectation that live synthesis cannot sustain playback
+    (pre-generation mandatory, `bugs.md` B6).
+  - **KittenTTS Nano**: 6/6 en rows, RTF 1.37–1.49 — **NaN again** with
+    byte-identical output sizes to the S22 run: the ARM NaN bug is
+    ORT-android/ARM-wide, not S22-specific. Drop reinforced.
+  - **MOSS-TTS-Nano**: **unavailable — lmkd kill.** The AR decode plateau
+    reached 2.54 GB RSS (PSS ~1.1–1.3 GB) before the oom killer reclaimed the
+    process ("min watermark is breached even after kill"), twice, in
+    standalone and in-pass runs at the same decode step. The 3.97 GB device
+    cannot hold the MOSS decode plateau next to the system. No HiBreak RTF
+    exists — the wall is memory, not speed.
+  - **CosyVoice3**: skipped, recorded — 3.22 GB VmHWM on the S22 exceeds the
+    HiBreak's 3.97 GB total RAM before lmkd headroom, and #49 already ruled
+    it disk-only.
+  - Harness note: `D3CompareRunner` now flushes `d3_results.json` after each
+    completed leg (incremental write) — the HiBreak kills would otherwise
+    have lost the finished kokoro leg.
 
 ## 92. D3 — MOSS-TTS-Nano promoted to a comparison leg (2026-08-29)
 
