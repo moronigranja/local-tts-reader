@@ -291,35 +291,49 @@ Choreographer-skip counts are recorded (#67/#86/bugs.md). Still open from the
 required-evidence list: retained PSS/RSS 60 s after pause, thermal behavior and
 power draw.
 
-### D3 — KittenTTS Nano engine spike — promoted from ideas
+### D3 — Engine comparison spike: KittenTTS Nano vs CosyVoice3 vs Kokoro baseline
 
-A measurement spike, not an assumed adoption. KittenTTS Nano v0.8 (KittenML,
-Apache-2.0) is a ~15M-parameter, ~25 MB fp32 ONNX model — an order of magnitude
-smaller than the pinned Kokoro-82M fp32 pack — with 8 built-in voices, 24 kHz
-output, CPU-only ONNX inference, and an existing community ONNX export
-(`onnx-community/KittenTTS-Nano-v0.8-ONNX`). The candidate role is bounded by the
-measured baselines: on the HiBreak, live Kokoro synthesis cannot sustain playback
-(RTF 2.84–3.12, `bugs.md` B6) and pre-generation is mandatory; on the S22 Kokoro
-is already near-realtime. Nano is a potential low-footprint/weak-device engine,
-not an S22-quality replacement.
+A measurement spike, not an assumed adoption. Three ONNX engines are compared on
+one harness, one corpus set and one measurement gate, with the shipped engine as
+the baseline everything must beat or lose to honestly:
 
-Reuse the spike-tts harness and the D2 measurement gates. Required evidence:
+| Engine | Role in the comparison | Measured status |
+|---|---|---|
+| **Kokoro-82M fp32** (pinned packs, `model-files-v1.1`) | Baseline — the shipped v1 primary; every contender must beat it on a *measured* bottleneck or offer a distinct capability | S22 RTF 1.16–1.20 (#86 harness) / 0.66–0.76 (hard-facts corpus); HiBreak RTF 2.84–3.12 (`bugs.md` B6 — live synthesis cannot sustain playback, pre-generation mandatory); ~834 MB PSS on the HiBreak |
+| **KittenTTS Nano v0.8** (KittenML, Apache-2.0) | Low-footprint / weak-device candidate: ~15M params, ~25 MB fp32 ONNX, 8 voices, 24 kHz, CPU-only; community export `onnx-community/KittenTTS-Nano-v0.8-ONNX` | Never run on-device; English-only v0.x |
+| **CosyVoice3 0.5B ONNX** | Quality / voice-cloning fallback candidate: multilingual (en/zh/ja voices in the pinned manifest) and prompt-based voice cloning — a capability class Kokoro and Nano do not have | Pinned reproducibility record in [cosyvoice3-pack.md](cosyvoice3-pack.md) (3.47 GiB, 26 files); T3 device spike (#49) measured RTF far from realtime — disk-only playback; gated on the Flow-DiT acceleration finding (decisions #21/#23) |
+
+The comparison runs in the `spike-tts` harness on the S22 and HiBreak: the CosyVoice3
+leg reuses the existing T3 staging path (`cosyvoice3-pack.md` §Verify); the Nano leg is
+added behind the same harness with its own tokenizer. Both run through the existing
+`TTSEngine` seam shape — no second in-app inference convention is created to test.
+
+Required evidence, identical for all three legs:
 
 - Cold engine-open time-to-first-audio, steady-state RTF, peak/resident PSS on
-  the S22 and HiBreak against the same corpora and voices as #67/#86.
-- Quality/oracle comparison of the 8 built-in voices against the Kokoro voice
-  family on the narration-quality benchmark corpus (names, honorifics, numbers,
-  dialogue) — a 15M-parameter model must clear the quality gate, not win on size.
-- Integration-cost audit before any adoption decision: KittenTTS's own
-  tokenizer/phonemizer vs the shared espeak-ng/JNA path; English-only v0.x vs the
-  advertised language set; the 24 kHz rate against the engine-agnostic
-  `lastSampleRateHz` contract (S5, decisions #77); pack staging via the existing
-  `TTSEngine`/`TtsPack` download flow.
+  both devices against the same corpora (the #67/#86 corpora + the hard-facts
+  listening corpus), plus the still-open D2 measurements: retained PSS 60 s after
+  pause, thermal behavior, power draw.
+- Quality/oracle comparison on the narration-quality benchmark corpus (names,
+  honorifics, numbers, dialogue) across all three engines — a 15M-parameter model
+  and a disk-only 0.5B model each clear the quality gate or the comparison records
+  why not; size and capability never substitute for the oracle.
+- Capability deltas recorded per engine, not folded into the RTF table: Nano's
+  footprint (25 MB vs ~326 MB staged Kokoro vs 3.47 GiB CosyVoice3), CosyVoice3's
+  voice cloning and language coverage, Nano's English-only v0.x vs the advertised
+  language set.
+- Integration-cost audit before any adoption decision: tokenizer/phonemizer path
+  per engine vs the shared espeak-ng/JNA path; sample rates against the
+  engine-agnostic `lastSampleRateHz` contract (S5, decisions #77); pack staging
+  via the existing `TTSEngine`/`TtsPack` download flow; CosyVoice3's disk-only
+  playback constraint vs pre-generation budgets.
 
-Acceptance: measurements recorded on both devices and a typed keep/drop decision
-in decisions.md. Adoption only as a secondary engine behind the existing
-`TTSEngine` seam — never a Kokoro replacement — and only if the quality gate
-passes and the RTF/PSS result materially beats the HiBreak baseline.
+Acceptance: a single comparison table in decisions.md — all three engines, both
+devices, the same metrics — plus a typed per-engine keep/drop/defer decision.
+No adoption without the quality gate and a materially better measured result for
+a named bottleneck; Nano may only ever be a secondary engine behind the existing
+seam (never a Kokoro replacement), and CosyVoice3 stays gated on the DiT
+acceleration finding unless its measured RTF in this spike overturns it.
 
 ## Phase E — data safety
 
