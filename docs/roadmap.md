@@ -291,6 +291,36 @@ Choreographer-skip counts are recorded (#67/#86/bugs.md). Still open from the
 required-evidence list: retained PSS/RSS 60 s after pause, thermal behavior and
 power draw.
 
+### D3 — KittenTTS Nano engine spike — promoted from ideas
+
+A measurement spike, not an assumed adoption. KittenTTS Nano v0.8 (KittenML,
+Apache-2.0) is a ~15M-parameter, ~25 MB fp32 ONNX model — an order of magnitude
+smaller than the pinned Kokoro-82M fp32 pack — with 8 built-in voices, 24 kHz
+output, CPU-only ONNX inference, and an existing community ONNX export
+(`onnx-community/KittenTTS-Nano-v0.8-ONNX`). The candidate role is bounded by the
+measured baselines: on the HiBreak, live Kokoro synthesis cannot sustain playback
+(RTF 2.84–3.12, `bugs.md` B6) and pre-generation is mandatory; on the S22 Kokoro
+is already near-realtime. Nano is a potential low-footprint/weak-device engine,
+not an S22-quality replacement.
+
+Reuse the spike-tts harness and the D2 measurement gates. Required evidence:
+
+- Cold engine-open time-to-first-audio, steady-state RTF, peak/resident PSS on
+  the S22 and HiBreak against the same corpora and voices as #67/#86.
+- Quality/oracle comparison of the 8 built-in voices against the Kokoro voice
+  family on the narration-quality benchmark corpus (names, honorifics, numbers,
+  dialogue) — a 15M-parameter model must clear the quality gate, not win on size.
+- Integration-cost audit before any adoption decision: KittenTTS's own
+  tokenizer/phonemizer vs the shared espeak-ng/JNA path; English-only v0.x vs the
+  advertised language set; the 24 kHz rate against the engine-agnostic
+  `lastSampleRateHz` contract (S5, decisions #77); pack staging via the existing
+  `TTSEngine`/`TtsPack` download flow.
+
+Acceptance: measurements recorded on both devices and a typed keep/drop decision
+in decisions.md. Adoption only as a secondary engine behind the existing
+`TTSEngine` seam — never a Kokoro replacement — and only if the quality gate
+passes and the RTF/PSS result materially beats the HiBreak baseline.
+
 ## Phase E — data safety
 
 ### E1 — App backup and restore
