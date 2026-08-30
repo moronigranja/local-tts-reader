@@ -295,7 +295,8 @@ power draw.
 
 A measurement spike, not an assumed adoption. Three ONNX engines are compared on
 one harness, one corpus set and one measurement gate, with the shipped engine as
-the baseline everything must beat or lose to honestly:
+the baseline everything must beat or lose to honestly. Candidate sweep and
+rejections live in [landscape.md](landscape.md) §D3 comparison sweep (2026-08-29).
 
 | Engine | Role in the comparison | Measured status |
 |---|---|---|

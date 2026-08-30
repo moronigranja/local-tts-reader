@@ -123,7 +123,51 @@ Kokoro — each is a different axis:
   GPL distribution). Matcha is the same VITS/flow-matching class with a handful
   of corpus voices (ljspeech/vctk/zh) — no breadth or quality advantage, not a
   candidate.
-
 Home if adopted: a second `TTSEngine` impl behind the existing seam (EngineTier,
 PackRegistry, feature-settings engine list already built) — Supertonic as the
 coverage/robustness tier, Piper as the language-gap fallback.
+
+
+### D3 comparison sweep (2026-08-29)
+
+Sweep for the roadmap D3 comparison spike (Kitten Nano vs CosyVoice3 vs Kokoro).
+Primary source: the [Picovoice on-device TTS benchmark](https://picovoice.ai/blog/on-device-tts/)
+(2026-07-14, updated 2026-08-18; independent, benchmark code Apache-2.0 at
+`Picovoice/text-to-speech-benchmark`, Ryzen 7 5700X desktop CPU — relative
+ordering transfers, absolute numbers do not), plus per-repo verification.
+Additions to the 2026-08-26 candidates:
+
+| Engine | License / stack | External benchmark (desktop CPU) | Verdict for D3 |
+|---|---|---|---|
+| **MOSS-TTS-Nano** (OpenMOSS, 2026-04) | Apache-2.0; 0.1B AR audio-tokenizer + LLM; 20 languages (incl. es/it/pt — the app's advertised set); streaming; voice cloning; 48 kHz stereo; standalone ONNX CPU pack (`OpenMOSS-Team/MOSS-TTS-Nano-100M-ONNX`); official **Android ONNX Runtime Kotlin example** in-repo | Not in the Picovoice set; vendor claims realtime on a 4-core CPU | **Add as a D3 leg** — the only candidate matching both Nano's footprint ambition and Kokoro's language coverage, with the read-along risk being pure-AR decode on the HiBreak-class CPU and 48 kHz resample |
+| **Pocket TTS** (Kyutai, MIT) | 242 MB model, streaming output | 0.37× core-hour, 610 MB peak, FTTS 1.71 s — best CPU ratio in the mid tier | **Watch, not a leg** — no Android runtime path (Rust/PyTorch stack); the port cost exceeds a spike's scope. Revisit only if MOSS/Supertonic legs miss |
+| **Soprano TTS** (MIT) | ~280 MB | 4.1× core-hour — slower than realtime even on desktop | **Reject** — dominated by every candidate on speed at similar size |
+| **Neu-TTS-Nano Q4** (Neuphonic) | GGUF, not ONNX | 7.3× core-hour, 2.1 GB peak | **Reject** — wrong runtime (would force a second inference convention) and slower than realtime |
+| **Chatterbox-TTS-Turbo** (Resemble, MIT) | 0.5B-class | 13.4× core-hour, 7.5 GB peak, FTTS 48 s | **Reject** — audiobook-server class, not edge |
+| F5-TTS / Fish Speech / Dia / Orpheus / Spark / CSM / Zonos | various | 0.5–2B+ LLM/flow backbones, CPU-infeasible | **Reject** — the CosyVoice3 #21 gate already measured this class |
+| Picovoice **Orca** | Commercial only | 0.065× / 41 MB / 106 ms FTTS — the benchmark's floor | **Reference point only** — not open source; bounds what a commercial embedded engine achieves |
+
+Two corrections to the 2026-08-26 entries:
+
+- **Kitten Nano external evidence**: Picovoice measured it at **3.1× core-hour
+  (slower than realtime on one desktop core), 320 MB peak, FTTS 10.5 s — no
+  streaming output** (full-audio-then-play). The 25 MB disk size is real, but the
+  assumed HiBreak RTF win over Kokoro (1.28× there, 2.0 GB peak) is **not
+  supported** by this data point. D3's Nano leg must treat the RTF question as
+  open and device-measured, not as a premise.
+- **Supertonic 3 maintenance risk**: the vendor **announced 2026-07-23 that the
+  repo will be archived with no further development or official support** for the
+  open-source models (Voice Builder closed 2026-08-31). Weights stay downloadable
+  (`Supertone/supertonic-3` HF; a community sherpa-onnx int8 export exists,
+  `sherpa-onnx-supertonic-3-tts-int8-2026-05-11`), and the repo GitHub header now
+  shows MIT — but the OpenRAIL-M review gate from 2026-08-26 is replaced by a
+  supply-lifecycle gate: pin the HF revision + hashes exactly like
+  [cosyvoice3-pack.md](cosyvoice3-pack.md), and treat upstream fixes as our
+  responsibility. Still the strongest coverage/speed candidate on paper (99M,
+  31 languages, 44.1 kHz, Java ONNX example); the read-along duration-output
+  introspection gate is unchanged.
+
+Sources: [Supertonic repo/archive notice](https://github.com/supertone-inc/supertonic),
+[MOSS-TTS-Nano](https://github.com/OpenMOSS/MOSS-TTS-Nano),
+[Pocket TTS](https://github.com/kyutai-labs/pocket-tts),
+[Picovoice benchmark](https://picovoice.ai/blog/on-device-tts/).
