@@ -129,7 +129,6 @@ coverage/robustness tier, Piper as the language-gap fallback.
 
 
 ### D3 comparison sweep (2026-08-29)
-
 Sweep for the roadmap D3 comparison spike (Kitten Nano vs CosyVoice3 vs Kokoro).
 Primary source: the [Picovoice on-device TTS benchmark](https://picovoice.ai/blog/on-device-tts/)
 (2026-07-14, updated 2026-08-18; independent, benchmark code Apache-2.0 at
@@ -139,8 +138,7 @@ Additions to the 2026-08-26 candidates:
 
 | Engine | License / stack | External benchmark (desktop CPU) | Verdict for D3 |
 |---|---|---|---|
-| **MOSS-TTS-Nano** (OpenMOSS, 2026-04) | Apache-2.0; 0.1B AR audio-tokenizer + LLM; 20 languages (incl. es/it/pt — the app's advertised set); streaming; voice cloning; 48 kHz stereo; standalone ONNX CPU pack (`OpenMOSS-Team/MOSS-TTS-Nano-100M-ONNX`); official **Android ONNX Runtime Kotlin example** in-repo | Not in the Picovoice set; vendor claims realtime on a 4-core CPU | **Add as a D3 leg** — the only candidate matching both Nano's footprint ambition and Kokoro's language coverage, with the read-along risk being pure-AR decode on the HiBreak-class CPU and 48 kHz resample |
-| **Pocket TTS** (Kyutai, MIT) | 242 MB model, streaming output | 0.37× core-hour, 610 MB peak, FTTS 1.71 s — best CPU ratio in the mid tier | **Watch, not a leg** — no Android runtime path (Rust/PyTorch stack); the port cost exceeds a spike's scope. Revisit only if MOSS/Supertonic legs miss |
+| **MOSS-TTS-Nano** (OpenMOSS, 2026-04) | Apache-2.0; 0.1B AR audio-tokenizer + LLM; 20 languages (incl. es/it/pt — the app's advertised set); streaming; voice cloning; 48 kHz stereo; standalone ONNX CPU packs, **pinned**: `MOSS-TTS-Nano-100M-ONNX` @ `f52645cb467506d8e18e746ddd59482685b74e58` (671.9 MB) + `MOSS-Audio-Tokenizer-Nano-ONNX` @ `ceff0d0749bfb3fa2d61149794ec6feef0d1e1ae` (90.6 MB) | Not in the Picovoice set; vendor claims realtime on a 4-core CPU | **Add as a D3 leg** (#92) — the only candidate matching Kokoro's language coverage while adding cloning + streaming. Footprint correction after pinning: the runtime pack is ~**0.75 GiB** (two HF repos), so "tiny" refers to parameters, not the shipped artifact — the axis is coverage/cloning/streaming, not size. Open risks: pure-AR decode RTF on HiBreak-class CPU, 48 kHz stereo resample into the 24 kHz pipeline |
 | **Soprano TTS** (MIT) | ~280 MB | 4.1× core-hour — slower than realtime even on desktop | **Reject** — dominated by every candidate on speed at similar size |
 | **Neu-TTS-Nano Q4** (Neuphonic) | GGUF, not ONNX | 7.3× core-hour, 2.1 GB peak | **Reject** — wrong runtime (would force a second inference convention) and slower than realtime |
 | **Chatterbox-TTS-Turbo** (Resemble, MIT) | 0.5B-class | 13.4× core-hour, 7.5 GB peak, FTTS 48 s | **Reject** — audiobook-server class, not edge |

@@ -1,4 +1,47 @@
 # Decision log
+
+## 92. D3 — MOSS-TTS-Nano promoted to a comparison leg (2026-08-29)
+
+The candidate sweep for the D3 engine comparison (landscape.md §"D3 comparison
+sweep", primary source: the independent Picovoice on-device TTS benchmark,
+2026-07/08, benchmark code Apache-2.0) found one candidate worth adding to the
+three-way spike (KittenTTS Nano vs CosyVoice3 vs Kokoro baseline):
+**MOSS-TTS-Nano** (OpenMOSS, Apache-2.0, 2026-04).
+
+- **Why a leg**: 0.1B AR audio-tokenizer + LLM; 20 languages including the app's
+  advertised es/it/pt (Kokoro's coverage gap); streaming output; prompt-based
+  voice cloning — a CosyVoice3-class capability at a quarter of CosyVoice3's
+  3.47 GiB; 48 kHz stereo output. Official Android ONNX Runtime Kotlin example
+  in-repo, standalone ONNX CPU packs — it fits the existing `TTSEngine`/ORT
+  seam with no second inference convention.
+- **Pinned, like every pack before it** (decision #23 provenance rule):
+  `MOSS-TTS-Nano-100M-ONNX` @ `f52645cb467506d8e18e746ddd59482685b74e58`
+  (671.9 MB) + `MOSS-Audio-Tokenizer-Nano-ONNX` @
+  `ceff0d0749bfb3fa2d61149794ec6feef0d1e1ae` (90.6 MB) ≈ 0.75 GiB runtime
+  total. Footprint correction: "tiny" refers to parameters, not the shipped
+  artifact — MOSS competes on coverage/cloning/streaming, not size.
+- **Open questions the spike must answer**: pure-AR decode RTF on
+  HiBreak-class CPUs (no external benchmark covers it; the Picovoice set has
+  no AR-0.1B entry), 48 kHz stereo → 24 kHz mono resample cost, and whether
+  the AR decoder's chunked long-text path fits the pregen queue's passage
+  grain.
+- **Sweep corrections recorded with this decision**: Kitten Nano's external
+  benchmark (3.1× core-hour, 10.5 s FTTS, no streaming) downgrades its HiBreak
+  RTF premise to a hypothesis — the D3 Nano leg measures, never assumes;
+  Supertonic 3's repo was announced for archival (2026-07-23, no further
+  open-source development) — the strongest coverage/speed candidate on paper
+  now carries a supply-lifecycle gate: pin the HF revision + hashes, treat
+  upstream fixes as ours. Supertonic stays OUT of D3's legs (landscape
+  2026-08-26 gates — read-along duration introspection unverified — still
+  stand), pending the Nano/MOSS device numbers.
+- **Rejections recorded in the sweep**: Soprano (4.1×, slower than realtime),
+  Neu-TTS-Nano (GGUF — would force a second inference convention), Chatterbox
+  (7.5 GB peak), Pocket TTS (best mid-tier CPU ratio but no Android runtime
+  path — watch, not a leg).
+
+Docs only — no code, no pack staging. The spike runs in `spike-tts` per the
+roadmap D3 acceptance (one comparison table + typed per-engine keep/drop/defer).
+
 ## 91. D1 — survive-seek prefill (2026-08-29)
 
 The device-measured seek bottleneck (bugs.md: 60 s dead-owner ensure wait,
