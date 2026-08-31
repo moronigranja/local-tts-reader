@@ -1,5 +1,38 @@
 # Decision log
 
+## 100. ORT-android pin bumped 1.23.2 → 1.29.0 (2026-08-31)
+
+Owner call ("keep") after the same-day A/B. Evidence at bump time:
+
+- **Main project green on 1.29.0 end-to-end**: the full playback instrumented
+  set (PlaybackE2e, VoiceSelectionE2e, PlayPositionE2e, PtVoiceE2e) passed
+  **0 failures** on the Z Fold 8 (SM-F971B/SM8850, Android 17) — real
+  service, engine, AudioTrack; the JVM suite is build-clean under the pin;
+  the app's espeak auto-stage flow worked on a fresh install.
+- **Version gaps closed**: `ConvInteger(10)` — the #86 int8 blocker — is
+  implemented on 1.29.0 (probe-verified) and missing on 1.23.2; the owner's
+  logged ORT-android error is fixed only in **≥1.25.0**, so 1.29.0 clears
+  the minimum with headroom.
+- **No behavioral regressions observed** across S22 (precision A/B),
+  HiBreak (int8 leg), and Fold probes — quantization verdicts unchanged
+  (they are model-property-bound, not runtime-bound).
+
+Known costs and pending items, accepted with the bump:
+1. **Ledger re-baselining**: every measurement before 2026-08-31 ran on
+   1.23.2 (D2 EPs, D3 engines/precisions, D4 small tier, #86). Historical
+   records stay as-measured; new measurements must state the runtime
+   version. The batched re-runs join the next device sessions.
+2. **HiBreak 1.29 memory re-check pending** (device unplugged at bump
+   time): upstream reports a 1.24+ dynamic-shape CPU memory regression
+   (onnxruntime#29538), and the B6 was already thrash-adjacent on 1.23.2
+   (#86 addendum) — re-run the int8/oracle harness and a playback session
+   on the B6 under 1.29 before calling the small-tier memory story stable.
+3. Future pin floors: the owner-logged error's fix boundary is 1.25.0;
+   treat 1.25.0 as the hard minimum for any subsequent bump.
+
+Pin: `gradle/libs.versions.toml` `onnxruntime = "1.29.0"` (single ref, app +
+core-tts JNA host + spike-tts all follow).
+
 ## 99. D4 — small tier measured on the HiBreak: Piper passes realtime, Supertonic 3 deferred, Audio8 dropped (2026-08-31)
 
 The D4 comparison ran as real end-to-end pipelines on the Bigme HiBreak

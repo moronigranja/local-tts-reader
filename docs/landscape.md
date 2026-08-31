@@ -211,7 +211,7 @@ trending page) for candidates beyond the D3/D5 set. New finds:
 |---|---|---|---|---|
 | **Audio8 0.1B INT8** (`Audio8/audio8-TTS-0.1B-ONNX-INT8`) | 0.1B DualAR (attention+Mamba), INT8 per-token graphs; online files ≈ 443 MB (slow AR 133 MB + fast AR 37 MB + codec decoder 261 MB + tokenizer 5.9 MB; the 414 MB codec-encoder is registration-only); ~0.6 GB loaded; 19 ms/slow-AR token, 8 ms/fast-AR frame (8-thread CPU); 44.1 kHz | 11 (yue, zh, nl, en, fr, de, it, ja, ko, pl, es) | Apache-2.0 | **EVALUATE — small-tier / weak-phone realtime candidate** (B6-class): per-token recurrent decode (not full-sequence AR), zero-shot cloning, streaming PCM. Fresh (2026-08-25, sha `317c12d4…`) — expect churn. Vendor runtime is Python → needs a Kotlin port + read-along anchor audit (#30b). |
 | **Audio8 0.6B INT4** (`Audio8/Audio8-TTS-Preview-0.6B-ONNX-INT4`) | 601M, weight-only INT4, ~1.0–1.2 GiB peak, 44.1 kHz | same 11 | Apache-2.0 | **EVALUATE — mid-tier step**: same family/quality axis, heavier. Graphs INCOMPATIBLE with the 0.1B pack (separate vendor runtime dir) — pin independently, not as a size variant. |
-| **Chatterbox multilingual Q4** (`BricksDisplay/chatterbox-multilingual-ONNX-q4`) | Q4 weight-only quant of the D5 challenger: verified 828 MB single-file (conditional_decoder 226 MB, embed_tokens 68 MB, language_model 354 MB, speech_encoder 180 MB) vs 3.2 GB; MatMulNBits block-32; sha `171d2d6…` | 23 (same set) | MIT | **EVALUATE — D5 weak-device variant**. Open questions: Q4 quality delta + ORT-android (pinned 1.23.2) support for weight-only quant ops — open/run test before any pin. |
+| **Chatterbox multilingual Q4** (`BricksDisplay/chatterbox-multilingual-ONNX-q4`) | Q4 weight-only quant of the D5 challenger: verified 828 MB single-file (conditional_decoder 226 MB, embed_tokens 68 MB, language_model 354 MB, speech_encoder 180 MB) vs 3.2 GB; MatMulNBits block-32; sha `171d2d6…` | 23 (same set) | MIT | **EVALUATE — D5 weak-device variant**. Open questions: Q4 quality delta + ORT-android support for weight-only quant ops (verified open/run on 1.23.2 in the closer-look probe; pin now 1.29.0, #100) |
 | **Higgs Audio v3 TTS 4B** (`onnx-community/higgs-audio-v3-tts-4b`) | 4B AR (36 L, hidden 2560, GQA 32/8), 8-codebook delay pattern, 24 kHz | 102 langs (single-digit WER/CER on 85) | **Non-commercial** (Boson research license) | **WATCH only** — expressive/multilingual state of the art (emotion/style/prosody/SFX tokens, zero-shot cloning), but the license blocks a GPL-3.0 public distribution; revisit only if licensing changes. |
 
 **Quantization déjà vu — why chatterbox-q4 is not the failed q8/int8 path.** Prior
@@ -220,7 +220,7 @@ unimplemented on ORT CPU EP; q8 slower AND `max_abs_diff` 0.700 > 0.001 oracle
 gate), KittenTTS int8 NaN on ORT-android (#93), and **CosyVoice3's int4 export is
 already in use** (jiangzhuo9357, #49). Chatterbox-q4 is **weight-only**
 MatMulNBits (no runtime re-quant, no ConvInteger) — a different op surface — but
-still needs an ORT-android open test (pinned 1.23.2) before any pin.
+still needs an ORT-android open test (verified on 1.23.2; pin is 1.29.0 since #100) before any pin.
 Neu-TTS-Nano Q4 was GGUF (rejected for runtime, not quality, above).
 
 **Alternate repos for tracked candidates (2026-08-31, Hub-verified):**
@@ -246,7 +246,7 @@ out of scope by size: TASTE2-8B, MCLP-RPTTS 8B, Ming-omni 16.8B-A3B (×2).
 
 **Closer look (2026-08-31, measured host + HiBreak/B6):**
 
-Host gate (ORT 1.23.2 CPU — same as the Android pin): both candidates open and
+Host gate (ORT 1.23.2 CPU — the pre-#100 Android pin): both candidates open and
 run every graph; chatterbox-q4's full pipeline (speech_encoder → embed_tokens →
 30-layer GroupQueryAttention AR prefill → conditional_decoder) **decodes real
 audio** (1.6 s, finite, peak 1.36) from AR-generated tokens; audio8's
