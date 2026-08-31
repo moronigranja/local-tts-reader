@@ -423,6 +423,25 @@ gates (pin, oracle, blind quality gate):
 Acceptance: typed per-engine keep/drop/defer with HiBreak RTF/PSS measurements
 against the Kokoro 3.01 baseline, and the quality/oracle gate.
 
+**Status (2026-08-31, decisions #99): measurement legs complete — typed
+verdicts recorded.** Real end-to-end pipelines on the HiBreak (spike-tts
+`D4ProbeRunner`, host-prepared inputs, Kokoro grain-spike corpus blob):
+
+| Leg | HiBreak RTF | PSS / VmHWM | Verdict |
+|---|---|---|---|
+| Piper en_US-lessac-medium (63 MB) | **0.50** (9.0–9.4 s / 18.0–18.5 s audio; open 7.4 s) | ~195 MB / ~507 MB | **KEEP candidate** — passes ≤1.0 where Kokoro is 2.84–3.12 |
+| Supertonic 3 @ 3cadd1ee (380 MB) | **3.92** (111 s / 28.4 s) | ~536 MB / ~690 MB | **DEFER** — Kokoro-class speed; duration introspection PASSES (only candidate with a per-token time axis); host preview 0.16 |
+| Audio8 0.1B INT8 | loop not runnable | 5.83 s per slow-AR TOKEN position | **DROP** — arithmetic: hundreds of positions/sentence → RTF in the hundreds |
+
+Piper's #30b audit: the stock export exposes a single audio output — no
+alignment, no word timestamps — so the small tier ships **passage-level
+read-along only** (recorded degradation) unless a custom re-export surfaces
+the alignments. Piper's flat prosody → **blind quality gate PENDING owner
+listening pass** on `docs/prints/d4/` (HiBreak + host WAVs, same corpus as
+the Kokoro baseline). Remaining for adoption: the TtsPack integration engine
+(`PiperEngine : TTSEngine` behind the existing seam) after the owner's blind
+gate, per-language voice pins + hashes, and the es-IT/de/ko coverage check.
+
 **2026-08-31 (landscape.md closer look):** the q4 weak-device variant
 (`BricksDisplay/chatterbox-multilingual-ONNX-q4`, 790 MB) was probed on the
 B6 — speech_encoder/embed/LLM open fast and the LLM prefill runs finite

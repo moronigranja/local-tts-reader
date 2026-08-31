@@ -184,6 +184,23 @@ Two corrections to the 2026-08-26 entries:
   responsibility. Still the strongest coverage/speed candidate on paper (99M,
   31 languages, 44.1 kHz, Java ONNX example); the read-along duration-output
   introspection gate is unchanged.
+- **D4 HiBreak measurements (2026-08-31, decisions #99)** — the small-tier
+  comparison ran for real on the Bigme HiBreak (spike-tts `D4ProbeRunner`,
+  real end-to-end pipelines, host-prepared inputs, 6 intra-op threads):
+  **Piper en_US-lessac-medium RTF 0.50** (9.0–9.4 s synth for 18.0–18.5 s
+  audio, open 7.4 s, ~195 MB PSS / ~507 MB VmHWM; en-US blob of the Kokoro
+  grain-spike corpus; espeak-ng 1.52 phoneme ids, 0 unmapped) — **passes the
+  ≤1.0 realtime gate** where Kokoro measures 2.84–3.12 and ~834 MB PSS.
+  **Supertonic 3 RTF 3.92** (111 s synth for 28.4 s audio, opens ~6 s total,
+  ~536 MB PSS / ~690 MB VmHWM) — matches Kokoro-class, fails the gate;
+  host preview RTF 0.16 (8-thread x86). Its duration predictor DOES expose
+  per-token durations (the read-along introspection gate passes — the only
+  D4 candidate with a usable per-character time axis). **Audio8 0.1B INT8:
+  dropped by arithmetic** — the closer-look probe measured one slow-AR
+  recurrent step at 5.83 s on the HiBreak, and the step emits ONE token
+  position (logits [1,1,4097]); any sentence needs hundreds of positions,
+  so the full loop is RTF in the hundreds without running it.
+  Artifacts: `docs/prints/d4/` (device + host WAVs and result JSONs).
 
 ### HF trending sweep — text-to-speech + onnx (2026-08-31)
 

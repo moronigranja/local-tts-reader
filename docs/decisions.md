@@ -1,5 +1,61 @@
 # Decision log
 
+## 99. D4 — small tier measured on the HiBreak: Piper passes realtime, Supertonic 3 deferred, Audio8 dropped (2026-08-31)
+
+The D4 comparison ran as real end-to-end pipelines on the Bigme HiBreak
+("B6"; spike-tts `D4ProbeRunner` + `D4ProbeBenchmarkTest`, ORT-android
+1.23.2, 6 intra-op threads, memory-pattern/arena off per the #93 lesson,
+screen-on). Corpus: the Kokoro grain-spike en-US blob (Pride & Prejudice
+opening). Inputs host-prepared (D3 pattern): Piper phoneme ids via host
+espeak-ng 1.52 → the voice's `phoneme_id_map` (0 unmapped chars after
+newline→space), Supertonic text_ids/mask via the reference SDK's
+UnicodeProcessor (lang "na"), M1 style vectors, dp-deterministic latent
+shape. RTF keys on ACTUAL produced audio (the Supertonic dp duration is
+proportional — its vocoder emits ~1.7× dp seconds on the host SDK, exactly
+`latent_len × 3072` samples in our device harness).
+
+| Leg | HiBreak RTF | Memory | Verdict |
+|---|---|---|---|
+| Piper `en_US-lessac-medium` (63 MB, `rhasspy/piper-voices`) | **0.50** — 9.0–9.4 s synth for 18.0–18.5 s audio; open 7.4 s | ~195 MB PSS / ~507 MB VmHWM | **KEEP candidate** |
+| Supertonic 3 (`Supertone/supertonic-3` @ `3cadd1ee`, 380 MB, 4 graphs) | **3.92** — 111 s for 28.4 s; opens ~6 s | ~536 MB PSS / ~690 MB VmHWM | **DEFER** |
+| Audio8 0.1B INT8 | loop not runnable | closer-look: 5.83 s per slow-AR step | **DROP** |
+
+Against the Kokoro 3.01 RTF / ~834 MB PSS baseline: **Piper is the first
+engine measured realtime on this device** — ~6× faster than Kokoro at ~¼
+the session footprint, with 18 s of intelligible audio produced on-device
+(WAVs in `docs/prints/d4/`). Host previews (ORT 1.23.2, 8-thread x86):
+Piper 0.024, Supertonic 3 0.162.
+
+- **Piper** — the direct-ORT VITS port thesis holds: shared espeak-ng
+  phonemization (host 1.52 ids are clean against the stock export; no
+  sherpa dependency), tiny sessions, per-language packs through the
+  existing `TtsPack` flow. **#30b audit result: the stock export exposes a
+  single audio output — no alignments, no word timestamps** — so the small
+  tier ships **passage-level read-along only** (recorded degradation; a
+  custom re-export could surface VITS alignments later). Flat prosody →
+  **the blind quality gate is PENDING the owner's listening pass** on the
+  staged WAVs; adoption (a `PiperEngine : TTSEngine` + voice pins + hashes
+  + es/de/ko coverage check) starts only after that gate.
+- **Supertonic 3** — vendor RTF claims (~0.3 "on an e-reader") do NOT
+  reproduce on the HiBreak (3.92); Kokoro-class speed with ~⅔ the memory.
+  Deferred, not dropped: it is the only D4 candidate whose duration
+  predictor **passes the read-along introspection gate** (per-token
+  durations → character/word timing), it covers 31 languages at 44.1 kHz,
+  and a community int8 export exists. Re-test triggers: int8 export
+  measured, or strong-device tiering (host RTF 0.16 makes it a plausible
+  Kokoro companion on the S22 — a separate decision).
+- **Audio8 0.1B INT8** — dropped without running the full loop: the
+  closer-look probe measured one slow-AR recurrent step at **5.83 s on the
+  HiBreak and the step emits one token position** (logits `[1,1,4097]`);
+  a sentence needs hundreds of positions, so the loop is RTF in the
+  hundreds. The "full generation-loop leg" the closer-look required is
+  arithmetically determined by the measured component cost.
+
+Measured caveats: one voice (lessac-medium), one language, one corpus blob,
+one device state; the blind quality gate and multi-language coverage are
+the remaining adoption gates. Device WAVs + result JSONs:
+`docs/prints/d4/`; staging recipe: build.md "D4 small-tier staging".
+
 ## 98. B4 completion — pregen-horizon amber denominator, reduced-motion degradation, delete confirms (2026-08-31)
 
 The HiBreak device pass closed B4's remaining items (S22 pass was #95).

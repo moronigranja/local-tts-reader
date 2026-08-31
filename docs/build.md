@@ -150,6 +150,46 @@ codec ~RTF 10 (realtime thesis unsupported on B6). Full loop legs belong to
 roadmap D4 (Audio8) / D5 (chatterbox-vs-CosyVoice3).
 
 ## espeak-ng Android bundle (decision #32)
+## D4 small-tier staging (2026-08-31, `spike-tts`)
+
+Stages the two D4 candidates for `D4ProbeBenchmarkTest` (roadmap D4, decisions
+#99 — real end-to-end pipelines, HiBreak RTF/PSS verdicts). Sources:
+`rhasspy/piper-voices` en_US-lessac-medium (63 MB) and
+`Supertone/supertonic-3` @ `3cadd1ee6394adea1bd021217a0e650ede09a323` (onnx/
+only, 380 MB). All model-dependent tensors are host-prepared by the probe
+scripts (host espeak-ng 1.52 → the voice's phoneme_id_map; the reference
+`supertonic` PyPI SDK for text_ids/mask/style/latent shape) into a single
+`d4_inputs.json` — the device only runs graphs and measures.
+
+```bash
+hf download rhasspy/piper-voices --include 'en/en_US/lessac/medium/*' --local-dir m/piper
+python3 - <<'PY'   # supertonic: snapshot_download Supertone/supertonic-3, allow_patterns=['onnx/*','voice_styles/M1.json']
+PY
+# build d4_inputs.json (piper ids + supertonic tensors) — probe scripts in the
+# 2026-08-31 session; kept reproducible: espeak-ng -q --ipa -v en-us <blob> →
+# phoneme_id_map, and the SDK UnicodeProcessor with lang="na".
+adb push m/piper/en/en_US/lessac/medium/en_US-lessac-medium.onnx /data/local/tmp/d4-piper.onnx
+adb push m/supertonic/onnx /data/local/tmp/d4-st-onnx
+adb push d4_inputs.json /data/local/tmp/d4_inputs.json
+adb shell "run-as com.moronigranja.localttsreader.spiketts sh -c \
+  'mkdir -p files/models/piper files/models/supertonic/onnx && \
+   cp /data/local/tmp/d4-piper.onnx files/models/piper/en_US-lessac-medium.onnx && \
+   cp /data/local/tmp/d4-st-onnx/*.onnx files/models/supertonic/onnx/ && \
+   cp /data/local/tmp/d4_inputs.json files/d4_inputs.json'"
+adb shell svc power stayon true   # #93: no doze mid-benchmark
+adb shell am instrument -w -e class com.moronigranja.localttsreader.spiketts.D4ProbeBenchmarkTest \
+  com.moronigranja.localttsreader.spiketts.test/androidx.test.runner.AndroidJUnitRunner
+adb pull /sdcard/Android/data/com.moronigranja.localttsreader.spiketts/files/d4_probe_results.json
+adb pull /sdcard/Android/data/com.moronigranja.localttsreader.spiketts/files/d4_piper.wav
+adb pull /sdcard/Android/data/com.moronigranja.localttsreader.spiketts/files/d4_supertonic.wav
+```
+
+Measured HiBreak results (2026-08-31, decisions #99): Piper RTF **0.50**,
+Supertonic 3 RTF **3.92** — see `docs/prints/d4/` and decisions #99. The
+supertonic run takes ~8 min (warmup + 3 timed full pipelines at RTF ~3.9);
+piper ~1 min.
+
+## espeak-ng Android bundle (decision #32)
 
 Cross-compiles `libespeak-ng.so` (arm64-v8a) at the pinned espeak-ng release tag
 and pairs it with the matching `espeak-ng-data` (arch-independent, from the
