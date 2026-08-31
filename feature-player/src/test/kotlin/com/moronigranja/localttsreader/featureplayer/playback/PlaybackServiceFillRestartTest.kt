@@ -113,6 +113,11 @@ class PlaybackServiceFillRestartTest {
         override val failureReason: String? = null
     }
 
+    /** Degraded path unused in kokoro-default tests (ttsEngine stays kokoro-82m). */
+    private val onUnusedSystemTts = object : dagger.Lazy<TTSEngine> {
+        override fun get(): TTSEngine = error("system tts must not be used in kokoro tests")
+    }
+
     /** Counts dispatches; the head never advances (awaitPlaybackOrStop parks). */
     private class RecordingOutput : PassageOutput {
         @Volatile
@@ -185,6 +190,7 @@ class PlaybackServiceFillRestartTest {
             this.libraryStore = RoomLibraryStore(database, scope)
             this.settings = AppSettings(SettingsStore(database.settingsDao()))
             this.pregenCache = PregenCache(context)
+            this.selector = EngineSelector(this.runtime, onUnusedSystemTts, this.settings)
         }
         PlaybackStateHolder.reset()
         try {
@@ -236,6 +242,7 @@ class PlaybackServiceFillRestartTest {
             this.libraryStore = RoomLibraryStore(database, scope)
             this.settings = AppSettings(SettingsStore(database.settingsDao()))
             this.pregenCache = PregenCache(context)
+            this.selector = EngineSelector(this.runtime, onUnusedSystemTts, this.settings)
         }
         PlaybackStateHolder.reset()
         val pregenJobField = PlaybackService::class.java.getDeclaredField("pregenJob")

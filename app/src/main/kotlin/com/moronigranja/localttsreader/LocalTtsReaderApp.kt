@@ -6,6 +6,7 @@ import androidx.work.Configuration
 import com.moronigranja.localttsreader.featureplayer.playback.PregenManager
 import com.moronigranja.localttsreader.locate.IndexLock
 import com.moronigranja.localttsreader.locate.IndexRebuilder
+import com.moronigranja.localttsreader.persistence.AppSettings
 import com.moronigranja.localttsreader.persistence.RoomLibraryStore
 import dagger.hilt.android.HiltAndroidApp
 import javax.inject.Inject
@@ -25,6 +26,10 @@ import kotlinx.coroutines.launch
 class LocalTtsReaderApp : Application(), Configuration.Provider {
 
     @Inject lateinit var libraryStore: RoomLibraryStore
+    // C1.1: the settings mirror starts as all-defaults until reload(); setup
+    // and process-start theme/voice/engine reads need the persisted values, so
+    // reload alongside the index rebuild (order-independent).
+    @Inject lateinit var appSettings: AppSettings
     @Inject lateinit var indexRebuilder: IndexRebuilder
     @Inject lateinit var indexLock: IndexLock
     @Inject lateinit var pregenManager: PregenManager
@@ -43,6 +48,7 @@ class LocalTtsReaderApp : Application(), Configuration.Provider {
         // so this does not touch the provider during injection).
         pregenManager.cancelOvernight()
         appScope.launch {
+            appSettings.reload()
             // CR-3/A3: the rebuild reconciles UNDER the index lock — the fresh
             // Room snapshot is read inside the critical section, so a
             // concurrent import can neither be purged by a stale snapshot

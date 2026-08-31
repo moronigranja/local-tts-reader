@@ -35,12 +35,16 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import com.moronigranja.localttsreader.player.formatBytes
+import com.moronigranja.localttsreader.persistence.SettingsStore
 import com.moronigranja.localttsreader.persistence.ThemeMode
 import com.moronigranja.localttsreader.tts.PackStatus
-import com.moronigranja.localttsreader.ui.SectionHeader
 import com.moronigranja.localttsreader.ui.AyvuSpacing
 import com.moronigranja.localttsreader.ui.ConfirmDialog
+import com.moronigranja.localttsreader.ui.PacksPlanCard
 import com.moronigranja.localttsreader.ui.PillButton
+import com.moronigranja.localttsreader.ui.PlanPackRow
+import com.moronigranja.localttsreader.ui.PlanPackStatus
+import com.moronigranja.localttsreader.ui.SectionHeader
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -96,6 +100,73 @@ fun SettingsScreen(
                     style = MaterialTheme.typography.bodySmall,
                     modifier = Modifier.padding(horizontal = AyvuSpacing.XS, vertical = AyvuSpacing.XS),
                 )
+            }
+
+            item {
+                SectionHeader("Speech engine", Modifier.padding(top = AyvuSpacing.LG, bottom = AyvuSpacing.XS))
+            }
+            item {
+                Column {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .selectable(
+                                selected = state.ttsEngine == SettingsStore.DEFAULT_TTS_ENGINE,
+                                onClick = { viewModel.setEngine(SettingsStore.DEFAULT_TTS_ENGINE) },
+                            )
+                            .padding(vertical = AyvuSpacing.XS),
+                    ) {
+                        RadioButton(
+                            selected = state.ttsEngine == SettingsStore.DEFAULT_TTS_ENGINE,
+                            onClick = { viewModel.setEngine(SettingsStore.DEFAULT_TTS_ENGINE) },
+                        )
+                        Column {
+                            Text("Kokoro-82M (downloaded)", style = MaterialTheme.typography.bodyMedium)
+                            Text(
+                                "High-quality offline voices — download required.",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    }
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .selectable(
+                                selected = state.ttsEngine == SettingsStore.SYSTEM_TTS_ENGINE,
+                                onClick = { viewModel.setEngine(SettingsStore.SYSTEM_TTS_ENGINE) },
+                            )
+                            .padding(vertical = AyvuSpacing.XS),
+                    ) {
+                        RadioButton(
+                            selected = state.ttsEngine == SettingsStore.SYSTEM_TTS_ENGINE,
+                            onClick = { viewModel.setEngine(SettingsStore.SYSTEM_TTS_ENGINE) },
+                        )
+                        Column {
+                            Text("Device voice (system)", style = MaterialTheme.typography.bodyMedium)
+                            Text(
+                                "Zero-download fallback — degraded quality, no read-along highlights.",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    }
+                }
+            }
+            // C1.5: with the degraded voice active but Kokoro packs missing,
+            // Settings offers the same install plan the setup flow shows.
+            if (state.ttsEngine == SettingsStore.SYSTEM_TTS_ENGINE &&
+                state.packs.any { it.packId in KOKORO_PACK_IDS && it.status != PackStatus.Ready }
+            ) {
+                item {
+                    PacksPlanCard(
+                        rows = state.packs.filter { it.packId in KOKORO_PACK_IDS }.map { it.toPlanRow() },
+                        onDownload = { viewModel.download(it) },
+                        onCancel = { /* settings downloads are not user-cancelled */ },
+                    )
+                }
             }
 
             item { SectionHeader("Voice", Modifier.padding(top = AyvuSpacing.LG, bottom = AyvuSpacing.XS)) }
@@ -350,4 +421,24 @@ private fun VoiceRow(
     }
 }
 
+
 private val OCR_PACK_IDS = setOf("eng", "spa", "fra", "deu", "por", "ita")
+
+private val KOKORO_PACK_IDS = setOf("kokoro-model", "kokoro-voices", "espeak-ng")
+
+/** C1.5: settings PackRow → the shared plan card's neutral row shape. */
+private fun PackRow.toPlanRow(): PlanPackRow {
+    val planStatus = when (val s = status) {
+        is PackStatus.Downloading -> PlanPackStatus.Downloading(s.downloadedBytes, s.totalBytes)
+        PackStatus.Ready -> PlanPackStatus.Ready
+        is PackStatus.Failed -> PlanPackStatus.Failed(error)
+        PackStatus.NotDownloaded -> PlanPackStatus.NotDownloaded
+    }
+    return PlanPackRow(
+        packId = packId,
+        displayName = displayName,
+        sizeBytes = sizeBytes,
+        status = planStatus,
+        staged = staged,
+    )
+}

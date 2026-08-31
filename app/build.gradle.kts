@@ -66,10 +66,15 @@ dependencies {
     debugImplementation(libs.compose.ui.tooling)
     implementation(libs.hilt.android)
     ksp(libs.hilt.compiler)
+    // C1.4: SetupScreen's viewModel() hoisting (hiltViewModel).
+    implementation(libs.androidx.hilt.navigation.compose)
     // di/ (composition root, A6) references these core contracts directly.
     implementation(project(":core-model"))
     implementation(project(":core-ebook"))
     implementation(project(":core-locate"))
+    // C1.4: app code imports core-tts symbols directly (SetupState, VoiceCatalog,
+    // EngineSpec, TTSEngine…), no longer only transitively via feature-settings.
+    implementation(project(":core-tts")) { exclude(group = "net.java.dev.jna") }
     implementation(project(":core-persistence"))
     implementation(libs.room.runtime) // di/PersistenceModule builds LibraryDatabase
     implementation(project(":core-player")) // PlayerPhase etc. for the player surface
@@ -98,4 +103,20 @@ dependencies {
     // PregenE2eTest drives the real worker: WorkManager API on the test classpath.
     androidTestImplementation(libs.work.runtime.ktx)
     // core-tts's jar JNA is excluded at the feature-player seam; the AAR above is the only JNA.
+
+    // C1 host tests (SetupGateTest, SystemTtsEngineTest) run as JVM unit tests.
+    testImplementation(libs.junit.jupiter)
+    testRuntimeOnly(libs.junit.platform.launcher)
+    testImplementation(libs.kotlinx.coroutines.test)
+}
+
+android {
+    testOptions {
+        unitTests.all {
+            it.useJUnitPlatform()
+            it.testLogging {
+                events("passed", "failed", "skipped")
+            }
+        }
+    }
 }

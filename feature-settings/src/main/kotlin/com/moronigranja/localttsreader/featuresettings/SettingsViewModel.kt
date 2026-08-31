@@ -16,6 +16,7 @@ import com.moronigranja.localttsreader.tts.PackCache
 import com.moronigranja.localttsreader.tts.PackRegistry
 import com.moronigranja.localttsreader.tts.PackState
 import com.moronigranja.localttsreader.tts.PackStatus
+import com.moronigranja.localttsreader.tts.VoiceCatalog
 import dagger.hilt.android.lifecycle.HiltViewModel
 import java.io.File
 import javax.inject.Inject
@@ -43,6 +44,8 @@ data class SettingsUiState(
     val packs: List<PackRow> = emptyList(),
     val voices: List<String> = emptyList(),
     val selectedVoice: String = SettingsStore.DEFAULT_VOICE,
+    /** The speech engine id (C1.5): kokoro-82m or the degraded system-tts. */
+    val ttsEngine: String = SettingsStore.DEFAULT_TTS_ENGINE,
     val favoriteVoices: Set<String> = emptySet(),
     val matchThreshold: Double = SettingsStore.DEFAULT_MATCH_THRESHOLD,
     val themeMode: ThemeMode = ThemeMode.SYSTEM,
@@ -89,6 +92,7 @@ class SettingsViewModel @Inject constructor(
             packs = packs.map { packRow(it, prog[it.pack.id], err[it.pack.id]) },
             voices = voices,
             selectedVoice = prefs.voice,
+            ttsEngine = prefs.ttsEngine,
             favoriteVoices = prefs.favorites.toSet(),
             matchThreshold = prefs.threshold,
             themeMode = prefs.theme,
@@ -187,6 +191,9 @@ class SettingsViewModel @Inject constructor(
     }
 
     fun selectVoice(voice: String) = viewModelScope.launch { settings.setVoice(voice) }
+
+    /** C1.5: the speech engine radio — kokoro-82m or the degraded system-tts. */
+    fun setEngine(value: String) = viewModelScope.launch { settings.setTtsEngine(value) }
 
     fun toggleFavorite(voice: String) = viewModelScope.launch { settings.toggleFavorite(voice) }
 

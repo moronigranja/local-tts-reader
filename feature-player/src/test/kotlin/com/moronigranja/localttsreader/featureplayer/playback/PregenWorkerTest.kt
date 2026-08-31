@@ -108,13 +108,22 @@ class PregenWorkerTest {
         engine: TTSEngine?,
     ): PregenWorker {
         val runtime = FakeRuntime(context, engine)
+        // C1.5: the worker consumes the engine through the selector seam
+        // (kokoro default — the system engine is never realized in tests).
+        val selector = EngineSelector(
+            runtime,
+            object : dagger.Lazy<TTSEngine> {
+                override fun get(): TTSEngine = error("system tts must not be used in kokoro tests")
+            },
+            settings,
+        )
         val factory = object : WorkerFactory() {
             override fun createWorker(
                 appContext: Context,
                 workerClassName: String,
                 workerParameters: WorkerParameters,
             ): ListenableWorker? =
-                PregenWorker(appContext, workerParameters, runtime, store, settings, cache)
+                PregenWorker(appContext, workerParameters, selector, store, settings, cache)
         }
         return TestListenableWorkerBuilder<PregenWorker>(context)
             .setWorkerFactory(factory)

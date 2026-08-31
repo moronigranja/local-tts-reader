@@ -18,6 +18,7 @@ import com.moronigranja.localttsreader.tts.PackKind
 import com.moronigranja.localttsreader.tts.PackRegistry
 import com.moronigranja.localttsreader.tts.PackStatus
 import com.moronigranja.localttsreader.tts.TtsPack
+import com.moronigranja.localttsreader.tts.VoiceCatalog
 import java.io.ByteArrayInputStream
 import java.io.File
 import kotlinx.coroutines.ExperimentalCoroutinesApi

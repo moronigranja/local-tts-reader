@@ -1,5 +1,53 @@
 # Decision log
 
+## 103. C1 guided first-run setup — host slices landed (2026-08-31)
+
+Implemented per the approved C1 plan (local plan doc; owner decisions #102):
+
+- **C1.1** — `AppSettings.reload()` runs at process start alongside the
+  index rebuild, so persisted voice/theme/engine are visible to setup and
+  cold-start reads (was all-defaults until the first play/share).
+- **C1.2** — `SetupState.derive(SetupFacts)` in core-tts: the single
+  derivation table shared by the gate, the setup screen and the tests
+  (packs-ready+staged+book → COMPLETE; opted-in degraded without packs →
+  import or DEGRADED_READY; ready packs win over the opted-in path).
+  `StorageProbe` interface stays pure JVM; the Android `StatFs` impl is
+  app-side (`StatFsStorageProbe`).
+- **C1.3** — static `KokoroVoiceMetadata` (54 v1.0 voices, names read from
+  the pinned pack artifact — the pack is the contract; the fixture
+  cross-check test locks metadata ⊇ pack, known-family resolution and the
+  count). `VoiceCatalog` moved to core-tts (pack/voice enumeration is
+  core-tts domain); its Hilt provider + the whole pack wiring moved from
+  `feature-settings` to the app's `PackModule` (A6 composition root).
+- **C1.4** — `SetupGate` re-derives `active` from durable facts on every
+  cold start and after dismissal (no onboarding flag, C3); `SetupScreen`
+  renders the derived checklist (privacy → voice → download plan → import),
+  the shared `PacksPlanCard` lives in core-ui (also reused by Settings'
+  "Speech engine" section when the degraded voice is active and Kokoro
+  packs are missing), downloads are cancellable/resumable/retryable via the
+  registry, the storage line names the shortfall before any download, and
+  the import hand-off reuses feature-library's SAF adapters against
+  app-injected `ImportCoordinator` (no feature-VM import).
+- **C1.5** — `SystemTtsEngine` (app-side, `TTSEngine` impl) over a
+  `SystemTtsSeam` fake-testable adapter: `synthesizeToFile` (WAV) → mono
+  16-bit PCM, `segments = null` (passage-level read-along, the recorded
+  degradation), named `Failed("device voice unavailable: <lang>")` never a
+  silent fallback, zero packs. Engine selection persists under the generic
+  `tts_engine` settings key (no Room migration); `EngineSelector` routes
+  PlaybackService + PregenWorker through one seam; `PlaybackUiState` gains
+  `degraded` and PlayerCard shows a static, reduced-motion-safe "Device
+  voice" pill. Settings gains the Kokoro-82M / Device voice radio.
+
+Host verification: `:app:assembleDebug` green; `:core-tts:test`,
+`:core-persistence:test`, `:app:testDebugUnitTest`,
+`:feature-player:testDebugUnitTest`, `:feature-settings:testDebugUnitTest`
+green including the new suites (SetupStateTest 9, SetupGateTest 5,
+SystemTtsEngineTest 7, KokoroVoiceMetadataTest 3 — 24 new cases, 0 fails).
+Device legs (C1.6) run in a separate session per decisions #102.3/#102.4;
+the WAV-parse fallback for system TTS PCM is in from the start (the plan's
+device-lottery contingency), pending on-device quirk recording.
+
+
 ## 101. Translation scope widened; custom pre-generation time (2026-08-31)
 
 Owner product-scope decisions:
@@ -7,6 +55,38 @@ Owner product-scope decisions:
 1. **Translation is no longer pt-BR-only.** The "pt-BR translation" Later-table item becomes "translation to any advertised target language" (it→es, en→pt, …). Italian and Spanish are already native Kokoro voices (hard-facts "8 languages incl. pt-BR" / "9 groups"; CosyVoice3 covers it/es), so it→es needs no new TTS tier — the same output-side `core-translate` decorator behind the pre-gen queue, with the only per-pair cost being one NMT pack (OPUS-MT-class int8, CC-BY-4.0) + one quality gate. Matching/index stay original-language; the single-multilingual-model choice remains a design-time gate, and NLLB-600M stays blocked (CC-BY-NC).
 
 2. **Custom pre-generation duration** is logged as a candidate, tagged into the pre-gen follow-up family (space estimate / per-book usage+delete, decisions #44). UI-only: `PregenBudgetDialog` gains an arbitrary-duration input; the backend already accepts any `PregenBudget.maxTimeMs` (A1). This is the manual offline budget, not the D1 live look-ahead horizon.
+
+
+## 102. C1 spec decisions — system-TTS fallback in setup, no bundled sample, A8-first sequencing (2026-08-31)
+
+Owner calls when C1 was specced (plan grounded in the code map: PackDownloader/
+PackCache/PackRegistry, VoiceCatalog, ImportCoordinator, hand-rolled MainActivity
+navigation):
+
+1. **System TTS ships as an opt-in zero-download degraded fallback inside
+   first-run setup.** The setup plan screen offers "continue with the device
+   voice" as an explicit, never-default action alongside the Kokoro download
+   plan. Costed scope: a `SystemTtsEngine : TTSEngine` adapter over
+   `android.speech.tts` (async callback → Flow), no read-along word timings
+   (no introspection) → passage-level read-along degradation, recorded like
+   the Piper small-tier limitation; never auto-selected, clearly badged
+   degraded in the player. The device-lottery voice must not read as the
+   app's voice — the Kokoro plan stays the primary path.
+2. **No bundled public-domain sample.** Onboarding works without it (roadmap
+   requirement); first-audio acceptance uses the normal SAF import path.
+   Avoids APK weight and a second download row.
+3. **A8 device leg runs before C1 implementation.** The Phase C gate
+   (decisions #96) is a reproduce-and-classify session on the S22 (no
+   `files/databases/` for hours after `adb install -r`), not a code change;
+   classify ours vs Samsung install-time handling first.
+4. **Plan shape:** first-run state derives from durable facts (required packs
+   ready, voice selected, ≥1 book — C3-compatible, no onboarding flag); the
+   setup flow hosts in `app` (composition root owns the cross-feature flow,
+   A6 boundaries forbid feature-setup → feature-settings edges); pre-download
+   voice choice is served by a static Kokoro voice-metadata table in core-tts
+   (voice names otherwise only exist inside the downloaded pack); the voice
+   selector is built once as shared groundwork so C2 reuses it instead of
+   growing a second convention.
 
 ## 100. ORT-android pin bumped 1.23.2 → 1.29.0 (2026-08-31)
 

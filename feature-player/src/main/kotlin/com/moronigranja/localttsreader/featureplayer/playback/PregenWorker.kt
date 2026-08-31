@@ -51,7 +51,7 @@ import dagger.assisted.AssistedInject
 class PregenWorker @AssistedInject constructor(
     @Assisted appContext: Context,
     @Assisted params: WorkerParameters,
-    private val runtime: KokoroRuntime,
+    private val selector: EngineSelector,
     private val libraryStore: RoomLibraryStore,
     private val settings: AppSettings,
     private val pregenCache: PregenCache,
@@ -59,8 +59,8 @@ class PregenWorker @AssistedInject constructor(
 
     override suspend fun doWork(): Result {
         settings.reload()
-        val engine = runtime.engine()
-            ?: return Result.failure(workDataOf(KEY_ERROR to (runtime.failureReason ?: "engine unavailable")))
+        val engine = selector.engine()
+            ?: return Result.failure(workDataOf(KEY_ERROR to (selector.failureReason ?: "engine unavailable")))
 
         // The run takes the library row's chosen listening-time budget
         // (KEY_BUDGET_TIME_MS); absent → whole book (the pre-budget default).

@@ -1,22 +1,23 @@
-package com.moronigranja.localttsreader.featuresettings
+package com.moronigranja.localttsreader.tts
 
 import com.moronigranja.localttsreader.tts.kokoro.KokoroPacks
-import com.moronigranja.localttsreader.tts.PackCache
 import com.moronigranja.localttsreader.tts.kokoro.KokoroVoiceBank
 import java.io.File
-import javax.inject.Inject
-import javax.inject.Singleton
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
 /**
- * The voice names for the picker (V1): `KokoroVoiceBank` parses the whole
- * 28 MiB voices pack to enumerate names, so that work is done once, lazily,
- * off the UI thread, and cached for the process. An absent/unverified voices
- * pack yields an empty catalog (the UI shows the download action instead).
+ * The voice names for the picker (V1, moved to core-tts in C1.3 — pack/voice
+ * enumeration is core-tts domain): `KokoroVoiceBank` parses the whole 28 MiB
+ * voices pack to enumerate names, so that work is done once, lazily, off the
+ * UI thread, and cached for the process. An absent/unverified voices pack
+ * yields an empty catalog (the UI shows the download action instead).
+ *
+ * Provided by the app's pack wiring (`PackModule`, C1.4) as a singleton now,
+ * replacing the feature-settings provider that this class's old Hilt
+ * annotations backed.
  */
-@Singleton
-class VoiceCatalog @Inject constructor(
+class VoiceCatalog(
     private val cache: PackCache,
 ) {
 

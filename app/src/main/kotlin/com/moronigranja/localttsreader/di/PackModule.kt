@@ -1,30 +1,40 @@
-package com.moronigranja.localttsreader.featuresettings
+package com.moronigranja.localttsreader.di
 
 import android.content.Context
+import com.moronigranja.localttsreader.featuresettings.AndroidHttpTransport
 import com.moronigranja.localttsreader.ocr.TrainedDataPacks
 import com.moronigranja.localttsreader.tts.DefaultEngines
 import com.moronigranja.localttsreader.tts.EngineDescriptor
 import com.moronigranja.localttsreader.tts.PackCache
 import com.moronigranja.localttsreader.tts.PackDownloader
 import com.moronigranja.localttsreader.tts.PackRegistry
+import com.moronigranja.localttsreader.tts.TTSEngine
+import com.moronigranja.localttsreader.tts.VoiceCatalog
+import com.moronigranja.localttsreader.tts.setup.StatFsStorageProbe
+import com.moronigranja.localttsreader.tts.setup.StorageProbe
+import com.moronigranja.localttsreader.tts.system.AndroidSystemTtsSeam
+import com.moronigranja.localttsreader.tts.system.SystemTtsEngine
+import com.moronigranja.localttsreader.tts.system.SystemTtsSeam
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.components.SingletonComponent
 import java.io.File
-import javax.inject.Singleton
 import javax.inject.Named
+import javax.inject.Singleton
 
 /**
- * V1 wiring: the pack machinery over the Android transport, shared by the
- * settings UI and (through the cache) the engine runtimes. KokoroRuntime
- * drops its private PackCache for this singleton so "Ready" in the UI and
- * "downloadable" at play time are the same disk truth.
+ * A6/C1.4 composition root: the pack machinery over the Android transport,
+ * moved out of feature-settings (the pack/voice domain is core-tts; only the
+ * composition root owns the wiring). Setup, settings and the engine runtimes
+ * share this singleton so "Ready" in the UI and "downloadable" at play time
+ * are the same disk truth.
  */
 @Module
 @InstallIn(SingletonComponent::class)
-object SettingsModule {
+object PackModule {
+
     /** The app's internal files dir, QUALIFIED — OcrModule's TessDataDir
      * provides a bare `File`, and an unqualified injection would resolve to
      * it (all staging roots would land under `files/tesseract`; #50). */
@@ -64,4 +74,23 @@ object SettingsModule {
     @Provides
     @Singleton
     fun provideVoiceCatalog(cache: PackCache): VoiceCatalog = VoiceCatalog(cache)
+
+    /** C1.2: the setup storage check — free bytes under the app files dir. */
+    @Provides
+    @Singleton
+    fun provideStorageProbe(@Named("app_files_dir") dir: File): StorageProbe =
+        StatFsStorageProbe(dir)
+
+    /** C1.5 (decisions #102): the degraded zero-download system voice. */
+    @Provides
+    @Singleton
+    fun provideSystemTtsSeam(@ApplicationContext context: Context): SystemTtsSeam =
+        AndroidSystemTtsSeam(context)
+
+    /** Bound under a name so [EngineSelector] (feature-player) consumes it
+     * lazily — a kokoro-only session never touches the device TTS. */
+    @Provides
+    @Singleton
+    @Named("system_tts")
+    fun provideSystemTtsEngine(seam: SystemTtsSeam): TTSEngine = SystemTtsEngine(seam)
 }

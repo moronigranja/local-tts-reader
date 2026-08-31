@@ -101,6 +101,10 @@ class PlaybackServiceRevivalTest {
         override fun engine(): TTSEngine? = engine
         override val failureReason: String? = null
     }
+    /** Degraded path unused in kokoro-default tests (ttsEngine stays kokoro-82m). */
+    private val onUnusedSystemTts = object : dagger.Lazy<TTSEngine> {
+        override fun get(): TTSEngine = error("system tts must not be used in kokoro tests")
+    }
 
     private class FakeOutput : PassageOutput {
         override fun play(pcm: ByteArray, sampleRate: Int, speed: Double) = Unit
@@ -149,6 +153,7 @@ class PlaybackServiceRevivalTest {
         service.runtime = FakeRuntime(context, engine)
         service.libraryStore = RoomLibraryStore(database, scope)
         service.settings = AppSettings(SettingsStore(database.settingsDao()))
+        service.selector = EngineSelector(service.runtime, onUnusedSystemTts, service.settings)
         return service
     }
 

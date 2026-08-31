@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
@@ -111,13 +112,20 @@ fun PlayerCard(
                     )
                     if (topRight != null) topRight()
                 }
-                Text(
-                    text = subtitle,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = if (loading) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
+                if (state.degraded) {
+                    // C1.5 (decisions #102): static "Device voice" pill — no
+                    // animation, reduced-motion safe by construction.
+                    Text(
+                        text = "Device voice",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSecondaryContainer,
+                        modifier = Modifier
+                            .padding(top = 2.dp)
+                            .clip(RoundedCornerShape(50))
+                            .background(MaterialTheme.colorScheme.secondaryContainer)
+                            .padding(horizontal = 6.dp, vertical = 2.dp),
+                    )
+                }
                 Spacer(Modifier.height(AyvuSpacing.XS))
                 SegmentedProgress(
                     playedFraction = state.readFraction.coerceIn(0f, 1f),

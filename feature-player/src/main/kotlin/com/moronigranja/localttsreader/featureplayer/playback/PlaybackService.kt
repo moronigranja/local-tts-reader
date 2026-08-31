@@ -81,6 +81,9 @@ class PlaybackService : Service() {
     @Inject lateinit var store: PlayerStore
     @Inject lateinit var libraryStore: RoomLibraryStore
     @Inject lateinit var runtime: KokoroRuntime
+    // C1.5 (decisions #102): the engine seam — Kokoro or the degraded device
+    // voice, selected by the persisted tts_engine setting.
+    @Inject lateinit var selector: EngineSelector
     @Inject lateinit var settings: AppSettings
     @Inject lateinit var pregenCache: PregenCache
 
@@ -356,8 +359,8 @@ class PlaybackService : Service() {
 
     private fun startPlayback(bookId: String?, explicit: Boolean, intent: Intent? = null) {
         val id = bookId ?: return
-        if (runtime.engine() == null) {
-            PlaybackStateHolder.update { it.copy(failure = runtime.failureReason ?: "engine unavailable") }
+        if (selector.engine() == null) {
+            PlaybackStateHolder.update { it.copy(failure = selector.failureReason ?: "engine unavailable") }
             return
         }
         stopEverything()
@@ -423,7 +426,7 @@ class PlaybackService : Service() {
         }
         val phase = active.state.value.phase
         if (phase == PlayerPhase.PLAYING || phase == PlayerPhase.LOADING) return
-        if (runtime.engine() == null) return
+        if (selector.engine() == null) return
         stopEverything()
         requestFocus()
         launchCommand { generation ->
@@ -939,6 +942,7 @@ class PlaybackService : Service() {
             generatedAheadSeconds = position?.let { queue?.aheadSeconds(it) } ?: 0.0,
             speed = state.speed,
             phase = state.phase,
+            degraded = selector.isDegraded,
             sleepTimer = state.sleepTimer,
             canUndo = ringHasEntries,
             failure = state.failure ?: PlaybackStateHolder.state.value.failure,
@@ -1116,7 +1120,7 @@ class PlaybackService : Service() {
             voice = activeVoice(),
             speed = speed,
             synthesize = { text ->
-                runtime.engine()?.synthesize(SynthesisRequest(text, activeVoice(), speed = speed))
+                selector.engine()?.synthesize(SynthesisRequest(text, activeVoice(), speed = speed))
                     ?: SynthesisOutcome.Failed("engine unavailable")
             },
             lookahead = PREFILL_LOOKAHEAD_PASSAGES,
@@ -1220,7 +1224,7 @@ class PlaybackService : Service() {
                     (System.currentTimeMillis() - startedAt) + "ms",
             )
         }
-        return runtime.engine()?.synthesize(SynthesisRequest(text, voice, speed = speed))
+        return selector.engine()?.synthesize(SynthesisRequest(text, voice, speed = speed))
             ?: SynthesisOutcome.Failed("engine unavailable")
     }
 

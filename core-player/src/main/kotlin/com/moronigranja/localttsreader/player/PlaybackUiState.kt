@@ -54,6 +54,9 @@ data class PlaybackUiState(
      * playhead (`PregenQueue.aheadSeconds`); 0 when no fill runs. */
     val generatedAheadSeconds: Double = 0.0,
     val phase: PlayerPhase = PlayerPhase.IDLE,
+    /** True when the degraded system voice is the active engine (C1.5,
+     * decisions #102) — the PlayerCard's static "Device voice" pill. */
+    val degraded: Boolean = false,
     val sleepTimer: SleepTimer = SleepTimer.Off,
     val canUndo: Boolean = false,
     /** The book's bookmarks, newest first — the reader's bookmark menu. */

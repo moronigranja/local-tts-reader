@@ -1,0 +1,271 @@
+package com.moronigranja.localttsreader.setup
+
+import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.material3.Card
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.RadioButton
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Text
+import androidx.compose.material3.TopAppBar
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
+import androidx.hilt.navigation.compose.hiltViewModel
+import com.moronigranja.localttsreader.featurelibrary.takeReadPermission
+import com.moronigranja.localttsreader.featurelibrary.toEBookSources
+import com.moronigranja.localttsreader.player.formatBytes
+import com.moronigranja.localttsreader.tts.kokoro.KokoroVoiceMeta
+import com.moronigranja.localttsreader.tts.setup.StepKind
+import com.moronigranja.localttsreader.ui.AyvuSpacing
+import com.moronigranja.localttsreader.ui.PacksPlanCard
+import com.moronigranja.localttsreader.ui.PillButton
+import com.moronigranja.localttsreader.ui.SectionHeader
+
+/**
+ * C1.4: the guided first-run flow. The checklist is derived by
+ * [com.moronigranja.localttsreader.tts.setup.SetupState] from durable facts
+ * — the screen is mechanical: each [StepKind] in the list renders its card.
+ * On a terminal step it calls [onFinished] (the gate re-derives; with books +
+ * packs it is inactive from then on).
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun SetupScreen(
+    onFinished: () -> Unit,
+    viewModel: SetupViewModel = hiltViewModel(),
+) {
+    val state by viewModel.state.collectAsState()
+    val context = LocalContext.current
+
+    val launcher = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenMultipleDocuments(),
+    ) { uris ->
+        if (uris.isNotEmpty()) {
+            uris.forEach(context::takeReadPermission)
+            context.toEBookSources(uris).let(viewModel::importBooks)
+        }
+    }
+
+    LaunchedEffect(state.steps.firstOrNull(), state.importSummary) {
+        val head = state.steps.firstOrNull()
+        if (head == StepKind.COMPLETE || head == StepKind.DEGRADED_READY) onFinished()
+    }
+
+    // The gate owns dismissal; system back must not escape mid-setup.
+    BackHandler { }
+
+    Scaffold(
+        topBar = { TopAppBar(title = { Text("Set up Ayvu") }) },
+    ) { padding ->
+        LazyColumn(
+            modifier = Modifier.fillMaxSize().padding(padding),
+            contentPadding = androidx.compose.foundation.layout.PaddingValues(AyvuSpacing.LG),
+            verticalArrangement = Arrangement.spacedBy(AyvuSpacing.MD),
+        ) {
+            for (step in state.steps) {
+                item(key = "step-$step") {
+                    when (step) {
+                        StepKind.PRIVACY -> PrivacyCard()
+                        StepKind.CHOOSE_VOICE -> ChooseVoiceCard(
+                            voices = state.voices,
+                            selectedVoice = state.selectedVoice,
+                            onSelect = viewModel::chooseVoice,
+                        )
+                        StepKind.DOWNLOAD_PACKS -> DownloadPacksCard(
+                            state = state,
+                            onDownload = viewModel::download,
+                            onCancel = viewModel::cancelDownload,
+                            onOptInSystemTts = viewModel::optInSystemTts,
+                        )
+                        StepKind.IMPORT_BOOK -> ImportBookCard(
+                            state = state,
+                            onPickBooks = { launcher.launch(IMPORT_MIME_TYPES) },
+                            onDismissSummary = viewModel::consumeImportSummary,
+                            onFinish = onFinished,
+                        )
+                        StepKind.COMPLETE, StepKind.DEGRADED_READY -> Unit // LaunchedEffect above
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun PrivacyCard() {
+    StepCard {
+        Text("Ayvu is offline-first", style = MaterialTheme.typography.titleMedium)
+        Text(
+            "Everything runs on this device. No account, no telemetry, no cloud " +
+                "processing. The speech engines are downloaded separately so the app " +
+                "stays small and you control the data cost — the next step shows the " +
+                "exact size of everything before any download starts.",
+            style = MaterialTheme.typography.bodyMedium,
+        )
+    }
+}
+
+@Composable
+private fun ChooseVoiceCard(
+    voices: List<KokoroVoiceMeta>,
+    selectedVoice: String,
+    onSelect: (String) -> Unit,
+) {
+    StepCard {
+        Text("Choose a voice", style = MaterialTheme.typography.titleMedium)
+        Text(
+            "Voices are listed from Ayvu's built-in catalog, so you can pick before " +
+                "anything downloads. Your choice is saved immediately.",
+            style = MaterialTheme.typography.bodyMedium,
+        )
+        val grouped = voices.groupBy { it.language }
+        grouped.forEach { (language, metas) ->
+            SectionHeader(language, Modifier.padding(top = AyvuSpacing.MD, bottom = AyvuSpacing.XS))
+            metas.forEach { meta ->
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .selectable(
+                            selected = selectedVoice == meta.name,
+                            onClick = { onSelect(meta.name) },
+                        )
+                        .padding(vertical = AyvuSpacing.XS),
+                ) {
+                    RadioButton(
+                        selected = selectedVoice == meta.name,
+                        onClick = { onSelect(meta.name) },
+                    )
+                    Column {
+                        Text(meta.name, style = MaterialTheme.typography.bodyMedium)
+                        Text(
+                            meta.gender,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun DownloadPacksCard(
+    state: SetupUiState,
+    onDownload: (String) -> Unit,
+    onCancel: (String) -> Unit,
+    onOptInSystemTts: () -> Unit,
+) {
+    StepCard {
+        Text("Download the speech engine", style = MaterialTheme.typography.titleMedium)
+        Text(
+            "One plan, three assets, coordinated with per-file progress. Downloads " +
+                "resume after interruptions and verify checksums before they count as done.",
+            style = MaterialTheme.typography.bodyMedium,
+        )
+        PacksPlanCard(
+            rows = state.packs,
+            onDownload = onDownload,
+            onCancel = onCancel,
+            storageLine = storageLine(state),
+            shortfall = if (state.shortfallBytes > 0L) {
+                "Not enough free space — free ${formatBytes(state.shortfallBytes)} more to download the plan."
+            } else {
+                null
+            },
+            footer = {
+                Text(
+                    "Audio you generate later grows separately from these engine assets — " +
+                        "you can delete a book's audio per book in the library.",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(top = AyvuSpacing.SM),
+                )
+                androidx.compose.material3.TextButton(
+                    onClick = onOptInSystemTts,
+                    modifier = Modifier.padding(top = AyvuSpacing.XS),
+                ) {
+                    Text("Continue with the device voice (degraded quality, no download)")
+                }
+            },
+        )
+    }
+}
+
+@Composable
+private fun storageLine(state: SetupUiState): String {
+    // "X of Y MB free — needs Z MB" where Z = the still-to-download bytes.
+    val need = state.requiredBytes
+    val needLabel = if (state.requiredBytes < state.storageTotalBytes) {
+        "${formatBytes(need)} more"
+    } else {
+        formatBytes(state.storageTotalBytes)
+    }
+    return "${formatBytes(state.availableBytes)} free — needs $needLabel"
+}
+
+@Composable
+private fun ImportBookCard(
+    state: SetupUiState,
+    onPickBooks: () -> Unit,
+    onDismissSummary: () -> Unit,
+    onFinish: () -> Unit,
+) {
+    StepCard {
+        Text("Import a book", style = MaterialTheme.typography.titleMedium)
+        Text(
+            "Pick an EPUB or plain-text file to begin listening. On Ayvu, an imported " +
+                "book is the signal that first-run setup is complete.",
+            style = MaterialTheme.typography.bodyMedium,
+        )
+        PillButton("Import a book", onClick = onPickBooks)
+        state.importSummary?.let { summary ->
+            Text(
+                summary,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(vertical = AyvuSpacing.XS),
+            )
+            PillButton("Done", onClick = {
+                onDismissSummary()
+                onFinish()
+            })
+        }
+    }
+}
+
+@Composable
+private fun StepCard(content: @Composable ColumnScope.() -> Unit) {
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Column(
+            modifier = Modifier.padding(AyvuSpacing.LG),
+            verticalArrangement = Arrangement.spacedBy(AyvuSpacing.SM),
+            content = content,
+        )
+    }
+}
+
+private val IMPORT_MIME_TYPES = arrayOf(
+    "application/epub+zip",
+    "text/plain",
+    "text/markdown",
+    "text/x-markdown",
+    "application/octet-stream",
+)

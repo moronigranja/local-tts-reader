@@ -111,6 +111,10 @@ class PlaybackServicePublishGuardTest {
         override fun engine(): TTSEngine? = engine
         override val failureReason: String? = null
     }
+    /** Degraded path unused in kokoro-default tests (ttsEngine stays kokoro-82m). */
+    private val onUnusedSystemTts = object : dagger.Lazy<TTSEngine> {
+        override fun get(): TTSEngine = error("system tts must not be used in kokoro tests")
+    }
 
     private class FakeOutput : PassageOutput {
         override fun play(pcm: ByteArray, sampleRate: Int, speed: Double) = Unit
@@ -183,6 +187,7 @@ class PlaybackServicePublishGuardTest {
         this.runtime = FakeRuntime(context, engine)
         this.libraryStore = RoomLibraryStore(database, scope)
         this.settings = AppSettings(SettingsStore(database.settingsDao()))
+        this.selector = EngineSelector(this.runtime, onUnusedSystemTts, this.settings)
     }
 
     /** `segments` has no test seam (the loop is its only writer, and a

@@ -57,16 +57,29 @@ class SettingsStore(private val settingsDao: SettingsDao) {
         settingsDao.put(SettingEntity(KEY_OCR_LANGUAGES, value.joinToString("\n")))
     }
 
+    /** The speech engine id (C1.5, decisions #102): `kokoro-82m` (default) or
+     * the zero-download `system-tts` degraded fallback. */
+    suspend fun ttsEngine(): String =
+        settingsDao.get(KEY_TTS_ENGINE)?.takeIf { it.isNotBlank() } ?: DEFAULT_TTS_ENGINE
+
+    suspend fun setTtsEngine(value: String) {
+        require(value.isNotBlank()) { "tts engine must not be blank" }
+        settingsDao.put(SettingEntity(KEY_TTS_ENGINE, value))
+    }
+
     companion object {
         const val DEFAULT_MATCH_THRESHOLD = 0.6
         const val DEFAULT_VOICE = "af_heart"
         const val DEFAULT_OCR_LANGUAGE = "eng"
+        const val DEFAULT_TTS_ENGINE = "kokoro-82m"
+        const val SYSTEM_TTS_ENGINE = "system-tts"
 
         const val KEY_MATCH_THRESHOLD = "match_threshold"
         const val KEY_VOICE = "voice"
         const val KEY_FAVORITE_VOICES = "favorite_voices"
         const val KEY_THEME_MODE = "theme_mode"
         const val KEY_OCR_LANGUAGES = "ocr_languages"
+        const val KEY_TTS_ENGINE = "tts_engine"
     }
 }
 

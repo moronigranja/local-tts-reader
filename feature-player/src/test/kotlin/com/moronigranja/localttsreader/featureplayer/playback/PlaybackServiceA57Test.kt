@@ -101,6 +101,11 @@ class PlaybackServiceA57Test {
         override fun engine(): TTSEngine? = engine
         override val failureReason: String? = null
     }
+    /** Degraded path unused in kokoro-default tests: the selector's system
+     * engine is never realized when ttsEngine stays "kokoro-82m". */
+    private val onUnusedSystemTts = object : dagger.Lazy<TTSEngine> {
+        override fun get(): TTSEngine = error("system tts must not be used in kokoro tests")
+    }
 
     private class FakeOutput : PassageOutput {
         override fun play(pcm: ByteArray, sampleRate: Int, speed: Double) = Unit
@@ -144,6 +149,7 @@ class PlaybackServiceA57Test {
         this.runtime = FakeRuntime(context, engine)
         this.libraryStore = RoomLibraryStore(database, scope)
         this.settings = AppSettings(SettingsStore(database.settingsDao()))
+        this.selector = EngineSelector(this.runtime, onUnusedSystemTts, this.settings)
     }
 
     // ------------------------------------------------------------------
@@ -352,6 +358,7 @@ class PlaybackServiceA57Test {
             this.runtime = FakeRuntime(context, null)
             this.libraryStore = RoomLibraryStore(database, scope)
             this.settings = AppSettings(SettingsStore(database.settingsDao()))
+            this.selector = EngineSelector(this.runtime, onUnusedSystemTts, this.settings)
         }
         PlaybackStateHolder.reset()
 
@@ -447,6 +454,7 @@ class PlaybackServiceA57Test {
             this.libraryStore = RoomLibraryStore(database, scope)
             this.settings = AppSettings(SettingsStore(database.settingsDao()))
             this.pregenCache = PregenCache(context)
+            this.selector = EngineSelector(this.runtime, onUnusedSystemTts, this.settings)
         }
         PlaybackStateHolder.reset()
         PlaybackActive.markStarted() // the start/resume command paths mark this

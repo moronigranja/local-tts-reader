@@ -26,6 +26,9 @@ class AppSettings @Inject constructor(
         val favorites: List<String> = emptyList(),
         val theme: ThemeMode = ThemeMode.SYSTEM,
         val ocrLanguages: List<String> = listOf(SettingsStore.DEFAULT_OCR_LANGUAGE),
+        /** The speech engine id (C1.5/decisions #102): kokoro-82m default,
+         * system-tts degraded fallback. */
+        val ttsEngine: String = SettingsStore.DEFAULT_TTS_ENGINE,
     )
 
     private val _state = MutableStateFlow(Snapshot())
@@ -38,6 +41,7 @@ class AppSettings @Inject constructor(
             favorites = store.favoriteVoices(),
             theme = store.themeMode(),
             ocrLanguages = store.ocrLanguages(),
+            ttsEngine = store.ttsEngine(),
         )
     }
 
@@ -70,5 +74,10 @@ class AppSettings @Inject constructor(
         val current = _state.value.favorites
         val next = if (voiceName in current) current - voiceName else current + voiceName
         setFavoriteVoices(next)
+    }
+
+    suspend fun setTtsEngine(value: String) {
+        store.setTtsEngine(value)
+        _state.value = _state.value.copy(ttsEngine = value)
     }
 }
