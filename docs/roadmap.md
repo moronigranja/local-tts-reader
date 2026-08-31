@@ -55,6 +55,7 @@ make durable and derived state disagree.
 | ~~A5~~ | ~~**Single-writer player commands (CR-5)**~~ | ~~Superseded loads cannot publish state or foreground side effects; pause/resume/navigation ordering is deterministic.~~ **Complete (2026-08-27, decisions #62):** every control-plane command (open/openChapter/play/resume/pause/navigate/seek/undo/speed) runs as a tracked `commandJob` under a monotonic generation; `stopEverything` cancels and supersedes in-flight commands, and each command re-checks its generation before ANY publish/startForeground/stopForeground/startLoop side effect — a stale load can never publish, drop the foreground, or restart the loop (cancellation alone is not enough: `storeOp` swallowing cancellation was the CR-7 mechanism). Host evidence: `PlaybackServiceA57Test` (6). |
 | ~~A6~~ | ~~**Composition and feature boundaries (CR-6)**~~ | ~~App-level bindings own shared infrastructure; features depend on core contracts, not other feature implementations; a build check rejects new `feature-* → feature-*` edges.~~ **Complete (2026-08-27, decisions #66):** `app.di` is the composition root — `PersistenceModule`, the import-core providers (`TextIndex`/`ImportCoordinator`/`IndexRebuilder`/`appScope`/`@IoDispatcher`) and `OcrModule` moved there; player state (`PlaybackStateHolder`/`PlaybackUiState`), commands (`PlayerCommands`), the pre-gen scheduling + storage contracts (`PregenScheduler`/`OfflineStorage`) moved to core-player; `TessDataStager`→core-ocr, `EspeakStager`/`formatBytes`→core-player; the shared `PlayerCard` composable moved to a new `core-ui` module. feature-library/settings/share now compile with ZERO feature-to-feature project edges, and the root `checkFeatureBoundaries` task fails the build on new ones. Host evidence: all feature host suites + core suites green after the cutover; `checkFeatureBoundaries` passes (5 feature modules, 0 edges). Device regression (import/share/pregen flows) pending on the S22. |
 | ~~A7~~ | ~~**Player state agreement across surfaces (CR-7)**~~ | ~~Pause during synthesis/loading cancels the in-flight job and publishes `PAUSED` to UI, MediaSession, and notification; seek commands never resume a paused playhead; a superseded command never publishes after a newer state.~~ **Complete (2026-08-27, decisions #62):** pause during `LOADING`/generation now cancels the in-flight job via the A5 command model and publishes `PAUSED` (a superseded generation loop cannot republish `PLAYING`); seek/skip/undo capture `wasPaused` and reposition without starting audio; the paused-seek and generation-pause device evidence in open-bugs.md is now covered by `PlaybackServiceA57Test` (pause-settles, stale-loop-dead, paused-seek/skip-no-resume). Device MediaSession/notification re-verification pending on the B6 / S22. |
+| A8 | **Room durability anomaly — FS-side root cause** | The app-side trace is done (decisions #88): no non-Room book path exists, and `CorruptDatabaseGuard` (quarantine + clean rebuild) already converts the observed 68 B garbage skeleton into a recoverable empty library instead of a crash loop. What remains: reproduce the FS-side deletion on the S22 (no `files/databases/` for hours after `adb install -r`, empty skeleton after) and classify the mechanism — Samsung install-time data handling vs something we trigger. Fix if ours; document and watch if OEM. **Gates Phase C** — first-run setup (C1) derives its state from durable facts. (2026-08-31, decisions #96) |
 
 Ordering constraints:
 
@@ -340,6 +341,14 @@ cannot hold the AR plateau; the wall is memory, not speed); CosyVoice3
 skipped (3.22 GB VmHWM exceeds device RAM). D3's device matrix is complete:
 both devices measured on every leg that physically fits.
 
+**Owner decision (2026-08-31, decisions #96):** MOSS-TTS-Nano is **dropped**.
+It can never sustain live synthesis (RTF ~3.5, decode-dominated AR), the HiBreak
+cannot hold its decode plateau at all (lmkd kill at ~2.5 GB RSS on a 3.97 GB
+device), and 0.75 GiB of pack weight would buy pregen-only quality while the
+shipped Kokoro baseline (0.77 / 3.01) stands with an adequate blind-gate
+ranking. The pinned provenance record stays in decisions #92/#93 for any future
+re-evaluation; D3's comparison table above remains the measurement record.
+
 The comparison runs in the `spike-tts` harness on the S22 and HiBreak: the CosyVoice3
 leg reuses the existing T3 staging path (`cosyvoice3-pack.md` §Verify); the Nano leg is
 added behind the same harness with its own tokenizer. Both run through the existing
@@ -372,7 +381,102 @@ a named bottleneck; Nano may only ever be a secondary engine behind the existing
 seam (never a Kokoro replacement), and CosyVoice3 stays gated on the DiT
 acceleration finding unless its measured RTF in this spike overturns it.
 
+### D4 — Small tier for the HiBreak (B6): Piper vs Supertonic 3
+
+**2026-08-31 (landscape.md closer look):** a third leg, **Audio8 0.1B INT8**
+(`Audio8/audio8-TTS-0.1B-ONNX-INT8`, Apache-2.0, 11 langs, 431 MB online set),
+was probed on the B6 — every graph opens and runs finite on ORT-android
+(no NaN), but the fabricated slow-AR step measured **5.8 s** (vendor: 19 ms
+on an 8-thread desktop) and the fp16 codec alone ran at **RTF ≈ 10**; the
+realtime thesis is unsupported on B6-class and a full generation-loop leg is
+required before any adoption call (pregen-only at best on this hardware).**
+
+The three-tier engine strategy (decisions #97) places a small realtime engine on
+weak devices. **The device is the Bigme HiBreak — "B6" is the same unit under
+its other name in bugs.md/decisions records.** The baseline therefore already
+exists and is measured (bugs.md B6 re-measure 2026-08-29; #93): Kokoro RTF
+2.84–3.12 (avg 3.01), ~834 MB PSS on a 3.9 GB device — live synthesis cannot
+sustain playback, pre-generation is mandatory. **The small tier is confirmed
+necessary**; no further baseline measurement is needed.
+
+Candidate legs, judged against a ≤1.0 RTF target on the HiBreak and the pack
+gates (pin, oracle, blind quality gate):
+
+- **Piper** — direct-ORT VITS port, NOT sherpa: keeps the shared espeak-ng/JNA
+  phonemizer and enables an anchor-introspection audit on the VITS alignment
+  outputs (#30b — upstream has no word timestamps; if introspection is
+  impossible, the tier ships passage-level read-along only, recorded as a
+  known degradation). Per-language packs (14–100 MB/voice, ~20+ languages
+  incl. de/ko — Kokoro's gaps) through the `TtsPack` flow; tens-of-MB sessions
+  fit the HiBreak's 834 MB PSS envelope where the ~326 MB Kokoro session is
+  already 26% of RAM. Flat prosody → blind quality gate required.
+- **Supertonic 3** — one multilingual model (~99M, 31 langs, vendor RTF ~0.3
+  on an e-reader) instead of per-language packs; gated on the recorded
+  supply-lifecycle terms (archived upstream — pin HF revision + hashes) and
+  the unverified read-along duration-output introspection gate.
+
+Acceptance: typed per-engine keep/drop/defer with HiBreak RTF/PSS measurements
+against the Kokoro 3.01 baseline, and the quality/oracle gate.
+
+**2026-08-31 (landscape.md closer look):** the q4 weak-device variant
+(`BricksDisplay/chatterbox-multilingual-ONNX-q4`, 790 MB) was probed on the
+B6 — speech_encoder/embed/LLM open fast and the LLM prefill runs finite
+(2.2 s, MatMulNBits + GroupQueryAttention work on ORT-android; no NaN), but
+the conditional_decoder **opens in 326 s** on the HiBreak. Host A/B showed
+the q4 vocoder decodes real AR-generated audio correctly (identical behavior
+to the unquantized export under ORT 1.22.1 and 1.23.2 — not a quant
+regression). The weak-device variant thesis is hit hard: 790 MB-vs-3.2 GB
+saves disk but costs a 5.4-minute engine open on B6-class; A/B the original's
+vocoder open before pinning, and the AR-KV memory gate for the LLM decode
+still applies.
+
+### D5 — High-end cloning comparison: Chatterbox-multilingual-ONNX vs CosyVoice3 — gated on G0
+
+Owner decision (2026-08-31, decisions #97): the high-end pregen slot (voice
+cloning, multilingual, not necessarily realtime) stays with CosyVoice3 until
+this comparison runs, and the comparison waits on the G0 narration corpus so
+the quality gate is strong from day one.
+
+- Candidates: **CosyVoice3** (incumbent — 9 langs incl. es/it, zero-shot +
+  cross-lingual cloning, pinned pack, measured 3.22 GB VmHWM on the S22) vs
+  **Chatterbox Multilingual ONNX** (MIT, 23 langs incl. es/it/pt/de/ko,
+  zero-shot cloning, 0.5B AR Llama backbone).
+- Provenance gate first: the only ONNX export is community
+  (`onnx-community/chatterbox-multilingual-ONNX`); `textagent/…` is a mirror of
+  the same export (same card, same conversion script, internal code points at
+  onnx-community) and is NOT a pin candidate. Pin revision + sha256 and verify
+  output parity against the PyTorch reference before any measurement (the #86
+  fp16-stub lesson). The official `ResembleAI/chatterbox-turbo-ONNX` export is
+  English-only (350M Turbo) — fails the multilingual requirement.
+- Measurement, in pregen-budget terms on the S22: per-passage wall time,
+  peak/resident PSS through an AR KV-cache decode (the MOSS lesson — memory,
+  not speed, kills weak-RAM devices), and the G0 blind gate against CosyVoice3's
+  own #93 quality flag (duplicated honorific probes on the cloned voice).
+- Integration-cost audit: HF BPE tokenizer is a new tokenization path vs
+  espeak-ng (the advertised set en/es/it/pt/de needs no external normalizer;
+  zh/ja/he do); 24 kHz output against `lastSampleRateHz`; watermark off by
+  default.
+
 ## Phase E — data safety
+
+**Status (2026-08-31, decisions #96):** phase 1 is shipped — the pure-JVM
+`core-backup` archive codec + DTOs (`BackupSnapshot`/`BackupCodec`, decisions
+#89). Phases 2 (snapshot/merge in core-persistence) and 3 (SAF edge) remain,
+and both wait on E0.
+
+### E0 — Storage-location decision (gate)
+
+One decision record before E1 phases 2/3 start:
+
+- the archive lives in app storage vs a user SAF grant (including grant
+  re-acquisition after reinstall);
+- original book files are copied or referenced;
+- whether generated audio ever belongs in the archive;
+- measured SAF write throughput at PCM-file scale (thousands of cache files).
+
+This promotes the "Data survival and user-owned storage" review (Further
+reviews, below) from recorded-not-scheduled to the gate E1 implementation
+waits on.
 
 ### E1 — App backup and restore
 
@@ -398,13 +502,28 @@ One cohesive library/import slice rather than separate UI patches.
 | ID | Work | Required result |
 |---|---|---|
 | ~~F1~~ | ~~**Import progress and cancellation**~~ | ~~Large and multi-file imports show current/total progress; cancellation settles cleanly; per-file failures remain isolated and typed.~~ **Complete (2026-08-27, decisions #64):** `BookImporter.importAll` is now suspend with a per-file pre-parse progress event (a single large file shows "Importing 0/1 — …" immediately) and a 1 ms cooperative boundary so a cancelled batch stops between files without mutating the index for untouched files; `LibraryViewModel` publishes `Importing(0,total)` on `import()`, tracks the batch in `importJob`, exposes `cancelImport()` (Idle, never a partial `Done` — guarded by `ensureActive` before the final publish), and the library row/progress bar gains a Cancel control. Per-file failures stay typed via `ImportOutcome.Failed`. Host evidence: `BookImporterTest` (13, incl. pre/post progress sequence + mid-batch cancel skips later files) and `LibraryViewModelTest` (8, incl. start-state `Importing(0,2)`, mid-batch cancel settles Idle, later import unaffected). |
-| F2 | **Library search** | Filter by title and author locally with deterministic empty/no-result states; content identification remains the separate `TextIndex` capability. |
-| F3 | **Folder import via SAF tree — promoted from ideas** | A persisted tree grant feeds supported files through the existing batch importer; recursion policy and a defensive per-batch cap are decided before build. |
+| ~~F2~~ | ~~**Library search**~~ | ~~Filter by title and author locally with deterministic empty/no-result states; content identification remains the separate `TextIndex` capability.~~ **Complete (2026-08-29, decisions #90):** UI-level filter over the Room `books` rows — case-insensitive title/any-author match, blank query shows all, `EmptyState` on zero matches; the continue-list stays unfiltered by design. Host: `LibraryViewModelTest` +4 (13/13 green). Runtime device verification deferred — tracked in the debt register. |
+| F3 | **Folder import via SAF tree — promoted from ideas** | A persisted tree grant feeds supported files through the existing batch importer; recursion policy and a defensive per-batch cap are decided before build. Folder scanning expands the untrusted-input surface — F3 is the hostile-input audit's first consumer, not a parallel policy. (2026-08-31, decisions #96) |
 
 F1 is the shared prerequisite for F3: scanning a folder without visible progress would
 amplify the existing import UX defect.
 
 ## Phase G — narration and reader controls
+
+### G0 — Narration-quality listening corpus — bounds G1
+
+Build the listening corpus (names, honorifics, abbreviations, numbers, dates,
+currencies, measurements, Roman numerals, dialogue, headings, footnotes, page
+furniture, URLs/code-like text, long paragraphs, speed transitions, every
+advertised language) and run it through the shipped Kokoro pipeline with the
+existing `spike-tts` runner — the D3 corpus/harness infrastructure makes this
+mostly curation, not tooling. Findings become a typed list of mispronunciation
+classes; G1's rule scope is bounded by measured failures, not the single
+`Ms.` regression.
+
+Acceptance: the corpus synthesizes end-to-end on the S22; findings recorded as
+typed classes with examples; G1's built-in rule set is derived from them.
+(2026-08-31, decisions #96)
 
 ### G1 — TTS pronunciation replacements — promoted from ideas
 
@@ -426,6 +545,10 @@ and page-turn gesture discrimination.
 Acceptance: the selected passage—not merely the current narrated passage—is copied or
 played, including when several passages share one page.
 
+The discrimination is now three-way against B3's middle-third pressed-passage
+highlight (tap vs long-press vs page swipe); define it against the B3
+interaction, not beside it. (decisions #96)
+
 ### G3 — Hardware and listening gestures — promoted from ideas
 
 Add the narrow useful subset before building a configurable gesture editor:
@@ -438,6 +561,16 @@ Add the narrow useful subset before building a configurable gesture editor:
 
 Configurable tap-zone maps remain in the idea pool until the fixed reader interactions
 have device evidence and an accessibility review.
+
+### G4 — Speed-selector revisit (decisions #71)
+
+A bounded decision item, not a commitment to restore. Playback is pinned 1.0×
+and stored per-book speeds are ignored (decisions #71) while the
+`setPlaybackRate`/speed-command plumbing is retained unchanged. Produce one
+decision record naming why the selector was removed; if the blocker is
+resolved, restore the selector and verify read-along alignment at 1.5×/2.0× on
+the S22; otherwise close #71's "revisit planned" permanently, leaving the
+Later pitch-preserving row as the only speed work. (2026-08-31, decisions #96)
 
 ## Phase H — TODAY reading and listening stats
 
@@ -509,12 +642,12 @@ shipped together in the same commit. Covered by the existing `BookSegmentationTe
 |---|---|
 | Pitch-preserving speed | WSOLA/phase-vocoder DSP and cache-key compatibility; measure CPU/battery before replacing hardware rate conversion. |
 | pt-BR translation | New offline NMT stage and model/license/quality gate; output-side only so matching remains original-language. |
-| CosyVoice pre-generation + voice cloning | A1/A4 first; exact model pins and S22 research gate; disk-only playback because measured RTF is far from realtime. |
+| CosyVoice pre-generation + voice cloning | DiT-gated (decisions #21/#23) and D3-quality-flagged (duplicated honorific probes; RTF 12.5–31.1); disk-only playback. Exact model pins and the S22 research gate unchanged; A1/A4 long satisfied. |
 | Kindle official export/API sync | External API/export contract and account UX; manual share/resume already covers the core use case. |
 | Word-level highlighting | Requires a stable word/phoneme timing contract beyond current sentence anchors. |
 | Auto language detection and voice routing | Needs per-language voice mappings, mixed-language policy and pack-availability UX. |
 | Full read/listen session history | Build only with a concrete history/export/statistics consumer. |
-| Auto-delete listened audio | A4 first; eviction must preserve the current playhead and every position reachable by undo. |
+| Auto-delete listened audio | Eviction design first: must preserve the current playhead and every position reachable by undo — a design that does not yet exist (A4's LRU repair is done and is not the eviction policy). |
 | Habit-driven pre-generation | Stats/session evidence first; prediction may rank work but never override storage, charging or playback-yield limits. |
 | Profiles, collections and book-map navigation | Valuable reader/library expansion after search, folder import and basic controls are complete. |
 
@@ -538,6 +671,9 @@ copied or referenced; whether generated audio ever belongs in user storage; how 
 is reacquired after reinstall; and how moved, revoked, full or partially written folders
 recover. Measure SAF performance before making thousands of PCM/cache files part of the
 public storage contract.
+
+**Promoted 2026-08-31 (decisions #96):** this review is now **E0**, the gate in
+front of E1 phases 2/3 — see Phase E.
 
 ### Hostile-input and resource limits
 
@@ -588,3 +724,21 @@ player state machinery.
 - ~~Configure the promised `ktlintCheck` task or remove it from the definition of done.~~ **Done (2026-08-29):** baseline-gated `ktlintCheck` (ktlint 1.7.2, committed baseline, CI `jvm-tests` lane).
 - Continue physical-device acceptance on the S22 and HiBreak for behavior or performance
   claims affecting playback.
+
+### Device re-verification debt register (2026-08-31, decisions #96)
+
+Phase A items closed on host evidence with device-acceptance notes still
+pending. The runs are batched into the next S22/HiBreak sessions rather than
+reopening the completed items:
+
+| Source | Pending device evidence |
+|---|---|
+| A1 (#60) | `PregenE2eTest` whole-book/no-budget re-run on the Bigme B6 / S22 |
+| A2 (#61) | stop-mid-passage / kill / reopen acceptance on the B6 / S22 |
+| A4 (#63) | fill-cap / force-stop / relaunch acceptance on the S22 |
+| A5/A7 (#62) | MediaSession/notification re-verification on the B6 / S22 |
+| A6 (#66) | import/share/pregen flow regression on the S22 |
+| F2 (#90) | runtime verification of the library search UI on the S22 |
+
+The batch executes alongside B4's remaining checks (HiBreak low-motion pass,
+reduced-motion degradation, reference screenshots).

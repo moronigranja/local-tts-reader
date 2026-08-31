@@ -120,6 +120,35 @@ framing (the runner chunks). During long CosyVoice3 activity runs keep the
 screen on (`svc power stayon true`) — a dozed display lets the Samsung freezer
 pause the benchmark thread mid-stage.
 
+## ONNX closer-look staging (2026-08-31, `spike-tts`)
+
+Stages the two closer-look candidates for `OnnxProbeBenchmarkTest` (landscape.md
+HF trending sweep — open/run/finite gate on ORT-android; no corpus or quality
+leg). Sources: `BricksDisplay/chatterbox-multilingual-ONNX-q4` (790 MB; keep
+the `onnx/` subfolder) and `Audio8/audio8-TTS-0.1B-ONNX-INT8` online set only
+(slow_ar/fast_ar/codec `*.onnx` + `.data`; skip `registration/` → 431 MB).
+
+```bash
+# host: hf download BricksDisplay/chatterbox-multilingual-ONNX-q4 --local-dir m/cbq4 --include 'onnx/*.onnx'
+# host: hf download Audio8/audio8-TTS-0.1B-ONNX-INT8 --local-dir m/a8 --include 'slow_ar_int8.onnx*' 'fast_ar_int8.onnx*' 'codec_decoder_fp16.onnx*'
+adb push m/cbq4/onnx /data/local/tmp/cb-q4-onnx
+adb push m/a8-single-dir /data/local/tmp/a8
+adb shell "run-as com.moronigranja.localttsreader.spiketts sh -c \\
+  'mkdir -p files/models/chatterbox-q4/onnx files/models/audio8 && \\
+   cp /data/local/tmp/cb-q4-onnx/* files/models/chatterbox-q4/onnx/ && \\
+   cp /data/local/tmp/a8/* files/models/audio8/'"
+adb logcat -c
+adb shell am instrument -w -e class com.moronigranja.localttsreader.spiketts.OnnxProbeBenchmarkTest \\
+  com.moronigranja.localttsreader.spiketts.test/androidx.test.runner.AndroidJUnitRunner
+adb shell cat /sdcard/Android/data/com.moronigranja.localttsreader.spiketts/files/onnx_probe_results.json
+```
+
+Measured B6 results (2026-08-31): both candidates open + run finite — no
+Kitten/MOSS-class NaN. Watch items: chatterbox-q4's conditional_decoder opens
+in ~326 s on the HiBreak; audio8's fabricated slow-AR step ~5.8 s and the fp16
+codec ~RTF 10 (realtime thesis unsupported on B6). Full loop legs belong to
+roadmap D4 (Audio8) / D5 (chatterbox-vs-CosyVoice3).
+
 ## espeak-ng Android bundle (decision #32)
 
 Cross-compiles `libespeak-ng.so` (arm64-v8a) at the pinned espeak-ng release tag
