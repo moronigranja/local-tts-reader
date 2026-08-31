@@ -192,12 +192,12 @@ cost, choose a voice, download only required speech assets, import a supported b
 hear first audio. Repeat with network loss, cancellation, insufficient storage and
 process restart during setup; completed work is retained and the next action is clear.
 
-Open decision (2026-08-31): whether System TTS ships as an explicit opt-in
-zero-download degraded fallback inside first-run setup (candela pattern,
-landscape validated-pattern #5; costed design in ideas.md's system-TTS row).
-Deferred until C1 is specced in detail — the pull is "hear first audio" even
-when pack downloads fail; the push is product identity (Kokoro quality is the
-pitch, and a device-lottery system voice must never read as the app's voice).
+**Decisions (2026-08-31, #102):** System TTS ships as an explicit opt-in
+zero-download degraded fallback in the setup plan screen (a `SystemTtsEngine`
+adapter with passage-level read-along, never auto-selected); no bundled
+public-domain sample (onboarding works without it); A8's S22 device
+reproduction runs first per the Phase C gate. The setup state derives from
+durable facts (#102) and the voice selector is shared groundwork for C2.
 
 ### C2 — Voice selector in the primary flow
 
