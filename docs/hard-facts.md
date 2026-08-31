@@ -89,8 +89,10 @@ Kokoro ships inside the app.
   | Engine | Size | Expressiveness | Languages | Notes |
   |---|---|---|---|---|
   | **Kokoro-82M** (v1 primary) | 82M ONNX | Natural but flat | 9 groups incl. pt-BR | Apache 2.0. Measured baseline; pinned fp32 packs (#28). |
-  | **Fun-CosyVoice3-0.5B** (gated fallback tier) | 0.5B; int8/GGUF ~0.4–0.6 GB | High: emotion/speed/volume instruct, zero-shot voices | 9 + 18 dialects | Apache 2.0. CPU RTF ≈13.4 on S22 — pre-gen only (#21/#54). |
-  | **Piper** | VITS, tens of MB per voice | Mostly flat | many incl. pt | Cheapest per-language voice files. |
+  | **Fun-CosyVoice3-0.5B** (high-end tier incumbent: cloning, pregen-only) | 0.5B; int8/GGUF ~0.4–0.6 GB | High: emotion/speed/volume instruct, zero-shot voices | 9 + 18 dialects | Apache 2.0. CPU RTF ≈13.4 on S22 — pre-gen only (#21/#54). |
+  | **Chatterbox Multilingual ONNX** (high-end challenger — D5, gated on G0) | 0.5B AR Llama; community ONNX export | High: zero-shot cloning, exaggeration control | 23 langs incl. es/it/pt/de/ko | MIT. Only community exports exist (`onnx-community`; `textagent/…` is a mirror, not a pin candidate) — provenance gate + PyTorch parity before measurement; AR KV-cache memory on-device is the open risk. Official Resemble ONNX is Turbo = en-only. |
+  | **Piper** (small-tier candidate — D4) | VITS, 14–100 MB per-voice ONNX | Mostly flat | ~20+ langs incl. de/ko (Kokoro's gaps) | Direct-ORT port (not sherpa) keeps espeak-ng/JNA + enables alignment introspection for read-along (#30b); per-language packs via TtsPack. |
+  | **Supertonic 3** (small-tier candidate — D4) | ~99M, ONNX int8 export | Flow-matching, inline tags | 31 langs | Archived upstream — supply gate: pin HF revision + hashes; vendor RTF ~0.3 on e-reader; duration introspection unverified. |
   | **KittenTTS** | 15–80M ONNX (25–80 MB) | Unproven; tiny | en only (dev preview) | Apache 2.0. Ultra-light watch item. |
   | **MeloTTS** | small | Moderate | 6 | MIT, CPU real-time. Watch item. |
   | **Orpheus-TTS** | 3B only | High (emotion tags) | multilingual research family | Apache 2.0 but desktop-only at 3B — out of phone scope. |

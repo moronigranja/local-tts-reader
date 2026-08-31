@@ -1,5 +1,100 @@
 # Decision log
 
+## 97. Three-tier engine strategy (2026-08-31)
+
+Owner decision: the engine landscape is managed as three tiers behind the
+existing `TTSEngine`/ORT seam — S5's per-engine `PregenKey` dimension already
+anticipates multiple engines, and `EngineTier`/`PackRegistry` exist.
+
+1. **High-end — voice cloning, multilingual, pregen-only (not necessarily
+   realtime).** Incumbent: Fun-CosyVoice3-0.5B (9 langs incl. es/it, zero-shot +
+   cross-lingual cloning, pinned pack, measured 3.22 GB VmHWM on the S22).
+   Challenger: **Chatterbox Multilingual ONNX** (MIT, 23 langs incl.
+   es/it/pt/de/ko, zero-shot cloning, 0.5B AR Llama backbone) — the 2026-08-29
+   blanket reject is partially reopened: ONNX exports now exist. Provenance:
+   `onnx-community/chatterbox-multilingual-ONNX` is the only pin candidate
+   (646 downloads); `textagent/chatterbox-multilingual-ONNX` is a mirror of the
+   same export (identical card and conversion script; its sample code still
+   points at onnx-community) and is NOT a pin candidate. The official
+   `ResembleAI/chatterbox-turbo-ONNX` is English-only (350M Turbo) — fails the
+   multilingual requirement. The comparison is **roadmap D5, gated on G0**
+   (owner call: the quality gate runs on the narration corpus, not ad-hoc) and
+   must pass the provenance gate (pin revision + sha256 + PyTorch output
+   parity — the #86 fp16-stub lesson) before any measurement. Known open risks:
+   AR KV-cache memory on-device (the MOSS lesson — memory, not speed, kills
+   weak-RAM devices), the HF BPE tokenizer as a new tokenization path vs
+   espeak-ng (the advertised set en/es/it/pt/de needs no external normalizer;
+   zh/ja/he do), 24 kHz output, watermark off by default.
+2. **Medium — realtime on strong phones.** Kokoro-82M stands (S22 RTF 0.77;
+   0.66–0.76 on the #86 harness). No change.
+3. **Small — realtime on weak devices.** Device naming correction (owner,
+   2026-08-31): the "Bigme B6" named in bugs.md's 2026-08-27/29 entries and the
+   device pending-notes in decisions #60/#61/#62 **is the Bigme HiBreak** — one
+   unit, two names. The small-tier baseline therefore already exists and is
+   measured: Kokoro RTF 2.84–3.12 (avg 3.01) on the HiBreak (bugs.md B6
+   re-measure; #93) — live synthesis cannot sustain playback, pre-generation is
+   mandatory. **The tier is confirmed necessary; no further baseline
+   measurement.** Owner reopened **Piper** and added **Supertonic 3** as the
+   comparison legs (**roadmap D4**): Piper as a direct-ORT VITS port (NOT
+   sherpa) to keep the shared espeak-ng/JNA phonemizer and to audit the VITS
+   alignment outputs for read-along anchors (#30b — upstream has no word
+   timestamps; if introspection proves impossible the tier ships passage-level
+   read-along, recorded as a known degradation), with per-language packs
+   (14–100 MB/voice, ~20+ languages incl. the de/ko Kokoro gaps) via the
+   `TtsPack` flow — tens-of-MB sessions also fit the HiBreak's measured 834 MB
+   PSS envelope; Supertonic 3 under its recorded supply-lifecycle gate
+   (archived upstream, pin + hashes) and its unverified duration-introspection
+   gate. Piper is multilingual as a catalog (one pack per language), which the
+   pack registry already anticipates (hard-facts: "engines like Piper would add
+   per-language packs").
+
+Every tier stays behind the one inference convention (ORT); no candidate may
+introduce a second runtime. Docs updated: roadmap.md (D4/D5), hard-facts.md
+(tier table), landscape.md (Chatterbox partial reopen, Piper promotion).
+
+## 96. Roadmap reconciliation — eight gaps closed (2026-08-31)
+
+A gap review of roadmap.md against the decision ledger found eight items the
+roadmap did not own. Owner decisions and what changed:
+
+1. **Speed selector** — #71's "revisit planned" had no roadmap home. Added G4:
+   a bounded decision item (re-derive why 1.0× was pinned → restore the selector
+   and verify read-along at speed, or close the revisit permanently).
+2. **MOSS-TTS-Nano dropped** — D3's "pregen-gated candidate" verdict had no
+   adoption slice. Owner call: RTF ~3.5 rules out live synthesis, the HiBreak
+   cannot hold the decode plateau (lmkd kill at ~2.5 GB RSS on a 3.97 GB
+   device), and 0.75 GiB of pack weight buys pregen-only quality while the
+   shipped Kokoro baseline (RTF 0.77 S22 / 3.01 HiBreak, adequate blind gate)
+   stands. Provenance stays recorded in #92/#93.
+3. **Room durability anomaly** — the 2026-08-29 S22 observation (DB absent for
+   hours after `install -r`; library rendered non-Room state) had no owning
+   slice. Added A8: reproduce, classify ours vs OEM/SQLite artifact, fix or
+   close with evidence. Gates Phase C — C1 derives first-run state from
+   durable facts.
+4. **Device re-verification debt** — A1/A2/A4/A5/A6/A7 closed on host evidence
+   with pending device notes. A register was added to the roadmap's
+   outstanding-verification section; the runs batch into the next device
+   sessions instead of reopening the items.
+5. **E0 storage-location gate** — the data-survival review promoted to a gate
+   in front of E1 phases 2/3 (#89 shipped the codec only): archive location
+   (app storage vs SAF grant incl. re-acquisition), book files copied vs
+   referenced, generated audio in/out of the archive, measured SAF throughput
+   at PCM-file scale.
+6. **Later-table gates refreshed** — the CosyVoice row rewritten to the D3
+   verdict (DiT-gated + quality-flagged, disk-only); the auto-delete gate
+   restated as the unbuilt eviction design, not the satisfied A4.
+7. **G0 narration-quality corpus scheduled** — G1's scope was bounded by an
+   unscheduled benchmark. The corpus build is now G0, reusing the spike-tts/D3
+   harness; G1's rules are bounded by measured failure classes only.
+8. **Docs + ordering notes** — architecture.md §2 brought current (core-ui,
+   core-backup, feature-ocr/settings/share rows; F2 search shipped);
+   F3 marked the hostile-input audit's first consumer; G2's gesture
+   discrimination defined against B3's pressed-passage interaction. The roadmap
+   F2 row and the open-bugs search entry corrected to Complete (#90) —
+   modules.md was already accurate.
+
+Docs only — no code changes.
+
 ## 95. B4 — teal-led light theme; M3-default lavender card surfaces rejected (2026-08-31)
 
 Owner call during the first B4 device pass on the S22. Two findings, one

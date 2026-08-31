@@ -24,11 +24,16 @@ core-ebook      EBookParser + EBookFormats + EpubParser/MobiParser → Book;
 core-locate     TextIndex, TextMatcher, TextNormalizer, MatchResult; IndexRebuilder (launch-time sync)
 core-ocr        (live) tess-two behind OcrEngine/TessTwoOcrEngine + stager; six pinned legacy-traineddata packs (#36)
 core-tts        (live) TTSEngine interface + pack registry; model/language-pack download, verify + caching
-core-player     (live) v1 player state machine: transport, transactional writes, ring, sleep timer, bookmarks; PlayerStore contract
-core-persistence (live) Room v2: books, cached passages, progress (offset+speed), settings, bookmarks, position_history; LibraryStore + PlayerStore impls
-feature-library (live) SAF import + library list (Compose, Hilt); search pending
-feature-player (live, T4-2) PlaybackService (MediaSession, focus, foreground) + docked read-along ReaderScreen
-app             (live) Hilt composition root, manifest, MainActivity → LibraryScreen
+core-player     (live) v1 player state machine: transport, transactional writes, ring, sleep timer, bookmarks; PlayerStore contract; A5 single-writer command model (generations); PregenQueue + PregenPlanner + PregenKey, PcmPassageCache (A4 LRU), PregenStorage façade
+core-persistence (live) Room v2: books, cached passages, progress (offset+speed), settings, bookmarks, position_history; LibraryStore + PlayerStore impls; ImportCoordinator/IndexLock boundary (A3)
+core-ui         (live) AyvuTheme design tokens (B1, #68): brand light/dark color roles, typography, shapes, spacing, motion, elevation; shared components (PlayerCard, BookCover, PillButton, ConfirmDialog, EmptyState, LoadingState, SectionHeader, LabeledProgress, SegmentedProgress, formatPercent); no business logic/ViewModels; depends on core-player only
+core-backup     (live, partial) versioned v1 backup archive codec + DTOs — BackupSnapshot/BackupCodec (E1 phase 1, #89); snapshot/merge (phase 2) and SAF edge (phase 3) pending E0
+feature-library (live) SAF import + library list + F2 search (#90) (Compose, Hilt); row pre-gen action + usage/estimate/delete
+feature-player (live, T4-2) PlaybackService (MediaSession, focus, foreground) + docked read-along ReaderScreen; PregenWorker/PregenManager single-mode manual pre-gen
+feature-ocr     (live) TessTwoOcrEngine (tess-two 9.1.0) + TessDataStager + Hilt; legacy-traineddata packs (#36)
+feature-settings (live) settings screen, packs download UI, voice picker + favorites, offline-audio section
+feature-share   (live) ACTION_SEND gateway (text+image), typed resolver, found/not-found UX, OpenTarget + listen-from-here
+app             (live) Hilt composition root (app.di owns shared infrastructure, A6): PersistenceModule, import-core providers, OcrModule; MainActivity → LibraryScreen; checkFeatureBoundaries rejects feature-* → feature-* edges
 ```
 
 Current dependency edges:
@@ -41,13 +46,20 @@ core-locate ←  core-ebook  (BookImporter indexes into TextIndex — the import
 core-persistence ←  feature-library  (Hilt provides the Room-backed LibraryStore)
 core-persistence ←  core-player  (RoomPlayerStore implements PlayerStore)
 core-player  ←  feature-library  (Hilt provides the PlayerStore binding)
+core-player  ←  core-ui     (tokens/components render player state; no business logic)
 core-player/tts/persistence ← feature-player (PlaybackService + ReaderScreen drive the machine+engine)
+core-ocr     ←  feature-ocr
+core-tts     ←  feature-settings (pack download UI drives the TtsPack flow)
+core-locate  ←  feature-share (resolver queries TextIndex)
 core-ebook  ←  feature-library  (SAF sources → BookImporter)
-feature-library ←  app          (Hilt wires the composition root to the library screen)
+feature-library/settings/share/ocr ← app  (app wires the composition root)
+core-backup  ←  (unwired — E1 phases 2/3 attach it to core-persistence + app)
 ```
 
 Rules:
 - `core-*` modules contain no `android.*` imports, no framework — stdlib/JDK only.
+  Exception: `core-ui` is the shared Compose surface (tokens + stateless components);
+  it still owns no business logic, stores or ViewModels.
 - Dependencies point toward `core-model`; nothing depends on `app`/`feature-*`.
 - `feature-*` never depend on each other; `app` wires them.
 - A component lives in the module of its primary responsibility. Orchestration that
