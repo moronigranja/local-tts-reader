@@ -746,8 +746,29 @@ Verdict unchanged and now version-robust: production stays on pinned fp32.
 If int8 is ever revisited, the remaining untested surface is **weight-only**
 (`MatMulNBits`, the chatterbox-q4 op class — verified working on
 ORT-android 1.23.2 in the closer-look probe), with the vocoder kept fp32.
-A/B listening WAVs + result JSONs: `docs/prints/int8/` (WAVs are the
-1.23.2 run; the 1.29 run overwrote them after its JSON was pulled).
+
+**HiBreak leg (same day, ORT 1.23.2, post-reboot clean run):** int8 RTF
+**2.621 (en-us) / 2.591 (pt-br)** vs the fp32 oracle at **2.89** in the same
+session (bugs.md baseline 3.01) — **only ~11–14% faster on the A53**, vs
+Piper's 6×. Engine open 10.2 s. The combined candidate+oracle harness drove
+the 3.9 GB device into 200% swap thrash on the first attempt (lmkd killed
+the foreground process at 794 MB RSS; a reboot let the batch finish at
+1.63 GB PSS / 1.67 GB VmHWM). `max_abs_diff` 0.804 — gate rejected, same as
+the S22. **Int8 does not change the small-tier verdict on any axis: the
+speed win is marginal where speed matters, and Piper dominates the tier.**
+Its only real HiBreak value would be the ~150 MB model-size memory delta.
+
+Owner observations recorded (not gate-changing): blind listening on the S22
+pair heard "quality seems similar", with the fp32 oracle slightly quieter —
+confirmed on host (int8 RMS 0.074 vs fp32 0.060, ≈2 dB louder, no clipping);
+the 0.001 waveform gate is a strict proxy and a perceptual pass heard no
+damage. Amending the gate remains an owner decision; the measured record
+stands as-is. The runtime-fix boundary for the owner's logged ORT-android
+error is **1.25.0** — any future pin bump has its minimum there, not 1.29.
+
+A/B WAVs + result JSONs: `docs/prints/int8/` (S22 + HiBreak pairs; the S22
+WAVs are the 1.23.2 run — the 1.29 run overwrote them after its JSON was
+pulled).
 
 Evidence: `tools/quantize_kokoro_q8.py` ran (excluded
 `/decoder/generator/conv_post/Conv`, 114 176 961 B); `:spike-tts:assembleDebug
