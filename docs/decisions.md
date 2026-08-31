@@ -708,6 +708,47 @@ Decision per the D2.3 hard rule (adopt only if it beats CPU RTF +
   (e.g. a full static-quant INT8 whose graph the CPU EP can actually run) —
   the same measurement leg reapplies.
 
+**Re-run (2026-08-31): int8 on ORT 1.23.2 vs 1.29.0, same S22** — prompted by
+the question "would an ORT update viabilize int8?". Two findings:
+
+1. **The #86 blocker is version-bound and is GONE on 1.29.** A minimal
+   single-node `ConvInteger(10)` graph fails to open on 1.23.2 with the
+   exact #86 error (`ORT_NOT_IMPLEMENTED … ConvInteger(10)`) and **runs on
+   1.29.0** (`convinteger: implemented`; `Int8OpsProbe` +
+   `Int8ConvIntegerProbeTest`, results self-labeled via the
+   `ort_version` instrumentation arg). A static QOperator int8 graph of
+   the #86 shape is now *runnable* on the CPU EP.
+2. **The realistic int8 candidate still fails the oracle gate — on BOTH
+   runtimes.** The #86 int8 artifact's source (`thewh1teagle/kokoro-onnx`)
+   has since gone **gated/401** — the pinned-lineage file (ae315a79…) is no
+   longer publicly obtainable, a provenance event to record. The current
+   public int8-class export is `onnx-community/Kokoro-82M-v1.0-ONNX`
+   `onnx/model_uint8.onnx` (177 464 632 B, sha256 `6607a397…`) — a
+   **QDQ-format static quant** (51 `QLinearConv` + 39 `QLinearMatMul`, no
+   `ConvInteger`), a different op surface from #86's file. Oracle-gated on
+   the S22 (fp32 oracle, host-precomputed corpus, 6 threads):
+
+   | ORT | engine open | en-us RTF | pt-br RTF | max_abs_diff | gate |
+   |---|---|---|---|---|---|
+   | 1.23.2 | 1.7 s | 0.582 | 0.594 | 0.799 | REJECTED |
+   | 1.29.0 | 1.5 s | 0.607 | 0.596 | 0.911 | REJECTED |
+
+   Speed is fine (slightly faster than the fp32 oracle on the same
+   session; S22 fp32 is realtime anyway) — **quality remains the wall**,
+   now measured across two quantization formats (QOperator ConvInteger =
+   unrunnable-then, QDQ QLinear = 0.8–0.9 diff) and two runtime versions.
+   Same conclusion as q8 (0.700), fp16 (0.723), and candela's production
+   int8→fp32 regression: **the 0.001 waveform gate rejects Kokoro
+   quantization regardless of runtime version.** Runtime updates change
+   op coverage, not quantization error.
+
+Verdict unchanged and now version-robust: production stays on pinned fp32.
+If int8 is ever revisited, the remaining untested surface is **weight-only**
+(`MatMulNBits`, the chatterbox-q4 op class — verified working on
+ORT-android 1.23.2 in the closer-look probe), with the vocoder kept fp32.
+A/B listening WAVs + result JSONs: `docs/prints/int8/` (WAVs are the
+1.23.2 run; the 1.29 run overwrote them after its JSON was pulled).
+
 Evidence: `tools/quantize_kokoro_q8.py` ran (excluded
 `/decoder/generator/conv_post/Conv`, 114 176 961 B); `:spike-tts:assembleDebug
 :assembleDebugAndroidTest :core-player:test :feature-player:compileDebugKotlin
