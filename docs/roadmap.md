@@ -126,6 +126,15 @@ Apply the system in this order:
 The backup, folder-import and TODAY-stat screens use these components when built; they
 must not introduce another one-off visual language.
 
+**Status (2026-08-31, decisions #94):** complete, host-verified. All four
+steps landed: shared card + rows (cover unified in `BookCover`, compact card
+with uniform 48.dp transport, two-tone `SegmentedProgress` fed by the new
+`generatedAheadSeconds` state), reader chrome/margins/page-indicator/
+pressed-passage/EmptyState, settings tokenization + Retry pill + delete
+confirm, share-result cards with the error-role encoding. The #87
+bottom-crop invariant holds by construction (indicator reserve flows through
+the same `linesPerPage(reservedPx)` mechanism as the title). Device visual
+
 ### B4 — Visual and accessibility acceptance
 
 - Verify light and dark themes, contrast, 48 dp touch targets, system font scaling,
@@ -138,12 +147,17 @@ must not introduce another one-off visual language.
 Completion means the product surfaces use the shared tokens/components and have been
 visually exercised on both devices—not merely that a theme file exists.
 
-**Status (2026-08-29):** the S22 font-scale leg is under way — the 1.0×/1.3×/2.0×
-reader pass found and closed the px-as-dp chapter-title gap, and the settings
-espeak live-status fix was verified in the same pass (decisions #87); the B3
-reader-bottom-crop re-verification is done at those scales. Remaining: light/dark
-contrast + 48 dp + TalkBack + reduced-motion checks, the HiBreak low-motion pass,
-and the approved reference screenshots.
+**Status (2026-08-31, decisions #95):** the S22 pass is done for every check
+the B3/B4 slice can reach: light (teal-led, #95) and dark (ink-ramp) themes
+verified on device, 48 dp transport measured pixel-exact (135 px @450 dpi),
+reader page indicator + pressed-passage + last-line-visible verified at 1.0×
+and 2.0× font scale (2.0× exposed the One UI font-scale/pitch mismatch —
+pagination now keys on the layout's measured pitch), share Found/NotFound
+verdicts driven live via the exported ShareReceiverActivity, settings delete
+confirm + live espeak status verified, TalkBack labels present on all icon
+buttons (uiautomator audit). Remaining: HiBreak low-motion pass, reduced-motion
+degradation check, approved reference screenshots, and a design decision on
+the teal generated segment being sub-pixel on very long books (decisions #95).
 
 ## Phase C — fresh install and voice selection
 

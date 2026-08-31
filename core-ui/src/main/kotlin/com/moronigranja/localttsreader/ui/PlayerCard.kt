@@ -2,7 +2,6 @@ package com.moronigranja.localttsreader.ui
 
 import android.content.Context
 import android.graphics.BitmapFactory
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -16,7 +15,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
@@ -24,7 +22,6 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -36,7 +33,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.asImageBitmap
-import androidx.compose.ui.graphics.painter.BitmapPainter
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -47,14 +43,18 @@ import com.moronigranja.localttsreader.player.PlayerPhase
 import java.io.File
 
 /**
- * The app-wide docked player card (decisions #53, mockup-matched): cover
- * thumb, title, subtitle (authors · chapter · passage, or "Generating…"
- * while the engine loads), book-wide progress with elapsed / % /
- * remaining-at-speed, and the transport row — −30s · play/pause (spinner
- * while synthesizing) · +30s. State comes from the
- * service-published [PlaybackUiState], commands go through [PlayerCommands];
- * [topRight]/[badge] let the library add its row actions + offline usage;
- * [onOpen] makes the cover/title area open the book.
+ * The app-wide docked player card (decisions #53, #94): cover thumb, title,
+ * subtitle (authors · chapter · passage, or "Generating…" while the engine
+ * loads), two-tone book-wide progress with elapsed / % / remaining-at-speed,
+ * and the transport row — −30s · play/pause (spinner while synthesizing) ·
+ * +30s, all three at a uniform 48.dp height (M3 minimum touch target).
+ *
+ * Bar color legend ([SegmentedProgress], recolored decisions #95): teal
+ * `primary` = listened, amber `secondary` = generated but not yet listened,
+ * `surfaceVariant` = remaining. State comes from the service-published
+ * [PlaybackUiState], commands go through [PlayerCommands]; [topRight]/[badge]
+ * let the library add its row actions + offline usage; [onOpen] makes the
+ * cover/title area open the book.
  */
 @Composable
 fun PlayerCard(
@@ -82,30 +82,22 @@ fun PlayerCard(
 
     Card(
         modifier = modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(16.dp),
-        elevation = CardDefaults.cardElevation(defaultElevation = 8.dp),
+        shape = MaterialTheme.shapes.large,
+        elevation = CardDefaults.cardElevation(defaultElevation = AyvuElevation.Card),
     ) {
         Row(
             modifier = Modifier
-                .padding(12.dp)
+                .padding(AyvuSpacing.SM)
                 .then(if (onOpen != null) Modifier.clickable(onClick = onOpen!!) else Modifier),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Box(
-                modifier = Modifier
-                    .size(64.dp)
-                    .clip(RoundedCornerShape(10.dp))
-                    .background(MaterialTheme.colorScheme.surfaceVariant),
-            ) {
-                if (cover != null) {
-                    Image(
-                        painter = BitmapPainter(cover!!),
-                        contentDescription = state.bookTitle,
-                        modifier = Modifier.fillMaxWidth().height(64.dp),
-                    )
-                }
-            }
-            Spacer(Modifier.width(12.dp))
+            BookCover(
+                bitmap = cover,
+                fallbackInitial = state.bookTitle,
+                contentDescription = state.bookTitle,
+                modifier = Modifier.size(width = 48.dp, height = 64.dp),
+            )
+            Spacer(Modifier.width(AyvuSpacing.SM))
             Column(modifier = Modifier.weight(1f)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
@@ -125,11 +117,13 @@ fun PlayerCard(
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
-                Spacer(Modifier.height(6.dp))
-                LinearProgressIndicator(
-                    progress = { state.readFraction.coerceIn(0f, 1f) },
-                    modifier = Modifier.fillMaxWidth(),
-                    trackColor = MaterialTheme.colorScheme.surfaceVariant,
+                Spacer(Modifier.height(AyvuSpacing.XS))
+                SegmentedProgress(
+                    playedFraction = state.readFraction.coerceIn(0f, 1f),
+                    generatedFraction = minOf(
+                        state.generatedAheadFraction,
+                        1f - state.readFraction.coerceIn(0f, 1f),
+                    ).coerceAtLeast(0f),
                 )
                 Spacer(Modifier.height(2.dp))
                 if (badge != null) badge()
@@ -141,7 +135,7 @@ fun PlayerCard(
                     )
                     Spacer(Modifier.weight(1f))
                     Text(
-                        text = progressLabel(state),
+                        text = formatPercent(state.readFraction),
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -158,14 +152,19 @@ fun PlayerCard(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(start = 12.dp, end = 12.dp, bottom = 12.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
+                .padding(AyvuSpacing.SM),
+            horizontalArrangement = Arrangement.spacedBy(AyvuSpacing.SM, Alignment.CenterHorizontally),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            PillButton("−30s", onClick = commands::seekBackward)
+            PillButton(
+                "−30s",
+                onClick = commands::seekBackward,
+                enabled = state.bookId != null,
+                modifier = Modifier.height(48.dp),
+            )
             Box(
                 modifier = Modifier
-                    .size(52.dp)
+                    .size(48.dp)
                     .clip(CircleShape)
                     .background(MaterialTheme.colorScheme.primary)
                     .clickable { if (playing) commands.pause() else commands.resume() },
@@ -186,7 +185,12 @@ fun PlayerCard(
                     )
                 }
             }
-            PillButton("+30s", onClick = commands::seekForward)
+            PillButton(
+                "+30s",
+                onClick = commands::seekForward,
+                enabled = state.bookId != null,
+                modifier = Modifier.height(48.dp),
+            )
         }
     }
 }
@@ -208,10 +212,4 @@ private fun formatClock(seconds: Double): String {
     val m = (total / 60) % 60
     val h = total / 3600
     return if (h > 0) "%d:%02d:%02d".format(h, m, s) else "%d:%02d".format(m, s)
-}
-
-/** [0..1] position → "%" (sub-1% keeps a decimal so early listening shows motion). */
-private fun progressLabel(state: PlaybackUiState): String {
-    val percent = state.readFraction * 100
-    return if (percent < 1f) String.format("%.1f%%", percent) else "${percent.toInt()}%"
 }

@@ -1,5 +1,4 @@
 package com.moronigranja.localttsreader.featureplayer.ui
-
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
@@ -47,7 +46,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.changedToUp
 import androidx.compose.ui.input.pointer.pointerInput
@@ -66,6 +64,8 @@ import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.moronigranja.localttsreader.player.PlaybackUiState
 import com.moronigranja.localttsreader.ui.PlayerCard
+import com.moronigranja.localttsreader.ui.AyvuSpacing
+import com.moronigranja.localttsreader.ui.EmptyState
 import com.moronigranja.localttsreader.player.PlayerPhase
 import com.moronigranja.localttsreader.player.PlayerPosition
 import com.moronigranja.localttsreader.player.SleepTimer
@@ -124,7 +124,7 @@ fun ReaderScreen(
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 4.dp, vertical = 4.dp),
+                        .padding(AyvuSpacing.XS),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     IconButton(onClick = onClose) {
@@ -182,14 +182,14 @@ fun ReaderScreen(
                         Icon(Icons.AutoMirrored.Filled.Undo, contentDescription = "Undo")
                     }
                     TextButton(onClick = { viewModel.cycleSleep() }) {
-                        Text(state.sleepLabel, fontSize = 12.sp)
+                    Text(state.sleepLabel, style = MaterialTheme.typography.labelSmall)
                     }
                 }
                 Text(
                     state.bookTitle.ifEmpty { "Reader" },
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 20.dp, vertical = 8.dp),
+                        .padding(horizontal = AyvuSpacing.LG, vertical = AyvuSpacing.SM),
                     style = MaterialTheme.typography.titleMedium,
                 )
             }
@@ -204,23 +204,17 @@ fun ReaderScreen(
                 .fillMaxSize()
                 .padding(padding),
         ) {
-            state.failure?.let {
-                Text(
-                    it,
-                    color = MaterialTheme.colorScheme.error,
-                    style = MaterialTheme.typography.bodySmall,
-                    modifier = Modifier.padding(horizontal = 20.dp),
+            when {
+                state.failure != null -> EmptyState(state.failure!!)
+                state.chapterPassages.isEmpty() && state.phase == PlayerPhase.IDLE ->
+                    EmptyState("Tap play to start listening from this book.")
+                else -> PaginatedChapter(
+                    state = state,
+                    bookId = bookId,
+                    viewModel = viewModel,
+                    modifier = Modifier.weight(1f),
                 )
             }
-            if (state.chapterPassages.isEmpty() && state.phase == PlayerPhase.IDLE) {
-                Text("Tap play to start listening from this book.", textAlign = TextAlign.Center)
-            }
-            PaginatedChapter(
-                state = state,
-                bookId = bookId,
-                viewModel = viewModel,
-                modifier = Modifier.weight(1f),
-            )
         }
     }
 }
@@ -258,13 +252,18 @@ private fun PaginatedChapter(
 
     val textMeasurer = rememberTextMeasurer()
     val highlightColor = MaterialTheme.colorScheme.tertiaryContainer
+    val pressedColor = MaterialTheme.colorScheme.surfaceVariant
+    // Measurement constant: pagination keys on the FIXED line-height contract.
     val bodyStyle = MaterialTheme.typography.bodyLarge.copy(lineHeight = 30.sp)
     val titleStyle = MaterialTheme.typography.titleLarge
+    val indicatorStyle = MaterialTheme.typography.labelSmall
     val density = LocalDensity.current
-    val lineHeightPx = with(density) { ceil(bodyStyle.lineHeight.toPx()) }.toInt()
-    val titleGapPx = with(density) { 12.dp.toPx() }.toInt()
-    val horizontalPadPx = with(density) { 20.dp.toPx() }.toInt()
+    // Title gap and page margins are tokenized (decisions #94); the gap and
+    // the rendered title padding MUST stay equal — both read AyvuSpacing.MD.
+    val titleGapPx = with(density) { AyvuSpacing.MD.toPx() }.toInt()
+    val horizontalPadPx = with(density) { AyvuSpacing.LG.toPx() }.toInt()
     var page by remember(state.chapterIndex) { mutableIntStateOf(0) }
+    var pressedPassage by remember { mutableStateOf<Int?>(null) }
 
     BoxWithConstraints(modifier = modifier) {
         val viewportHeight = constraints.maxHeight
@@ -298,9 +297,38 @@ private fun PaginatedChapter(
                 constraints = Constraints(maxWidth = pageWidth),
             ).size.height
         }
+        // Real line pitch, measured from the layout itself: on some OEMs the
+        // paint-level font scale differs from Density.fontScale (S22 @2.0×:
+        // 148px pitch vs 107px from the sp conversion) — a parallel sp→px
+        // computation silently over-filled pages, cropped the last line and
+        // pushed the indicator out (#87/#95). Pagination keys on the measured
+        // pitch so the two can never disagree.
+        val lineHeightPx = if (bodyLayout.lineCount > 1) {
+            (bodyLayout.multiParagraph.getLineTop(1) - bodyLayout.multiParagraph.getLineTop(0)).toInt()
+        } else {
+            (bodyLayout.multiParagraph.getLineBottom(0) - bodyLayout.multiParagraph.getLineTop(0)).toInt()
+        }
+        // Bottom-crop-safe reserve for the page indicator (decisions #94):
+        // measured from a real layout of the indicator text (its rendered
+        // height) plus the 2 * XS vertical padding, so the reserve matches
+        // what renders — the #87 last-line-visible invariant holds by
+        // construction at any font scale.
+        val indicatorReservedPx =
+            remember(pageWidth, indicatorStyle) {
+                textMeasurer.measure(
+                    text = AnnotatedString("Page 999 of 999"),
+                    style = indicatorStyle,
+                    constraints = Constraints(maxWidth = pageWidth),
+                ).size.height
+            } + 2 * with(density) { AyvuSpacing.XS.roundToPx() }
+
         val totalLines = bodyLayout.lineCount
-        val firstPageLines = TextPagination.linesPerPage(viewportHeight, lineHeightPx, reservedPx = titleHeightPx + titleGapPx)
-        val fullPageLines = TextPagination.linesPerPage(viewportHeight, lineHeightPx)
+        val firstPageLines = TextPagination.linesPerPage(
+            viewportHeight,
+            lineHeightPx,
+            reservedPx = titleHeightPx + titleGapPx + indicatorReservedPx,
+        )
+        val fullPageLines = TextPagination.linesPerPage(viewportHeight, lineHeightPx, reservedPx = indicatorReservedPx)
         val totalPages = TextPagination.totalPages(totalLines, firstPageLines, fullPageLines)
         val range = remember(page, totalLines, firstPageLines, fullPageLines) {
             val start = TextPagination.pageStartLine(page.coerceIn(0, totalPages - 1), firstPageLines, fullPageLines)
@@ -337,7 +365,7 @@ private fun PaginatedChapter(
 
         val pageSlice = chapterText.substring(startChar.coerceIn(0, chapterText.length), endChar.coerceIn(startChar, chapterText.length))
         val pageText =
-            remember(pageSlice, startChar, endChar, activeSpan, highlightColor) {
+            remember(pageSlice, startChar, endChar, activeSpan, highlightColor, pressedPassage, pressedColor) {
                 buildAnnotatedString {
                     append(pageSlice)
                     if (activeSpan != null) {
@@ -351,6 +379,18 @@ private fun PaginatedChapter(
                             )
                         }
                     }
+                    // Pressed-passage feedback (decisions #94): surfaceVariant
+                    // fill, no bold — distinct from the read-along highlight.
+                    val pressed = pressedPassage
+                    if (pressed != null) {
+                        val passageStart = passageOffsets.getOrNull(pressed) ?: 0
+                        val passageEnd = passageOffsets.getOrNull(pressed + 1) ?: chapterText.length
+                        val from = maxOf(passageStart, startChar)
+                        val to = minOf(passageEnd, endChar)
+                        if (from < to) {
+                            addStyle(SpanStyle(background = pressedColor), from - startChar, to - startChar)
+                        }
+                    }
                 }
             }
 
@@ -359,10 +399,24 @@ private fun PaginatedChapter(
                 .fillMaxSize()
                 .clipToBounds()
                 .pointerInput(state.bookId, totalPages, state.chapterPassages) {
+                    // Passage under a y coordinate — the middle-third tap
+                    // mapping, shared by the press highlight and the tap (S3).
                     val pageWidthPx = size.width / 3f
                     val swipePx = SWIPE_PAGE_THRESHOLD.toPx()
+                    fun passageAt(y: Float): Int? {
+                        val titleBlock = if (page <= 0) titleHeightPx + titleGapPx else 0
+                        val lineInPage = ((y - titleBlock).toInt() / lineHeightPx).coerceAtLeast(0)
+                        val globalLine = range.first + lineInPage
+                        return passageStartLines.indexOfLast { it <= globalLine }
+                            .takeIf { it >= 0 && state.positioned }
+                    }
                     awaitEachGesture {
                         val down = awaitFirstDown()
+                        // Press feedback only for middle-zone touches — the
+                        // zone whose up-action plays a passage.
+                        if (down.position.x >= pageWidthPx && down.position.x <= pageWidthPx * 2f) {
+                            pressedPassage = passageAt(down.position.y)
+                        }
                         var dragX = 0f
                         var paged = false
                         do {
@@ -376,6 +430,7 @@ private fun PaginatedChapter(
                                 }
                             }
                         } while (!event.changes.all { it.changedToUp() })
+                        pressedPassage = null
                         if (paged) {
                             val delta = if (dragX < 0f) 1 else -1
                             when {
@@ -391,11 +446,7 @@ private fun PaginatedChapter(
                                     if (page >= totalPages - 1) viewModel.openChapter(bookId, +1) else page = page + 1
                                 else -> {
                                     // Middle tap: play the passage under the finger.
-                                    val titleBlock = if (page <= 0) titleHeightPx + titleGapPx else 0
-                                    val lineInPage = ((down.position.y - titleBlock).toInt() / lineHeightPx).coerceAtLeast(0)
-                                    val globalLine = range.first + lineInPage
-                                    val passage = passageStartLines.indexOfLast { it <= globalLine }
-                                        .takeIf { it >= 0 && state.positioned }
+                                    val passage = passageAt(down.position.y)
                                     if (passage != null) {
                                         viewModel.playPosition(bookId, state.chapterIndex, passage)
                                     } else if (state.positioned) {
@@ -411,14 +462,29 @@ private fun PaginatedChapter(
                 Text(
                     chapterTitle,
                     style = titleStyle,
-                    modifier = Modifier.padding(bottom = 12.dp, start = 20.dp, end = 20.dp),
+                    modifier = Modifier.padding(
+                        bottom = AyvuSpacing.MD,
+                        start = AyvuSpacing.LG,
+                        end = AyvuSpacing.LG,
+                    ),
                 )
             }
             if (pageSlice.isNotBlank()) {
                 Text(
                     text = pageText,
                     style = bodyStyle,
-                    modifier = Modifier.padding(horizontal = 20.dp),
+                    modifier = Modifier.padding(horizontal = AyvuSpacing.LG),
+                )
+            }
+            if (totalPages > 1) {
+                Text(
+                    "Page ${page + 1} of $totalPages",
+                    style = indicatorStyle,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = AyvuSpacing.XS),
                 )
             }
         }

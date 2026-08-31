@@ -50,6 +50,9 @@ data class PlaybackUiState(
     /** Estimated listening time left in the book at the current speed. */
     val timeLeftSeconds: Double = 0.0,
     val speed: Double = 1.0,
+    /** Book-time seconds of pre-generated audio queued strictly ahead of the
+     * playhead (`PregenQueue.aheadSeconds`); 0 when no fill runs. */
+    val generatedAheadSeconds: Double = 0.0,
     val phase: PlayerPhase = PlayerPhase.IDLE,
     val sleepTimer: SleepTimer = SleepTimer.Off,
     val canUndo: Boolean = false,
@@ -65,5 +68,17 @@ data class PlaybackUiState(
                 if (segment.startSeconds <= offsetSeconds) last = index else break
             }
             return if (last >= 0) last else 0
+        }
+
+    /** [0..1] fraction of the remaining book already synthesized. Denominator
+     * is book-time remaining: timeLeftSeconds is WALL-clock listening time
+     * at [speed] (BookProgress.remainingSeconds divides the 1.0× remainder by
+     * speed), so multiplying by speed recovers book time; aheadSeconds is
+     * book-time audio. */
+    val generatedAheadFraction: Float
+        get() {
+            val remainingBookSeconds = timeLeftSeconds * speed
+            if (remainingBookSeconds <= 0.0) return 0f
+            return (generatedAheadSeconds / remainingBookSeconds).toFloat().coerceIn(0f, 1f)
         }
 }

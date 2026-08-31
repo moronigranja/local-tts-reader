@@ -936,6 +936,7 @@ class PlaybackService : Service() {
             timeLeftSeconds = position?.let { p ->
                 book?.let { BookProgress.remainingSeconds(it, p.chapterIndex, p.passageIndex, liveOffsetSeconds(), state.speed) }
             } ?: 0.0,
+            generatedAheadSeconds = position?.let { queue?.aheadSeconds(it) } ?: 0.0,
             speed = state.speed,
             phase = state.phase,
             sleepTimer = state.sleepTimer,

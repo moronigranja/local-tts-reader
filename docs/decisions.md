@@ -1,5 +1,131 @@
 # Decision log
 
+## 95. B4 — teal-led light theme; M3-default lavender card surfaces rejected (2026-08-31)
+
+Owner call during the first B4 device pass on the S22. Two findings, one
+palette retune:
+
+- **The "light blue" card background was M3 defaults leaking through.** B1
+  themed only a subset of roles, so `Card` rendered on
+  `surfaceContainerHighest` = M3 lavender `#E6E0E9` against the cream
+  background — the owner rejected it on device ("light blue background on
+  the player cards"). Fix: the full `surfaceContainer*` ramp is now
+  overridden with warm cream shades; the card tone (`surfaceContainerHighest`)
+  was deepened a second time after on-device feedback that the first pick
+  (`#E6DCC6`) lacked separation from the background — final `#E0D2B6`
+  (~1.30:1 against bg `#F5EFE0`, ink ~12:1). Locked by
+  `AyvuThemeTest.lightThemeCardContainerIsCreamNotM3Lavender`.
+- **Teal-led light theme** (owner pick among retune directions): deep teal
+  `#0B5F72` becomes `primary` (docked card play circle, transport pills,
+  read-along-adjacent accents), amber `#7A5200` demotes to `secondary`
+  (the bar's generated segment, favorites), containers swap accordingly.
+  `tertiary` stays teal — the read-along highlight is unchanged. Contrast
+  re-verified: white-on-teal 7.3, teal-on-paper 6.3, white-on-amber 6.9,
+  amber-on-paper 6.0. Dark theme unchanged. The `SegmentedProgress` legend
+  recolors with the roles: teal = listened, amber = generated-unlistened.
+  Bar legend docs updated in `SegmentedProgress`/`PlayerCard`.
+
+Found in the same pass: `SegmentedProgress` crashed on device —
+`RowScope.weight(0f)` throws (`invalid weight; must be greater than zero`)
+whenever a segment measures zero (1% book with no pregen: played+generated
+≈ 0; book end: empty = 0). Zero-weight segments are now not emitted.
+Lesson: the host-only B3 leg could not catch this — a pure-layout invariant
+with no JVM surface. Device visual acceptance caught it within minutes.
+
+Three more device findings from the same S22 pass, fixed on the spot:
+
+- **Weighted segments had zero height.** `SegmentedProgress`'s inner Boxes
+  carried only `weight(...)` + background — a bare weighted Box wraps to
+  0.dp tall, so the bar rendered as bare track. Segments are now
+  `fillMaxHeight().weight(...)` (and the first host build after the palette
+  swap showed the played segment correctly).
+- **One UI's paint-level font scale ≠ `Density.fontScale`.** At 2.0× the
+  measured layout's real line pitch was 148 px while
+  `30.sp.toPx()` reported 107 px (fontScale 2.0, density 2.8125) — the
+  sp-derived pitch under-counted, pages over-filled, the last line cropped
+  and the page indicator was pushed out of the clipped column. Fix: body
+  pagination now keys on the pitch measured from `bodyLayout` itself and the
+  indicator reserve is measured from a real layout of the indicator text —
+  no parallel sp→px math can drift again. Verified: indicator
+  "Page 84 of 145" renders at 2.0× with the last line fully visible.
+- **The teal generated segment is sub-pixel on very long books.** The
+  fraction's denominator is book-time remaining, so a realistic pregen
+  cushion (45 s–a few minutes) against ~27 h remaining paints < 1 px on
+  Deepness. Played-segment rendering was verified on device; making the teal
+  segment visible on long books needs a different denominator (e.g. the
+  pregen horizon) — owner decision pending, B4 remains open for it.
+
+Also noted: the library row's "Delete offline audio" menu item deletes
+directly (no confirm); the ConfirmDialog added in #94 covers the Settings
+offline rows. Wiring the same dialog into the library menu is a follow-up.
+
+## 94. B3 — surface redesign: the Ayvu system on all four surfaces (2026-08-31)
+
+The full retune (user decision: layouts/spacing/cover treatment change, not
+just token substitution) covering the roadmap's four ordered steps.
+Presentation-only EXCEPT one additive state field. What landed:
+
+- **Cover unification** — new core-ui `BookCover(bitmap, fallbackInitial,
+  contentDescription, modifier)`: one portrait treatment (clipped
+  `shapes.small`, `surfaceVariant` fill, bitmap `ContentScale.Crop`, else the
+  book's initial in `headlineMedium`). Sizing comes from the modifier: 56×80
+  on library rows, 48×64 on the player card. The two decode paths stay at the
+  callsites (sidecar file vs `viewModel.cover` bytes).
+- **Compact player card** — a little less tall by requirement: interior
+  paddings 12→`AyvuSpacing.SM` (8.dp), title→bar gap 6→`XS`, transport row
+  paddings/gap 12/8→`SM`, cover 64×64→48×64, and the three transport controls
+  (−30s / play-pause / +30s) at a UNIFORM 48.dp height (M3 minimum touch
+  target; was ~40.dp pills + 52.dp circle). Pills disabled while no book is
+  loaded. Card now uses `shapes.large` + named `AyvuElevation.Card`.
+- **Two-tone progress bar** — new core-ui `SegmentedProgress(playedFraction,
+  generatedFraction)`: 4.dp tall, amber `primary` = listened, teal
+  `secondary` = generated-but-unlistened, `surfaceVariant` track = remaining.
+  Backing state: `PlaybackUiState.generatedAheadSeconds` (book-time seconds of
+  `PregenQueue.aheadSeconds`) published through `stateCopy` (CR-8/CR-9 home)
+  with derived `generatedAheadFraction` clamped [0..1] — timeLeftSeconds is
+  WALL-clock listening time at speed (BookProgress.remainingSeconds divides
+  the 1.0× remainder by speed), so the denominator is `timeLeftSeconds *
+  speed` in book time; the plan's assumed `÷ speed` direction was wrong and
+  was corrected against the `BookProgressTest` speed cases. The generated
+  segment is additionally clamped to
+  `1 - played` at the callsite, so it never paints over the played segment;
+  disk-tier cached-but-not-queued audio is NOT counted (no cheap book-wide
+  cached fraction exists — a per-key `PcmPassageCache.contains` scan would be
+  a larger change).
+- **Library rows** — new core-ui `LabeledProgress(progress, label)` replaces
+  the duplicated bar+percent pattern (bars stay single-segment: they show
+  offline disk usage, not ahead-audio); `formatPercent` extracted (was
+  duplicated inline); rows get `shapes.large` + `AyvuSpacing.MD`.
+- **Reader** — chrome/margins tokenized (page margins 20→`LG`); page
+  indicator "Page N of M" (only when >1 page) with a bottom-crop-safe
+  reserve: `indicatorReservedPx = ceil(labelSmall.lineHeight) + 2 * XS`,
+  passed as `reservedPx` to `TextPagination.linesPerPage` for BOTH page kinds
+  (same mechanism as the title reserve, decisions #87) so the last-line
+  invariant holds by construction; the title gap + rendered title padding
+  both read `AyvuSpacing.MD` and must stay equal. Pressed-passage feedback:
+  middle-third touch highlights the passage's char range with
+  `surfaceVariant` (no bold — distinct from the read-along
+  `tertiaryContainer`+Bold highlight); the string rebuild keys on the press,
+  the layout measurement does NOT (no re-measure on press). Reader
+  empty/failure states now use core-ui `EmptyState`.
+- **State encodings** — `PillButton` gains `enabled` with explicit disabled
+  colors (`surfaceVariant`/`onSurfaceVariant`); the share Failed card uses
+  `errorContainer`/`onErrorContainer` (palettes keep M3 error defaults — no
+  brand error tone was contrast-verified, noted on `AyvuLightColors`).
+- **Settings** — all paddings tokenized; failed-pack Retry is a `PillButton`
+  (default height — the 48.dp uniform height is player-transport-only);
+  offline-audio Delete sits behind a `ConfirmDialog` ("Delete offline
+  audio?" — frees <size>, regenerable).
+- **Share result** — all three verdict cards `shapes.large`; paddings
+  24→`XL`, 16→`LG`.
+
+Audit: zero `RoundedCornerShape`/`CircleShape`/`Color(0x…)` literals remain in
+the four feature modules; the only remaining dp/sp literals are the reader's
+`30.sp` measurement constant, `SWIPE_PAGE_THRESHOLD`, and PillButton's
+content padding. Tests: `AyvuThemeTest` +elevation/`formatPercent` locks,
+new `PlaybackUiStateTest` (speed conversion + clamps). Host-verified; device
+
+
 ## 93. D3 — first device column: the four-engine comparison on the S22 (2026-08-30)
 
 The D3 comparison ran on the S22 (SM-S908U1, SDK 36, locked/off screen,

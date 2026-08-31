@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
@@ -17,9 +18,9 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.moronigranja.localttsreader.ui.LoadingState
+import com.moronigranja.localttsreader.ui.AyvuSpacing
 
 /**
  * S2 result UX: "Found: book · chapter · passage" for a hit; a clear
@@ -35,8 +36,8 @@ fun ShareResultScreen(
     val state by viewModel.state.collectAsState()
     Scaffold(modifier = Modifier.fillMaxSize()) { padding ->
         Column(
-            modifier = Modifier.fillMaxSize().padding(padding).padding(24.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp),
+            modifier = Modifier.fillMaxSize().padding(padding).padding(AyvuSpacing.XL),
+            verticalArrangement = Arrangement.spacedBy(AyvuSpacing.LG),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             when (val s = state) {
@@ -61,10 +62,24 @@ private fun VerdictContent(
     when (resolution) {
         is ShareResolution.Found -> FoundCard(resolution, onListen)
         is ShareResolution.NotFound -> NotFoundCard(resolution)
-        is ShareResolution.Failed -> Card {
-            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("Could not match the share.", style = MaterialTheme.typography.titleMedium)
-                Text(resolution.message, style = MaterialTheme.typography.bodyMedium)
+        is ShareResolution.Failed -> Card(
+            shape = MaterialTheme.shapes.large,
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer),
+        ) {
+            Column(
+                Modifier.padding(AyvuSpacing.LG),
+                verticalArrangement = Arrangement.spacedBy(AyvuSpacing.SM),
+            ) {
+                Text(
+                    "Could not match the share.",
+                    style = MaterialTheme.typography.titleMedium,
+                    color = MaterialTheme.colorScheme.onErrorContainer,
+                )
+                Text(
+                    resolution.message,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onErrorContainer,
+                )
             }
         }
     }
@@ -75,8 +90,8 @@ private fun VerdictContent(
 
 @Composable
 private fun FoundCard(found: ShareResolution.Found, onListen: (ShareResolution.Found) -> Unit) {
-    Card(modifier = Modifier.fillMaxWidth()) {
-        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+    Card(modifier = Modifier.fillMaxWidth(), shape = MaterialTheme.shapes.large) {
+        Column(Modifier.padding(AyvuSpacing.LG), verticalArrangement = Arrangement.spacedBy(AyvuSpacing.SM)) {
             Text("Found in your library", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
             Text(found.bookTitle, style = MaterialTheme.typography.titleLarge)
             Text(
@@ -98,8 +113,8 @@ private fun FoundCard(found: ShareResolution.Found, onListen: (ShareResolution.F
 
 @Composable
 private fun NotFoundCard(notFound: ShareResolution.NotFound) {
-    Card(modifier = Modifier.fillMaxWidth()) {
-        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+    Card(modifier = Modifier.fillMaxWidth(), shape = MaterialTheme.shapes.large) {
+        Column(Modifier.padding(AyvuSpacing.LG), verticalArrangement = Arrangement.spacedBy(AyvuSpacing.SM)) {
             Text("No passage matched", style = MaterialTheme.typography.titleLarge)
             Text(
                 when (notFound.reason) {

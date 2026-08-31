@@ -15,15 +15,9 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.AlertDialog
-import androidx.compose.foundation.background
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.ui.draw.clip
-import androidx.compose.foundation.Image
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.ImageBitmap
 import kotlinx.coroutines.Dispatchers
@@ -61,14 +55,17 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.moronigranja.localttsreader.player.PregenJobState
 import com.moronigranja.localttsreader.ui.AyvuMotion
+import com.moronigranja.localttsreader.ui.AyvuSpacing
+import com.moronigranja.localttsreader.ui.SectionHeader
 import com.moronigranja.localttsreader.ui.ConfirmDialog
 import com.moronigranja.localttsreader.ui.EmptyState
 import com.moronigranja.localttsreader.ui.PlayerCard
-import com.moronigranja.localttsreader.ui.SectionHeader
+import com.moronigranja.localttsreader.ui.BookCover
+import com.moronigranja.localttsreader.ui.LabeledProgress
+import com.moronigranja.localttsreader.ui.formatPercent
 import com.moronigranja.localttsreader.player.PlayerPhase
 import com.moronigranja.localttsreader.player.formatBytes
 import kotlinx.coroutines.launch
@@ -204,7 +201,7 @@ fun LibraryScreen(
                 onValueChange = { query = it },
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 8.dp),
+                    .padding(horizontal = AyvuSpacing.LG, vertical = AyvuSpacing.SM),
                 placeholder = { Text("Search title or author") },
                 leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null) },
                 trailingIcon = {
@@ -228,7 +225,7 @@ fun LibraryScreen(
                     verticalAlignment = Alignment.CenterVertically,
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 4.dp),
+                        .padding(horizontal = AyvuSpacing.LG, vertical = AyvuSpacing.XS),
                 ) {
                     Text(
                         text = "Importing ${importing.done}/${importing.total} — ${importing.currentFileName}",
@@ -250,11 +247,11 @@ fun LibraryScreen(
                 val recentIds = recent.map { it.book.id }.toSet()
                 LazyColumn(
                     modifier = Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                    contentPadding = PaddingValues(AyvuSpacing.LG),
+                    verticalArrangement = Arrangement.spacedBy(AyvuSpacing.SM),
                 ) {
                     if (positioned || recentIds.isNotEmpty()) {
-                        item { SectionHeader("Continue listening", Modifier.padding(top = 8.dp, bottom = 4.dp)) }
+                        item { SectionHeader("Continue listening", Modifier.padding(top = AyvuSpacing.SM, bottom = AyvuSpacing.XS)) }
                     }
                     if (positioned && activeId != null) {
                         // The live player card replaces the top row and EXPANDS
@@ -339,7 +336,7 @@ fun LibraryScreen(
                         )
                     }
                     if (recentIds.isNotEmpty()) {
-                        item { SectionHeader("Library", Modifier.padding(top = 8.dp, bottom = 4.dp)) }
+                        item { SectionHeader("Library", Modifier.padding(top = AyvuSpacing.SM, bottom = AyvuSpacing.XS)) }
                     }
                     items(
                         searchResults.filterNot { it.book.id in recentIds || it.book.id == activeId },
@@ -378,7 +375,7 @@ fun LibraryScreen(
                         Text(
                             text = "$fileName: $message",
                             style = MaterialTheme.typography.bodyMedium,
-                            modifier = Modifier.padding(top = 4.dp),
+                            modifier = Modifier.padding(top = AyvuSpacing.XS),
                         )
                     }
                 }
@@ -444,39 +441,19 @@ private fun BookRow(
         modifier = Modifier
             .fillMaxWidth()
             .clickable { onOpenBook(bookId) },
+        shape = MaterialTheme.shapes.large,
     ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(12.dp),
+                .padding(AyvuSpacing.MD),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Box(
-                modifier = Modifier
-                    .size(width = 56.dp, height = 80.dp)
-                    .clip(RoundedCornerShape(4.dp))
-                    .background(MaterialTheme.colorScheme.surfaceVariant),
-                contentAlignment = Alignment.Center,
-            ) {
-                if (cover != null) {
-                    Image(
-                        bitmap = cover,
-                        contentDescription = null,
-                        modifier = Modifier.fillMaxSize(),
-                        contentScale = ContentScale.Crop,
-                    )
-                } else {
-                    Text(
-                        title.take(1).uppercase(),
-                        style = MaterialTheme.typography.headlineMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-            }
+            BookCover(bitmap = cover, fallbackInitial = title, contentDescription = null)
             Column(
                 modifier = Modifier
                     .weight(1f)
-                    .padding(start = 12.dp),
+                    .padding(start = AyvuSpacing.MD),
             ) {
                 Text(
                     text = title,
@@ -489,27 +466,19 @@ private fun BookRow(
                     )
                 }
                 if (readFraction > 0f) {
-                    LinearProgressIndicator(
-                        progress = { readFraction },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(top = 8.dp),
-                    )
-                    val readPercent = readFraction * 100
-                    Text(
-                        if (readPercent < 1f) "%.1f%%".format(readPercent) else "${readPercent.toInt()}%",
-                        style = MaterialTheme.typography.labelSmall,
+                    LabeledProgress(
+                        progress = readFraction,
+                        label = formatPercent(readFraction),
+                        modifier = Modifier.padding(top = AyvuSpacing.SM),
                     )
                 }
                 when {
                     running -> {
-                        LinearProgressIndicator(
-                            progress = { percent / 100f },
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(top = 8.dp),
+                        LabeledProgress(
+                            progress = percent / 100f,
+                            label = "$percent%",
+                            modifier = Modifier.padding(top = AyvuSpacing.SM),
                         )
-                        Text("$percent%", style = MaterialTheme.typography.labelSmall)
                     }
                     else -> {
                         if (pregenError != null) {
@@ -517,13 +486,13 @@ private fun BookRow(
                                 pregenError,
                                 style = MaterialTheme.typography.labelSmall,
                                 color = MaterialTheme.colorScheme.error,
-                                modifier = Modifier.padding(top = 4.dp),
+                                modifier = Modifier.padding(top = AyvuSpacing.XS),
                             )
                         } else if (usage > 0L) {
                             Text(
                                 "${formatBytes(usage)} offline",
                                 style = MaterialTheme.typography.labelSmall,
-                                modifier = Modifier.padding(top = 4.dp),
+                                modifier = Modifier.padding(top = AyvuSpacing.XS),
                             )
                         }
                     }

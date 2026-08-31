@@ -34,11 +34,13 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.unit.dp
 import com.moronigranja.localttsreader.player.formatBytes
 import com.moronigranja.localttsreader.persistence.ThemeMode
 import com.moronigranja.localttsreader.tts.PackStatus
 import com.moronigranja.localttsreader.ui.SectionHeader
+import com.moronigranja.localttsreader.ui.AyvuSpacing
+import com.moronigranja.localttsreader.ui.ConfirmDialog
+import com.moronigranja.localttsreader.ui.PillButton
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -81,10 +83,10 @@ fun SettingsScreen(
         if (pane == SettingsPane.Root) {
         LazyColumn(
             modifier = Modifier.fillMaxSize().padding(padding),
-            contentPadding = androidx.compose.foundation.layout.PaddingValues(16.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
+            contentPadding = androidx.compose.foundation.layout.PaddingValues(AyvuSpacing.LG),
+            verticalArrangement = Arrangement.spacedBy(AyvuSpacing.SM),
         ) {
-            item { SectionHeader("Engine", Modifier.padding(top = 16.dp, bottom = 4.dp)) }
+            item { SectionHeader("Engine", Modifier.padding(top = AyvuSpacing.LG, bottom = AyvuSpacing.XS)) }
             items(state.packs.filter { it.packId == "kokoro-model" || it.packId == "kokoro-voices" || it.packId == "espeak-ng" }) { row ->
                 PackRow(row, onDownload = { viewModel.download(row.packId) })
             }
@@ -92,17 +94,17 @@ fun SettingsScreen(
                 Text(
                     "espeak-ng: ${state.espeakDetail}",
                     style = MaterialTheme.typography.bodySmall,
-                    modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp),
+                    modifier = Modifier.padding(horizontal = AyvuSpacing.XS, vertical = AyvuSpacing.XS),
                 )
             }
 
-            item { SectionHeader("Voice", Modifier.padding(top = 16.dp, bottom = 4.dp)) }
+            item { SectionHeader("Voice", Modifier.padding(top = AyvuSpacing.LG, bottom = AyvuSpacing.XS)) }
             if (state.voices.isEmpty()) {
                 item {
                     Text(
                         "Download the voices pack above to pick a voice.",
                         style = MaterialTheme.typography.bodySmall,
-                        modifier = Modifier.padding(horizontal = 4.dp),
+                        modifier = Modifier.padding(horizontal = AyvuSpacing.XS),
                     )
                 }
             } else {
@@ -117,7 +119,7 @@ fun SettingsScreen(
                 }
             }
 
-            item { SectionHeader("Share & reading", Modifier.padding(top = 16.dp, bottom = 4.dp)) }
+            item { SectionHeader("Share & reading", Modifier.padding(top = AyvuSpacing.LG, bottom = AyvuSpacing.XS)) }
             item {
                 Column {
                     Text("Match threshold: ${"%.2f".format(state.matchThreshold)}", style = MaterialTheme.typography.bodyMedium)
@@ -139,7 +141,7 @@ fun SettingsScreen(
                     modifier = Modifier
                         .fillMaxWidth()
                         .clickable { pane = SettingsPane.OcrLanguages }
-                        .padding(vertical = 8.dp),
+                        .padding(vertical = AyvuSpacing.SM),
                 ) {
                     Text(
                         "OCR languages",
@@ -150,13 +152,13 @@ fun SettingsScreen(
                 }
             }
 
-            item { SectionHeader("Offline audio", Modifier.padding(top = 16.dp, bottom = 4.dp)) }
+            item { SectionHeader("Offline audio", Modifier.padding(top = AyvuSpacing.LG, bottom = AyvuSpacing.XS)) }
             if (offlineRows.isEmpty()) {
                 item {
                     Text(
                         "No pre-generated audio — the library row's Pre-generate fills it.",
                         style = MaterialTheme.typography.bodySmall,
-                        modifier = Modifier.padding(horizontal = 4.dp),
+                        modifier = Modifier.padding(horizontal = AyvuSpacing.XS),
                     )
                 }
             } else {
@@ -164,7 +166,7 @@ fun SettingsScreen(
                     Text(
                         "Total: ${formatBytes(offlineRows.sumOf { it.bytes })} — one listened hour ≈ 170 MB",
                         style = MaterialTheme.typography.bodyMedium,
-                        modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp),
+                        modifier = Modifier.padding(horizontal = AyvuSpacing.XS, vertical = AyvuSpacing.XS),
                     )
                 }
                 items(offlineRows, key = { it.bookId }) { row ->
@@ -176,7 +178,7 @@ fun SettingsScreen(
                 }
             }
 
-            item { SectionHeader("Appearance", Modifier.padding(top = 16.dp, bottom = 4.dp)) }
+            item { SectionHeader("Appearance", Modifier.padding(top = AyvuSpacing.LG, bottom = AyvuSpacing.XS)) }
             item {
                 Column {
                     ThemeMode.entries.forEach { mode ->
@@ -188,7 +190,7 @@ fun SettingsScreen(
                                     selected = state.themeMode == mode,
                                     onClick = { viewModel.setTheme(mode) },
                                 )
-                                .padding(vertical = 4.dp),
+                                .padding(vertical = AyvuSpacing.XS),
                         ) {
                             RadioButton(selected = state.themeMode == mode, onClick = { viewModel.setTheme(mode) })
                             Text(when (mode) {
@@ -205,7 +207,7 @@ fun SettingsScreen(
             LazyColumn(
                 modifier = Modifier.fillMaxSize().padding(padding),
             ) {
-                item { SectionHeader("OCR languages", Modifier.padding(top = 16.dp, bottom = 4.dp)) }
+                item { SectionHeader("OCR languages", Modifier.padding(top = AyvuSpacing.LG, bottom = AyvuSpacing.XS)) }
                 items(state.packs.filter { it.packId in OCR_PACK_IDS }) { row ->
                     PackRow(row, onDownload = { viewModel.download(row.packId) })
                     OcrLanguageRow(
@@ -219,7 +221,7 @@ fun SettingsScreen(
                     Text(
                         "Selected languages are used for shared-image snippets; the bundle installs once.",
                         style = MaterialTheme.typography.bodySmall,
-                        modifier = Modifier.padding(vertical = 4.dp),
+                        modifier = Modifier.padding(vertical = AyvuSpacing.XS),
                     )
                 }
             }
@@ -229,17 +231,32 @@ fun SettingsScreen(
 
 @Composable
 private fun OfflineAudioRow(title: String, bytes: Long, onDelete: () -> Unit) {
+    // Destructive action behind an explicit confirm (decisions #94) — the
+    // delete cancels queued pregen work and drops cached audio.
+    var confirmDelete by remember { mutableStateOf(false) }
     Row(
         verticalAlignment = Alignment.CenterVertically,
-        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+        modifier = Modifier.fillMaxWidth().padding(vertical = AyvuSpacing.XS),
     ) {
         Column(modifier = Modifier.weight(1f)) {
             Text(title, style = MaterialTheme.typography.bodyMedium)
             Text(formatBytes(bytes), style = MaterialTheme.typography.labelSmall)
         }
-        androidx.compose.material3.TextButton(onClick = onDelete) {
+        androidx.compose.material3.TextButton(onClick = { confirmDelete = true }) {
             Text("Delete")
         }
+    }
+    if (confirmDelete) {
+        ConfirmDialog(
+            title = "Delete offline audio?",
+            text = "Frees ${formatBytes(bytes)} for this book. It can be regenerated later.",
+            confirmLabel = "Delete",
+            onConfirm = {
+                confirmDelete = false
+                onDelete()
+            },
+            onDismiss = { confirmDelete = false },
+        )
     }
 }
 
@@ -247,7 +264,7 @@ private fun OfflineAudioRow(title: String, bytes: Long, onDelete: () -> Unit) {
 private fun PackRow(row: PackRow, onDownload: () -> Unit) {
     Row(
         verticalAlignment = Alignment.CenterVertically,
-        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+        modifier = Modifier.fillMaxWidth().padding(vertical = AyvuSpacing.XS),
         horizontalArrangement = Arrangement.SpaceBetween,
     ) {
         Column(modifier = Modifier.weight(1f)) {
@@ -256,7 +273,7 @@ private fun PackRow(row: PackRow, onDownload: () -> Unit) {
                 row.progress != null -> {
                     LinearProgressIndicator(
                         progress = { row.progress.toFloat() },
-                        modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+                        modifier = Modifier.fillMaxWidth().padding(top = AyvuSpacing.XS),
                     )
                     Text("${(row.progress * 100).toInt()}%", style = MaterialTheme.typography.labelSmall)
                 }
@@ -267,7 +284,7 @@ private fun PackRow(row: PackRow, onDownload: () -> Unit) {
                 )
                 row.error != null -> {
                     Text("failed: ${row.error}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.error)
-                    TextButtonRetry(onClick = onDownload)
+                    PillButton("Retry", onClick = onDownload)
                 }
                 else -> Text(
                     "${row.sizeBytes / 1_048_576} MiB — download required",
@@ -285,18 +302,12 @@ private fun PackRow(row: PackRow, onDownload: () -> Unit) {
     }
 }
 
-@Composable
-private fun TextButtonRetry(onClick: () -> Unit) {
-    androidx.compose.material3.TextButton(onClick = onClick) {
-        Text("Retry")
-    }
-}
 
 @Composable
 private fun OcrLanguageRow(packId: String, enabled: Boolean, selected: Boolean, onToggle: (Boolean) -> Unit) {
     Row(
         verticalAlignment = Alignment.CenterVertically,
-        modifier = Modifier.fillMaxWidth().padding(start = 8.dp, end = 4.dp, bottom = 8.dp),
+        modifier = Modifier.fillMaxWidth().padding(start = AyvuSpacing.SM, end = AyvuSpacing.XS, bottom = AyvuSpacing.SM),
     ) {
         Switch(
             checked = selected && enabled,
@@ -306,7 +317,7 @@ private fun OcrLanguageRow(packId: String, enabled: Boolean, selected: Boolean, 
         Text(
             if (enabled) "Use for share OCR" else "Download above, then enable",
             style = MaterialTheme.typography.bodySmall,
-            modifier = Modifier.padding(start = 8.dp),
+            modifier = Modifier.padding(start = AyvuSpacing.SM),
         )
     }
 }
@@ -321,7 +332,7 @@ private fun VoiceRow(
 ) {
     Row(
         verticalAlignment = Alignment.CenterVertically,
-        modifier = Modifier.fillMaxWidth().clickable(onClick = onSelect).padding(vertical = 2.dp),
+        modifier = Modifier.fillMaxWidth().clickable(onClick = onSelect).padding(vertical = AyvuSpacing.XS),
     ) {
         Text(
             name,

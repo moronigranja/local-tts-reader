@@ -15,13 +15,22 @@ import org.robolectric.annotation.Config
 class AyvuThemeTest {
 
     @Test
-    fun lightThemePrimaryIsBrandAmber() {
-        assertEquals(Color(0xFF7A5200), AyvuLightColors.primary)
+    fun lightThemePrimaryIsBrandTeal() {
+        assertEquals(Color(0xFF0B5F72), AyvuLightColors.primary)
     }
 
     @Test
-    fun lightThemeBackgroundIsCream() {
-        assertEquals(Color(0xFFF5EFE0), AyvuLightColors.background)
+    fun lightThemeSecondaryIsBrandAmber() {
+        assertEquals(Color(0xFF7A5200), AyvuLightColors.secondary)
+    }
+
+    @Test
+    fun lightThemeCardContainerIsCreamNotM3Lavender() {
+        // The owner rejected the M3-default lavender card surface (#E6E0E9)
+        // during the B4 pass — lock the cream ramp (decisions #95); the card
+        // tone was deepened after on-device feedback that #E6DCC6 lacked
+        // separation from the #F5EFE0 background.
+        assertEquals(Color(0xFFE0D2B6), AyvuLightColors.surfaceContainerHighest)
     }
 
     @Test
@@ -57,5 +66,20 @@ class AyvuThemeTest {
     @Test
     fun motionStandardIs300Ms() {
         assertEquals(300, AyvuMotion.STANDARD_MS)
+    }
+
+    @Test
+    fun elevationCardIs8Dp() {
+        assertEquals(8.dp, AyvuElevation.Card)
+    }
+
+    @Test
+    fun formatPercentKeepsDecimalUnderOnePercent() {
+        assertEquals("0.5%", formatPercent(0.005f))
+    }
+
+    @Test
+    fun formatPercentDropsDecimalAtOrAboveOnePercent() {
+        assertEquals("42%", formatPercent(0.42f))
     }
 }
