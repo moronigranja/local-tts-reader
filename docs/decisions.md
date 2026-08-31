@@ -766,9 +766,19 @@ damage. Amending the gate remains an owner decision; the measured record
 stands as-is. The runtime-fix boundary for the owner's logged ORT-android
 error is **1.25.0** — any future pin bump has its minimum there, not 1.29.
 
-A/B WAVs + result JSONs: `docs/prints/int8/` (S22 + HiBreak pairs; the S22
-WAVs are the 1.23.2 run — the 1.29 run overwrote them after its JSON was
-pulled).
+**Fold 8 data point (2026-08-31, ORT 1.29.0, SM-F971B / SM8850, Android 17,
+11.3 GB)** — the first device whose cores have the int8 kernel features
+(dotprod/i8mm): uint8 RTF **0.36 / 0.50** (en/pt) vs the fp32 oracle's
+**0.52** same-session (~30% faster — the int8 speedup scales with the
+silicon, unlike the A53's ~13%); `max_abs_diff` **1.119** — gate still
+rejected. The main project (`:app`, full instrumented playback set:
+PlaybackE2e, VoiceSelectionE2e, PlayPositionE2e, PtVoiceE2e) passed **0
+failures** on 1.29.0 on this device.
+
+A/B WAVs + result JSONs: `docs/prints/int8/` (S22 + HiBreak + Fold pairs;
+the S22 WAVs are the 1.23.2 run — the 1.29 run overwrote them after its
+JSON was pulled).
+
 
 Evidence: `tools/quantize_kokoro_q8.py` ran (excluded
 `/decoder/generator/conv_post/Conv`, 114 176 961 B); `:spike-tts:assembleDebug
