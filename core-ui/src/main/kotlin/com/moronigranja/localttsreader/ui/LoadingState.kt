@@ -11,7 +11,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 
-/** Spinner + label centered vertically under it (16.dp gap, matching the share screen). */
+/** Centered loading indicator + label (16.dp gap, matching the share screen).
+ * Under reduced motion the animated spinner degrades to a static ring
+ * (decisions #98) — the label keeps the state visible. */
 @Composable
 fun LoadingState(label: String, modifier: Modifier = Modifier) {
     Column(
@@ -19,7 +21,11 @@ fun LoadingState(label: String, modifier: Modifier = Modifier) {
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(AyvuSpacing.LG),
     ) {
-        CircularProgressIndicator(Modifier.size(48.dp))
+        if (LocalReducedMotion.current) {
+            StaticRing(Modifier.size(48.dp))
+        } else {
+            CircularProgressIndicator(Modifier.size(48.dp))
+        }
         Text(label, style = MaterialTheme.typography.bodyMedium)
     }
 }

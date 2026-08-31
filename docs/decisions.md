@@ -1,5 +1,64 @@
 # Decision log
 
+## 98. B4 completion — pregen-horizon amber denominator, reduced-motion degradation, delete confirms (2026-08-31)
+
+The HiBreak device pass closed B4's remaining items (S22 pass was #95).
+
+- **Amber segment denominator: pregen horizon (owner pick).** #95's open
+  finding — the teal/amber generated segment is sub-pixel on long books
+  (45 s cushion vs ~27 h remaining ≈ 0.05% of the bar) — was settled with
+  three owner-reviewed options; the owner picked the pregen-horizon
+  denominator. `PlaybackUiState.generatedAheadFraction` now divides
+  `generatedAheadSeconds` by the fixed `PREGEN_HORIZON_SECONDS = 120.0`
+  (~2.7× the service's 45 s look-ahead, so steady state sits ~37% into the
+  segment) instead of book-time remaining. The bar stops being a strict
+  partition of book time: amber answers "how full is the buffer right
+  now", not "how much of the book is it". PlayerCard/SegmentedProgress
+  legends updated; callers keep the played+generated ≤ 1 clamp so the bar
+  stays valid near book end. Tests: `PlaybackUiStateTest` rewritten to the
+  horizon contract (steady-state 45 s → 0.375, clamp, speed/book-length
+  independence). Device-verified on the HiBreak: a ~19 s cushion paints
+  ~16% of the bar (teal `#0B5F72` played, amber `#7A5200` generated,
+  pixel-sampled) — invisible under the old denominator.
+- **Reduced motion: explicit gate, degradation without hidden state.**
+  Compose animations ignore the system `ANIMATOR_DURATION_SCALE`, so the
+  Android "Remove animations" toggle had no effect. New core-ui
+  `Motion.kt`: `LocalReducedMotion` (+ `rememberReducedMotion()`, true
+  exactly when the scale is zeroed), provided once by `AyvuTheme` so no
+  call site repeats the read. Consumers: the PlayerCard and LoadingState
+  spinners become a static `StaticRing` (same size/stroke/tint) and the
+  library card entrance becomes `EnterTransition.None` — state copy
+  ("Generating…") and all controls stay. Device-verified on the HiBreak:
+  with the scales zeroed the loading ring is pixel-static (5 s apart diff
+  = None) and the card renders complete. Note: the scale is read once per
+  composition host — a live settings change lands on the next process
+  start, not mid-session.
+- **Library "Delete offline audio" now confirms (#95 follow-up).** Both
+  menus that deleted directly — the docked card's overflow and the library
+  row's — open the shared `ConfirmDialog` ("Frees N for this book. It can
+  be regenerated later."), matching the Settings offline rows (#94).
+  Device-verified on the HiBreak.
+- **HiBreak low-motion pass.** Light and dark themes exercised on device
+  (library/reader/settings/player), live playback through a full
+  cold-open → LOADING → playing cycle (publish-to-card lands ~40–60 s in
+  on this SoC — slow, honest feedback via the spinner, no ANR). Page
+  turns stay instant; no animation can strand the UI.
+- **Ops finding: staged packs without `.ready` markers.** The HiBreak's
+  Kokoro packs had been staged by a plain `run-as` copy (2026-08-29), which
+  bypasses `PackCache`'s marker write — the app showed "download required"
+  for present, hash-correct artifacts and Play silently no-oped (the pack
+  gate never becomes Ready without the marker). Recovery: verify the
+  on-device sha256 against the pinned descriptors and write the
+  `verified:<sha>` markers (`build.md` staging note added). The one-time
+  hash path (`verifyAndMark`) only runs through the download flow, not on
+  launch — that asymmetry is deliberate (hashing 325 MB per launch) but
+  makes sideloaded staging marker-blind; stage packs through the app's
+  download flow on real devices.
+
+Reference screenshots (light + dark, library/reader/settings/player,
+reduced-motion loading) captured on the HiBreak: `docs/prints/reference/`.
+
+
 ## 97. Three-tier engine strategy (2026-08-31)
 
 Owner decision: the engine landscape is managed as three tiers behind the

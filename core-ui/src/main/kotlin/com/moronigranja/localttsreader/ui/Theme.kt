@@ -7,6 +7,7 @@ import androidx.compose.material3.Typography
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 
@@ -112,13 +113,18 @@ object AyvuElevation {
     val Card = 8.dp
 }
 
-/** Brand theme wrapper. Dumb: hosts resolve [darkTheme] from their own ThemeMode setting. */
+/** Brand theme wrapper. Dumb about [darkTheme] (hosts resolve their own
+ * ThemeMode setting) but the single provider of [LocalReducedMotion] — the
+ * system animator-duration-scale read happens here so no call site repeats it
+ * (decisions #98). */
 @Composable
 fun AyvuTheme(darkTheme: Boolean, content: @Composable () -> Unit) {
-    MaterialTheme(
-        colorScheme = if (darkTheme) AyvuDarkColors else AyvuLightColors,
-        typography = AyvuTypography,
-        shapes = AyvuShapes,
-        content = content,
-    )
+    CompositionLocalProvider(LocalReducedMotion provides rememberReducedMotion()) {
+        MaterialTheme(
+            colorScheme = if (darkTheme) AyvuDarkColors else AyvuLightColors,
+            typography = AyvuTypography,
+            shapes = AyvuShapes,
+            content = content,
+        )
+    }
 }

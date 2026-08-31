@@ -148,17 +148,22 @@ the same `linesPerPage(reservedPx)` mechanism as the title). Device visual
 Completion means the product surfaces use the shared tokens/components and have been
 visually exercised on both devices—not merely that a theme file exists.
 
-**Status (2026-08-31, decisions #95):** the S22 pass is done for every check
-the B3/B4 slice can reach: light (teal-led, #95) and dark (ink-ramp) themes
-verified on device, 48 dp transport measured pixel-exact (135 px @450 dpi),
-reader page indicator + pressed-passage + last-line-visible verified at 1.0×
-and 2.0× font scale (2.0× exposed the One UI font-scale/pitch mismatch —
-pagination now keys on the layout's measured pitch), share Found/NotFound
-verdicts driven live via the exported ShareReceiverActivity, settings delete
-confirm + live espeak status verified, TalkBack labels present on all icon
-buttons (uiautomator audit). Remaining: HiBreak low-motion pass, reduced-motion
-degradation check, approved reference screenshots, and a design decision on
-the teal generated segment being sub-pixel on very long books (decisions #95).
+**Status (2026-08-31, decisions #95 + #98): complete.** The S22 pass (#95)
+covered light (teal-led) and dark (ink-ramp) themes, 48 dp transport
+measured pixel-exact (135 px @450 dpi), reader page indicator +
+pressed-passage + last-line-visible at 1.0× and 2.0× font scale (2.0×
+exposed the One UI font-scale/pitch mismatch — pagination now keys on the
+layout's measured pitch), share Found/NotFound verdicts driven live via
+the exported ShareReceiverActivity, settings delete confirm + live espeak
+status, and TalkBack labels (uiautomator audit). The HiBreak pass (#98)
+covered the rest: low-motion/e-ink presentation (light + dark surfaces,
+full cold-open → LOADING → playing cycle), reduced-motion degradation
+(`ANIMATOR_DURATION_SCALE = 0` → static loading ring + snap entrance,
+state copy and controls stay visible; Compose ignores the scale so the
+gate is explicit — core-ui `LocalReducedMotion`), reference screenshots
+(`docs/prints/reference/`), and the #95 design decision: the amber
+generated segment now measures against the fixed 120 s pregen horizon
+(owner pick) and renders visibly on long books.
 
 ## Phase C — fresh install and voice selection
 
@@ -740,5 +745,5 @@ reopening the completed items:
 | A6 (#66) | import/share/pregen flow regression on the S22 |
 | F2 (#90) | runtime verification of the library search UI on the S22 |
 
-The batch executes alongside B4's remaining checks (HiBreak low-motion pass,
-reduced-motion degradation, reference screenshots).
+B4's device checks are complete (2026-08-31, decisions #98); this register
+is the remaining device-session batch.

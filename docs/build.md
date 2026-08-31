@@ -256,6 +256,25 @@ adb shell am instrument -w -e class com.moronigranja.localttsreader.PtVoiceE2eTe
 Note: the debug keystore is pinned at the repo root (decisions #45), so app +
 test APKs from any invocation share a signature — no pairing constraint.
 
+### Staging packs by hand — the `.ready` marker is the Ready gate (2026-08-31)
+
+Packs copied into `files/packs/<engineId>/<packId>` via `run-as`/adb (instead
+of the app's download flow) have no `<packId>.ready` marker, so
+`PackCache.isVerified` stays false: Settings shows "download required" for
+present, size-correct artifacts and `ACTION_PLAY` silently no-ops. The
+one-time hash-and-mark path only runs inside the download flow, never on
+launch. Recovery: verify the artifact's sha256 against the pinned descriptor
+(`KokoroPacks`) and write the marker the app would write:
+
+```bash
+adb shell "run-as com.moronigranja.localttsreader sha256sum files/packs/kokoro-82m/kokoro-model"
+adb shell "run-as com.moronigranja.localttsreader sh -c \
+  'printf \"verified:<descriptor-sha256>\\n\" > files/packs/kokoro-82m/kokoro-model.ready'"
+```
+
+Found on the HiBreak (B4 pass, decisions #98): packs staged 2026-08-29 were
+marker-blind and playback silently refused until the markers were written.
+
 Device note (2026-08-27, Bigme B6): the playback E2E windows (90 s to first
 COMPLETED) assume an S22-class cold engine open. On the B6 e-ink SoC the cold
 open of the 325 MB Kokoro model alone can exceed the window (verified at

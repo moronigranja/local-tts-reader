@@ -49,12 +49,13 @@ import java.io.File
  * and the transport row — −30s · play/pause (spinner while synthesizing) ·
  * +30s, all three at a uniform 48.dp height (M3 minimum touch target).
  *
- * Bar color legend ([SegmentedProgress], recolored decisions #95): teal
- * `primary` = listened, amber `secondary` = generated but not yet listened,
- * `surfaceVariant` = remaining. State comes from the service-published
- * [PlaybackUiState], commands go through [PlayerCommands]; [topRight]/[badge]
- * let the library add its row actions + offline usage; [onOpen] makes the
- * cover/title area open the book.
+ * Bar color legend ([SegmentedProgress], recolored #95, denominator retuned
+ * #98): teal `primary` = listened, amber `secondary` = pregen cushion
+ * fullness against the fixed 120 s horizon (audio ready ahead of the
+ * playhead), `surfaceVariant` = remaining. State comes from the
+ * service-published [PlaybackUiState], commands go through [PlayerCommands];
+ * [topRight]/[badge] let the library add its row actions + offline usage;
+ * [onOpen] makes the cover/title area open the book.
  */
 @Composable
 fun PlayerCard(
@@ -171,11 +172,22 @@ fun PlayerCard(
                 contentAlignment = Alignment.Center,
             ) {
                 if (loading) {
-                    CircularProgressIndicator(
-                        modifier = Modifier.size(24.dp),
-                        color = MaterialTheme.colorScheme.onPrimary,
-                        strokeWidth = 3.dp,
-                    )
+                    // Reduced motion (decisions #98): static ring, same
+                    // size/stroke/tint — the pause control stays tappable and
+                    // the "Generating…" subtitle stays visible.
+                    if (LocalReducedMotion.current) {
+                        StaticRing(
+                            modifier = Modifier.size(24.dp),
+                            color = MaterialTheme.colorScheme.onPrimary,
+                            strokeWidth = 3.dp,
+                        )
+                    } else {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(24.dp),
+                            color = MaterialTheme.colorScheme.onPrimary,
+                            strokeWidth = 3.dp,
+                        )
+                    }
                 } else {
                     Icon(
                         imageVector = if (playing) Icons.Filled.Pause else Icons.Filled.PlayArrow,

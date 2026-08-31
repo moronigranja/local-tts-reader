@@ -70,15 +70,22 @@ data class PlaybackUiState(
             return if (last >= 0) last else 0
         }
 
-    /** [0..1] fraction of the remaining book already synthesized. Denominator
-     * is book-time remaining: timeLeftSeconds is WALL-clock listening time
-     * at [speed] (BookProgress.remainingSeconds divides the 1.0× remainder by
-     * speed), so multiplying by speed recovers book time; aheadSeconds is
-     * book-time audio. */
+    /** [0..1] fullness of the pregen cushion: listenable book-time seconds
+     * queued strictly ahead of the playhead, measured against the fixed
+     * [PREGEN_HORIZON_SECONDS] horizon — NOT book time. The original
+     * book-time-remaining denominator painted sub-pixel segments on long
+     * books (45 s cushion vs ~27 h remaining ≈ 0.05% of the bar; B4
+     * finding, decisions #95), so the segment now answers "how full is the
+     * buffer right now", not "how much of the book is it" (decisions #98).
+     * Clamped. */
     val generatedAheadFraction: Float
-        get() {
-            val remainingBookSeconds = timeLeftSeconds * speed
-            if (remainingBookSeconds <= 0.0) return 0f
-            return (generatedAheadSeconds / remainingBookSeconds).toFloat().coerceIn(0f, 1f)
-        }
+        get() = (generatedAheadSeconds / PREGEN_HORIZON_SECONDS).toFloat().coerceIn(0f, 1f)
+
+    companion object {
+        /** Denominator of [generatedAheadFraction] (decisions #98): ~2.7× the
+         * service's 45 s look-ahead target (PREFILL_LOOKAHEAD_SECONDS), so a
+         * steady-state cushion sits ~37% into the segment and manual pregen
+         * can overfill visibly. */
+        const val PREGEN_HORIZON_SECONDS = 120.0
+    }
 }

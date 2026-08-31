@@ -15,10 +15,13 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.unit.dp
 
 /**
- * Two-tone horizontal progress bar (decisions #94; legend recolored #95),
- * 4.dp tall — the M3 indicator height. Color legend: teal `primary` =
- * listened, amber `secondary` = generated but not yet listened,
- * `surfaceVariant` track = remaining. No M3 component renders two
+ * Two-tone horizontal progress bar (decisions #94; legend recolored #95,
+ * denominator retuned #98), 4.dp tall — the M3 indicator height. Color
+ * legend: teal `primary` =
+ * listened, amber `secondary` = pregen cushion fullness against the fixed
+ * 120 s horizon (audio ready ahead of the playhead, decisions #98) — not a
+ * share of book time — `surfaceVariant` track = remaining. No M3 component
+ * renders two
  * segments, which is why the custom bar exists. The generated segment never
  * paints over the played one: callers clamp fractions so
  * playedFraction + generatedFraction ≤ 1.

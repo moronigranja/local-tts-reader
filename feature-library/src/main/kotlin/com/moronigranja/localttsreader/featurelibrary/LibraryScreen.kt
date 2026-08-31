@@ -3,6 +3,7 @@ package com.moronigranja.localttsreader.featurelibrary
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.EnterTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
@@ -60,6 +61,7 @@ import com.moronigranja.localttsreader.player.PregenJobState
 import com.moronigranja.localttsreader.ui.AyvuMotion
 import com.moronigranja.localttsreader.ui.AyvuSpacing
 import com.moronigranja.localttsreader.ui.SectionHeader
+import com.moronigranja.localttsreader.ui.LocalReducedMotion
 import com.moronigranja.localttsreader.ui.ConfirmDialog
 import com.moronigranja.localttsreader.ui.EmptyState
 import com.moronigranja.localttsreader.ui.PlayerCard
@@ -134,6 +136,7 @@ fun LibraryScreen(
     var cardMenuOpen by remember { mutableStateOf(false) }
     var cardBudget by remember { mutableStateOf(false) }
     var cardConfirmRemove by remember { mutableStateOf(false) }
+    var cardConfirmDeleteAudio by remember { mutableStateOf(false) }
 
     if (cardBudget) {
         PregenBudgetDialog(
@@ -156,6 +159,18 @@ fun LibraryScreen(
                 activeId?.let(viewModel::removeBook)
             },
             onDismiss = { cardConfirmRemove = false },
+        )
+    }
+    if (cardConfirmDeleteAudio) {
+        ConfirmDialog(
+            title = "Delete offline audio?",
+            text = "Frees ${formatBytes(activeUsage)} for this book. It can be regenerated later.",
+            confirmLabel = "Delete",
+            onConfirm = {
+                cardConfirmDeleteAudio = false
+                activeId?.let(viewModel::deleteOffline)
+            },
+            onDismiss = { cardConfirmDeleteAudio = false },
         )
     }
 
@@ -259,8 +274,12 @@ fun LibraryScreen(
                         item(key = "player-$activeId") {
                             AnimatedVisibility(
                                 visible = true,
-                                enter = expandVertically(expandFrom = Alignment.Top, animationSpec = tween(AyvuMotion.STANDARD_MS)) +
-                                    fadeIn(tween(AyvuMotion.STANDARD_MS)),
+                                enter = if (LocalReducedMotion.current) {
+                                    EnterTransition.None
+                                } else {
+                                    expandVertically(expandFrom = Alignment.Top, animationSpec = tween(AyvuMotion.STANDARD_MS)) +
+                                        fadeIn(tween(AyvuMotion.STANDARD_MS))
+                                },
                             ) {
                                 PlayerCard(
                                     state = playerState,
@@ -303,7 +322,7 @@ fun LibraryScreen(
                                                         text = { Text("Delete offline audio") },
                                                         onClick = {
                                                             cardMenuOpen = false
-                                                            activeId.let(viewModel::deleteOffline)
+                                                            cardConfirmDeleteAudio = true
                                                         },
                                                     )
                                                 }
@@ -425,6 +444,7 @@ private fun BookRow(
     var menuOpen by remember { mutableStateOf(false) }
     var budgetDialog by remember { mutableStateOf(false) }
     var confirmRemove by remember { mutableStateOf(false) }
+    var confirmDeleteAudio by remember { mutableStateOf(false) }
 
     if (budgetDialog) {
         PregenBudgetDialog(
@@ -526,7 +546,7 @@ private fun BookRow(
                             text = { Text("Delete offline audio") },
                             onClick = {
                                 menuOpen = false
-                                viewModel.deleteOffline(bookId)
+                                confirmDeleteAudio = true
                             },
                         )
                     }
@@ -554,6 +574,18 @@ private fun BookRow(
                 viewModel.removeBook(bookId)
             },
             onDismiss = { confirmRemove = false },
+        )
+    }
+    if (confirmDeleteAudio) {
+        ConfirmDialog(
+            title = "Delete offline audio?",
+            text = "Frees ${formatBytes(usage)} for this book. It can be regenerated later.",
+            confirmLabel = "Delete",
+            onConfirm = {
+                confirmDeleteAudio = false
+                viewModel.deleteOffline(bookId)
+            },
+            onDismiss = { confirmDeleteAudio = false },
         )
     }
 }
