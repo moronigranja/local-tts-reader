@@ -31,3 +31,16 @@ Pass: cold start → play → card → ±30s → reader, Wind and Truth (Kokoro 
 
 ### 2026-08-27 — S22 pass (reference for the weak-device comparison)
 Build 0bf2b2f/efa4081: play-to-first-audio ~4–8 s; ±30s cross-boundary 5–25 s; no crashes; card + menu + reader verified (decisions #55/#56).
+
+### 2026-08-31 — Z Fold pass · Samsung Galaxy Z Fold (SM-F971B, Android 17/SDK 37, SM8850 Snapdragon 8 Elite) · build 3263e23
+
+- **[blocker, functional] Play crashes with SIGILL / ILL_ILLOPC in libonnxruntime.so** — first play tap on any book crashes the process. Crash: `Fatal signal 4 (SIGILL), code 1 (ILL_ILLOPC)` in tid `DefaultDispatch`; stack `Java_ai_onnxruntime_OrtSession_run` ← `OrtKokoroSession.infer` ← `KokoroEngine.synthesizeBlocking` ← `KokoroEngine$synthesize$2.invokeSuspend`. Fault addr is the same libonnxruntime offset every time (8 identical crashes in the buffer across 08-30/08-31). Root cause: SM8850 Oryon advertises **SME but not SME2** (`/proc/cpuinfo` has `sme, smei8i32, smef16f32, smeb16f32, smef32f32` — no `sme2`); onnxruntime 1.23.2's KleidiAI gating checks `HasArm_SME()` instead of `HasArm_SME2()` (upstream microsoft/onnxruntime#26377, fix PR #27403), so SME2-only KleidiAI kernels are enabled on an SME1-only core and the first dispatched instruction traps. Upstream fixed in 1.24.4 (confirmed by the reporter in microsoft/onnxruntime#27884); Maven Central publishes no 1.24.4, so the first fixed published release is **1.25.0** (1.29.0 also fixed). Version bump deferred to the perf-spike session that owns the ORT pin; logged, not fixed here.
+- **[RESOLVED same day — ORT pin bumped 1.23.2 → 1.29.0 (decisions #100,
+  commit bc7e7ea)]** Verification on this device with the 1.29.0 app build:
+  the full playback instrumented set (PlaybackE2e, VoiceSelectionE2e,
+  PlayPositionE2e, PtVoiceE2e) passed **0 failures** — play → synthesize →
+  AudioTrack through the real engine, the exact stack that trapped; the
+  spike `ConvInteger` probe also confirms 1.29.0 behavior on-device. No
+  SIGILL since the bump (the 8 buffered crashes are all pre-bump). Android
+  version corrected: SDK 37 = Android 17 (getprop `ro.build.version.release`
+  = 17; Android 16 is SDK 36 = the S22).

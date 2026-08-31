@@ -17,18 +17,24 @@ Owner call ("keep") after the same-day A/B. Evidence at bump time:
   HiBreak (int8 leg), and Fold probes — quantization verdicts unchanged
   (they are model-property-bound, not runtime-bound).
 
-Known costs and pending items, accepted with the bump:
-1. **Ledger re-baselining**: every measurement before 2026-08-31 ran on
-   1.23.2 (D2 EPs, D3 engines/precisions, D4 small tier, #86). Historical
-   records stay as-measured; new measurements must state the runtime
-   version. The batched re-runs join the next device sessions.
-2. **HiBreak 1.29 memory re-check pending** (device unplugged at bump
-   time): upstream reports a 1.24+ dynamic-shape CPU memory regression
-   (onnxruntime#29538), and the B6 was already thrash-adjacent on 1.23.2
-   (#86 addendum) — re-run the int8/oracle harness and a playback session
-   on the B6 under 1.29 before calling the small-tier memory story stable.
+Resolved same-day items and remaining costs:
+1. **Ledger re-baselining (ongoing)**: every measurement before 2026-08-31
+   ran on 1.23.2 (D2 EPs, D3 engines/precisions, D4 small tier, #86).
+   Historical records stay as-measured; new measurements must state the
+   runtime version. The batched re-runs join the next device sessions.
+2. ~~HiBreak 1.29 memory re-check~~ **DONE (same day)**: int8/oracle
+   harness on 1.29.0 → RTF 2.587/2.581 (identical to 1.23.2's 2.621/2.591),
+   combined-session PSS 1.65 GB / VmHWM 1.70 GB, completed without the lmkd
+   kill (clean-boot condition, same as 1.23.2) — **the upstream 1.24+
+   dynamic-shape memory regression (onnxruntime#29538) does not manifest on
+   our graphs**. A ~4 min real playback session (1.29 app build, Chrysalis,
+   cache-resume → LOADING → PLAYING → pause) held 0.67 → 1.07 GB PSS with
+   swap-PSS ≈ 0.1 MB and 0 lmkd/FATAL events. Small-tier memory story
+   stable under 1.29.
 3. Future pin floors: the owner-logged error's fix boundary is 1.25.0;
    treat 1.25.0 as the hard minimum for any subsequent bump.
+4. The Fold SIGILL blocker (bugs.md 2026-08-31 entry) is closed by this
+   bump — playback E2E set 0 failures on the affected device/stack.
 
 Pin: `gradle/libs.versions.toml` `onnxruntime = "1.29.0"` (single ref, app +
 core-tts JNA host + spike-tts all follow).
