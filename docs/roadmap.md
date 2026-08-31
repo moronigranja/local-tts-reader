@@ -192,6 +192,13 @@ cost, choose a voice, download only required speech assets, import a supported b
 hear first audio. Repeat with network loss, cancellation, insufficient storage and
 process restart during setup; completed work is retained and the next action is clear.
 
+Open decision (2026-08-31): whether System TTS ships as an explicit opt-in
+zero-download degraded fallback inside first-run setup (candela pattern,
+landscape validated-pattern #5; costed design in ideas.md's system-TTS row).
+Deferred until C1 is specced in detail — the pull is "hear first audio" even
+when pack downloads fail; the push is product identity (Kokoro quality is the
+pitch, and a device-lottery system voice must never read as the app's voice).
+
 ### C2 — Voice selector in the primary flow
 
 The full voice picker + favorites already exists in Settings; the missing part is
@@ -310,6 +317,22 @@ playback; pre-generation is the HiBreak's requirement). Peak/resident PSS and
 Choreographer-skip counts are recorded (#67/#86/bugs.md). Still open from the
 required-evidence list: retained PSS/RSS 60 s after pause, thermal behavior and
 power draw.
+
+**Candela-derived additions (2026-08-31, owner review):**
+
+- **Baseline profiles** — a `:baselineprofile`-style producer walk (UI Automator
+  over launch → open book → first audio) emitting `baseline-prof.txt` for the
+  AndroidX Baseline Profile plugin. Targets the app-side share of cold
+  time-to-first-audio (session open, JNA/phonemizer warmup, launch) — not RTF,
+  which stays CPU-bound. Candela reference: cold launch 6.7 s → 0.8 s on a
+  Tab A7 Lite; our gain is expected smaller but is measured, not assumed.
+- **2-engine parallel pre-generation leg (S22 only)** — one spike-tts
+  measurement: two Kokoro ORT sessions with separate thread pools synthesizing
+  independent passage chunks vs the serial baseline, on pregen wall-time and
+  peak PSS. Adoption bar: ≥1.5× pregen throughput without breaching the S22
+  memory envelope or the 0.001 oracle gate. HiBreak excluded by arithmetic
+  (~834 MB × 2 sessions vs the ~2.5 GB lmkd wall measured with MOSS, #93).
+
 
 ### D3 — Engine comparison spike: Nano, MOSS-TTS-Nano, CosyVoice3 vs Kokoro baseline
 
@@ -665,7 +688,7 @@ shipped together in the same commit. Covered by the existing `BookSegmentationTe
 | Item | Gate / reason for position |
 |---|---|
 | Pitch-preserving speed | WSOLA/phase-vocoder DSP and cache-key compatibility; measure CPU/battery before replacing hardware rate conversion. |
-| pt-BR translation | New offline NMT stage and model/license/quality gate; output-side only so matching remains original-language. |
+| Translation to any advertised target language (it→es, en→pt, …) | New offline NMT stage behind the pre-gen queue + model/license/quality gate; output-side only so matching/indexing stays original-language. One NMT pack (OPUS-MT-class int8, permissive license) + quality gate per language pair; single-multilingual-model choice stays a design-time gate. (Scope widened from pt-BR, 2026-08-31, decisions #101) |
 | CosyVoice pre-generation + voice cloning | DiT-gated (decisions #21/#23) and D3-quality-flagged (duplicated honorific probes; RTF 12.5–31.1); disk-only playback. Exact model pins and the S22 research gate unchanged; A1/A4 long satisfied. |
 | Kindle official export/API sync | External API/export contract and account UX; manual share/resume already covers the core use case. |
 | Word-level highlighting | Requires a stable word/phoneme timing contract beyond current sentence anchors. |

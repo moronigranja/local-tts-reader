@@ -1,5 +1,13 @@
 # Decision log
 
+## 101. Translation scope widened; custom pre-generation time (2026-08-31)
+
+Owner product-scope decisions:
+
+1. **Translation is no longer pt-BR-only.** The "pt-BR translation" Later-table item becomes "translation to any advertised target language" (it→es, en→pt, …). Italian and Spanish are already native Kokoro voices (hard-facts "8 languages incl. pt-BR" / "9 groups"; CosyVoice3 covers it/es), so it→es needs no new TTS tier — the same output-side `core-translate` decorator behind the pre-gen queue, with the only per-pair cost being one NMT pack (OPUS-MT-class int8, CC-BY-4.0) + one quality gate. Matching/index stay original-language; the single-multilingual-model choice remains a design-time gate, and NLLB-600M stays blocked (CC-BY-NC).
+
+2. **Custom pre-generation duration** is logged as a candidate, tagged into the pre-gen follow-up family (space estimate / per-book usage+delete, decisions #44). UI-only: `PregenBudgetDialog` gains an arbitrary-duration input; the backend already accepts any `PregenBudget.maxTimeMs` (A1). This is the manual offline budget, not the D1 live look-ahead horizon.
+
 ## 100. ORT-android pin bumped 1.23.2 → 1.29.0 (2026-08-31)
 
 Owner call ("keep") after the same-day A/B. Evidence at bump time:
