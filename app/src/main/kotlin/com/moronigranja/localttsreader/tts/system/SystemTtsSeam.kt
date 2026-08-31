@@ -9,14 +9,16 @@ package com.moronigranja.localttsreader.tts.system
  */
 sealed interface TtsSynthesis {
     /** 16-bit little-endian PCM, already downmixed to mono. */
-    data class Audio(val pcm: ByteArray, val sampleRateHz: Int) : TtsSynthesis
+    data class Audio(
+        val pcm: ByteArray,
+        val sampleRateHz: Int,
+    ) : TtsSynthesis
 
     /** The device engine is missing, failed to init, or lacks the language. */
     data object Unavailable : TtsSynthesis
 }
 
 interface SystemTtsSeam {
-
     /** Languages actually available on the device, ISO 639-1 codes (BCP-47
      * language subtags, "en"/"es"/"ja"…). Never throws; empty when the
      * device engine is unavailable. */
@@ -27,5 +29,8 @@ interface SystemTtsSeam {
      * default) to mono 16-bit PCM. Never throws — [TtsSynthesis.Unavailable]
      * on init failure, missing language, or synthesis errors.
      */
-    suspend fun synthesizeToPcm(text: String, language: String?): TtsSynthesis
+    suspend fun synthesizeToPcm(
+        text: String,
+        language: String?,
+    ): TtsSynthesis
 }

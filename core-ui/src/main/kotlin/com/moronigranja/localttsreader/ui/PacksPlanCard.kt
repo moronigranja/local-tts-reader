@@ -28,9 +28,17 @@ data class PlanPackRow(
 /** Presentation snapshot of a pack's state — no tts types in core-ui. */
 sealed interface PlanPackStatus {
     data object NotDownloaded : PlanPackStatus
-    data class Downloading(val downloadedBytes: Long, val totalBytes: Long) : PlanPackStatus
+
+    data class Downloading(
+        val downloadedBytes: Long,
+        val totalBytes: Long,
+    ) : PlanPackStatus
+
     data object Ready : PlanPackStatus
-    data class Failed(val error: String?) : PlanPackStatus
+
+    data class Failed(
+        val error: String?,
+    ) : PlanPackStatus
 }
 
 /**

@@ -21,21 +21,23 @@ import javax.inject.Singleton
  * play/resume — no restart needed.
  */
 @Singleton
-class EngineSelector @Inject constructor(
-    private val runtime: KokoroRuntime,
-    @Named("system_tts") private val systemTts: Lazy<TTSEngine>,
-    private val settings: AppSettings,
-) {
-    /** True when the degraded system voice is selected (drives the
-     * PlayerCard's "Device voice" pill via PlaybackUiState.degraded). */
-    val isDegraded: Boolean
-        get() = settings.state.value.ttsEngine == SettingsStore.SYSTEM_TTS_ENGINE
+class EngineSelector
+    @Inject
+    constructor(
+        private val runtime: KokoroRuntime,
+        @Named("system_tts") private val systemTts: Lazy<TTSEngine>,
+        private val settings: AppSettings,
+    ) {
+        /** True when the degraded system voice is selected (drives the
+         * PlayerCard's "Device voice" pill via PlaybackUiState.degraded). */
+        val isDegraded: Boolean
+            get() = settings.state.value.ttsEngine == SettingsStore.SYSTEM_TTS_ENGINE
 
-    /** The active engine, or null when its prerequisites are missing. */
-    fun engine(): TTSEngine? = if (isDegraded) systemTts.get() else runtime.engine()
+        /** The active engine, or null when its prerequisites are missing. */
+        fun engine(): TTSEngine? = if (isDegraded) systemTts.get() else runtime.engine()
 
-    /** Missing-prerequisite reason for the non-degraded engine; null in
-     * degraded mode (system synthesis failures surface per passage). */
-    val failureReason: String?
-        get() = if (isDegraded) null else runtime.failureReason
-}
+        /** Missing-prerequisite reason for the non-degraded engine; null in
+         * degraded mode (system synthesis failures surface per passage). */
+        val failureReason: String?
+            get() = if (isDegraded) null else runtime.failureReason
+    }

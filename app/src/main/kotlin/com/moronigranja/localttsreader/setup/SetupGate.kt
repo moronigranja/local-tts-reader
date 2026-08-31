@@ -28,44 +28,47 @@ import javax.inject.Singleton
  * re-composed when true — the plan's accepted non-blocking start).
  */
 @Singleton
-class SetupGate @Inject constructor(
-    private val registry: PackRegistry,
-    private val settings: AppSettings,
-    private val libraryStore: LibraryStore,
-    @Named("app_files_dir") private val filesDir: File,
-) {
+class SetupGate
+    @Inject
+    constructor(
+        private val registry: PackRegistry,
+        private val settings: AppSettings,
+        private val libraryStore: LibraryStore,
+        @Named("app_files_dir") private val filesDir: File,
+    ) {
+        var active by mutableStateOf(false)
+            private set
 
-    var active by mutableStateOf(false)
-        private set
+        /** Recomputed on process start and after dismiss — never persisted. */
+        suspend fun evaluate() {
+            // C1.1's startup reload is async; a start-time evaluate must not
+            // depend on its ordering — read the store directly here.
+            settings.reload()
+            // Disk truth: markers written by a finished download (or a prior
+            // process) must be visible to the gate even if the registry's cached
+            // statuses predate them.
+            registry.refresh()
+            val facts =
+                SetupFacts(
+                    requiredPacksReady = REQUIRED_PACK_IDS.all(registry::isReady),
+                    espeakStaged = EspeakStager.isStaged(filesDir),
+                    voiceSelected = settings.state.value.voice != SettingsStore.DEFAULT_VOICE,
+                    bookCount = libraryStore.books.value.size,
+                    systemTtsOptedIn = settings.state.value.ttsEngine == SettingsStore.SYSTEM_TTS_ENGINE,
+                )
+            active = !SetupState.isTerminal(SetupState.derive(facts))
+        }
 
-    /** Recomputed on process start and after dismiss — never persisted. */
-    suspend fun evaluate() {
-        // C1.1's startup reload is async; a start-time evaluate must not
-        // depend on its ordering — read the store directly here.
-        settings.reload()
-        // Disk truth: markers written by a finished download (or a prior
-        // process) must be visible to the gate even if the registry's cached
-        // statuses predate them.
-        registry.refresh()
-        val facts = SetupFacts(
-            requiredPacksReady = REQUIRED_PACK_IDS.all(registry::isReady),
-            espeakStaged = EspeakStager.isStaged(filesDir),
-            voiceSelected = settings.state.value.voice != SettingsStore.DEFAULT_VOICE,
-            bookCount = libraryStore.books.value.size,
-            systemTtsOptedIn = settings.state.value.ttsEngine == SettingsStore.SYSTEM_TTS_ENGINE,
-        )
-        active = !SetupState.isTerminal(SetupState.derive(facts))
+        fun dismiss() {
+            active = false
+        }
+
+        companion object {
+            val REQUIRED_PACK_IDS =
+                listOf(
+                    KokoroPacks.model.id,
+                    KokoroPacks.voices.id,
+                    KokoroPacks.espeak.id,
+                )
+        }
     }
-
-    fun dismiss() {
-        active = false
-    }
-
-    companion object {
-        val REQUIRED_PACK_IDS = listOf(
-            KokoroPacks.model.id,
-            KokoroPacks.voices.id,
-            KokoroPacks.espeak.id,
-        )
-    }
-}

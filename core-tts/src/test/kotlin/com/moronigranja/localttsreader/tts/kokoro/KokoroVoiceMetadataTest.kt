@@ -1,13 +1,13 @@
 package com.moronigranja.localttsreader.tts.kokoro
 
-import java.io.File
-import java.io.FileOutputStream
-import java.util.zip.ZipEntry
-import java.util.zip.ZipOutputStream
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
+import java.io.File
+import java.io.FileOutputStream
+import java.util.zip.ZipEntry
+import java.util.zip.ZipOutputStream
 
 /**
  * C1.3 cross-check: the static [KokoroVoiceMetadata] table must line up with
@@ -18,7 +18,6 @@ import org.junit.jupiter.api.io.TempDir
  * device corpus pass) is caught the same way.
  */
 class KokoroVoiceMetadataTest {
-
     @TempDir
     lateinit var root: File
 
@@ -67,8 +66,18 @@ class KokoroVoiceMetadataTest {
                 val header = (dict + "\n").padEnd(64, ' ')
                 val headerBytes = header.toByteArray(Charsets.US_ASCII)
                 // numpy .npy v1: magic + version + 2-byte little-endian header length.
-                val prefix = byteArrayOf(0x93.toByte(), 'N'.code.toByte(), 'U'.code.toByte(), 'M'.code.toByte(), 'P'.code.toByte(), 'Y'.code.toByte(), 1, 0) +
-                    byteArrayOf((headerBytes.size and 0xFF).toByte(), ((headerBytes.size shr 8) and 0xFF).toByte())
+                val prefix =
+                    byteArrayOf(
+                        0x93.toByte(),
+                        'N'.code.toByte(),
+                        'U'.code.toByte(),
+                        'M'.code.toByte(),
+                        'P'.code.toByte(),
+                        'Y'.code.toByte(),
+                        1,
+                        0,
+                    ) +
+                        byteArrayOf((headerBytes.size and 0xFF).toByte(), ((headerBytes.size shr 8) and 0xFF).toByte())
                 zip.write(prefix + headerBytes + floats)
                 zip.closeEntry()
             }

@@ -11,14 +11,14 @@ import org.junit.jupiter.api.Test
 /** C1.2: one test per derivation rule — the gate and the setup screen share
  * this table, so the rules are locked here. */
 class SetupStateTest {
-
-    private val nothing = SetupFacts(
-        requiredPacksReady = false,
-        espeakStaged = false,
-        voiceSelected = false,
-        bookCount = 0,
-        systemTtsOptedIn = false,
-    )
+    private val nothing =
+        SetupFacts(
+            requiredPacksReady = false,
+            espeakStaged = false,
+            voiceSelected = false,
+            bookCount = 0,
+            systemTtsOptedIn = false,
+        )
 
     @Test
     fun `empty facts open with the full plan`() {
@@ -32,18 +32,20 @@ class SetupStateTest {
 
     @Test
     fun `packs ready with no books shows import only`() {
-        val steps = SetupState.derive(
-            nothing.copy(requiredPacksReady = true, espeakStaged = true),
-        )
+        val steps =
+            SetupState.derive(
+                nothing.copy(requiredPacksReady = true, espeakStaged = true),
+            )
         assertEquals(listOf(StepKind.IMPORT_BOOK), steps)
         assertFalse(SetupState.isTerminal(steps))
     }
 
     @Test
     fun `everything ready with a book is complete`() {
-        val steps = SetupState.derive(
-            nothing.copy(requiredPacksReady = true, espeakStaged = true, bookCount = 1),
-        )
+        val steps =
+            SetupState.derive(
+                nothing.copy(requiredPacksReady = true, espeakStaged = true, bookCount = 1),
+            )
         assertEquals(listOf(StepKind.COMPLETE), steps)
         assertTrue(SetupState.isTerminal(steps))
     }
@@ -60,23 +62,25 @@ class SetupStateTest {
 
     @Test
     fun `opted in with a book and missing packs is degraded-ready terminal`() {
-        val steps = SetupState.derive(
-            nothing.copy(systemTtsOptedIn = true, bookCount = 2),
-        )
+        val steps =
+            SetupState.derive(
+                nothing.copy(systemTtsOptedIn = true, bookCount = 2),
+            )
         assertEquals(listOf(StepKind.DEGRADED_READY), steps)
         assertTrue(SetupState.isTerminal(steps))
     }
 
     @Test
     fun `complete wins over the opted-in degraded path`() {
-        val steps = SetupState.derive(
-            nothing.copy(
-                requiredPacksReady = true,
-                espeakStaged = true,
-                bookCount = 1,
-                systemTtsOptedIn = true,
-            ),
-        )
+        val steps =
+            SetupState.derive(
+                nothing.copy(
+                    requiredPacksReady = true,
+                    espeakStaged = true,
+                    bookCount = 1,
+                    systemTtsOptedIn = true,
+                ),
+            )
         assertEquals(listOf(StepKind.COMPLETE), steps)
     }
 
@@ -84,14 +88,15 @@ class SetupStateTest {
     fun `opted in with packs later installed shows import only`() {
         // Ready packs win over the degraded path (C3): a user who installed
         // Kokoro after opting in re-enters at import, not the full plan.
-        val steps = SetupState.derive(
-            nothing.copy(
-                requiredPacksReady = true,
-                espeakStaged = true,
-                bookCount = 0,
-                systemTtsOptedIn = true,
-            ),
-        )
+        val steps =
+            SetupState.derive(
+                nothing.copy(
+                    requiredPacksReady = true,
+                    espeakStaged = true,
+                    bookCount = 0,
+                    systemTtsOptedIn = true,
+                ),
+            )
         assertEquals(listOf(StepKind.IMPORT_BOOK), steps)
     }
 
@@ -99,9 +104,10 @@ class SetupStateTest {
     fun `espeak not staged keeps the plan open even with packs ready`() {
         // The engine's real gate is EspeakStager.isStaged — a verified-but-
         // unstaged bundle must not read as "done" (settings self-heals it).
-        val steps = SetupState.derive(
-            nothing.copy(requiredPacksReady = true, espeakStaged = false, bookCount = 1),
-        )
+        val steps =
+            SetupState.derive(
+                nothing.copy(requiredPacksReady = true, espeakStaged = false, bookCount = 1),
+            )
         assertEquals(
             listOf(StepKind.PRIVACY, StepKind.CHOOSE_VOICE, StepKind.DOWNLOAD_PACKS, StepKind.IMPORT_BOOK),
             steps,

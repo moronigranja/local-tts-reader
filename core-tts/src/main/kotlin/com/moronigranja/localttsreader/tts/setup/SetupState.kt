@@ -37,6 +37,7 @@ enum class StepKind {
     DOWNLOAD_PACKS,
     IMPORT_BOOK,
     COMPLETE,
+
     /** Terminal for the opted-in degraded path (decisions #102): reading the
      * device voice until Kokoro packs install later. Never a screen. */
     DEGRADED_READY,
@@ -57,7 +58,6 @@ enum class StepKind {
  * - Packs missing → the full plan, import appended once downloads complete.
  */
 object SetupState {
-
     fun derive(facts: SetupFacts): List<StepKind> {
         val packsDone = facts.requiredPacksReady && facts.espeakStaged
         return when {
@@ -73,8 +73,9 @@ object SetupState {
     }
 
     /** The flow is over when the derived head is a terminal step. */
-    fun isTerminal(steps: List<StepKind>): Boolean = when (steps.firstOrNull()) {
-        StepKind.COMPLETE, StepKind.DEGRADED_READY -> true
-        else -> false
-    }
+    fun isTerminal(steps: List<StepKind>): Boolean =
+        when (steps.firstOrNull()) {
+            StepKind.COMPLETE, StepKind.DEGRADED_READY -> true
+            else -> false
+        }
 }

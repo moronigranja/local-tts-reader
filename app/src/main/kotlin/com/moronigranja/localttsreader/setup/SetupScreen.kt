@@ -53,14 +53,15 @@ fun SetupScreen(
     val state by viewModel.state.collectAsState()
     val context = LocalContext.current
 
-    val launcher = rememberLauncherForActivityResult(
-        ActivityResultContracts.OpenMultipleDocuments(),
-    ) { uris ->
-        if (uris.isNotEmpty()) {
-            uris.forEach(context::takeReadPermission)
-            context.toEBookSources(uris).let(viewModel::importBooks)
+    val launcher =
+        rememberLauncherForActivityResult(
+            ActivityResultContracts.OpenMultipleDocuments(),
+        ) { uris ->
+            if (uris.isNotEmpty()) {
+                uris.forEach(context::takeReadPermission)
+                context.toEBookSources(uris).let(viewModel::importBooks)
+            }
         }
-    }
 
     LaunchedEffect(state.steps.firstOrNull(), state.importSummary) {
         val head = state.steps.firstOrNull()
@@ -75,30 +76,35 @@ fun SetupScreen(
     ) { padding ->
         LazyColumn(
             modifier = Modifier.fillMaxSize().padding(padding),
-            contentPadding = androidx.compose.foundation.layout.PaddingValues(AyvuSpacing.LG),
+            contentPadding =
+                androidx.compose.foundation.layout
+                    .PaddingValues(AyvuSpacing.LG),
             verticalArrangement = Arrangement.spacedBy(AyvuSpacing.MD),
         ) {
             for (step in state.steps) {
                 item(key = "step-$step") {
                     when (step) {
                         StepKind.PRIVACY -> PrivacyCard()
-                        StepKind.CHOOSE_VOICE -> ChooseVoiceCard(
-                            voices = state.voices,
-                            selectedVoice = state.selectedVoice,
-                            onSelect = viewModel::chooseVoice,
-                        )
-                        StepKind.DOWNLOAD_PACKS -> DownloadPacksCard(
-                            state = state,
-                            onDownload = viewModel::download,
-                            onCancel = viewModel::cancelDownload,
-                            onOptInSystemTts = viewModel::optInSystemTts,
-                        )
-                        StepKind.IMPORT_BOOK -> ImportBookCard(
-                            state = state,
-                            onPickBooks = { launcher.launch(IMPORT_MIME_TYPES) },
-                            onDismissSummary = viewModel::consumeImportSummary,
-                            onFinish = onFinished,
-                        )
+                        StepKind.CHOOSE_VOICE ->
+                            ChooseVoiceCard(
+                                voices = state.voices,
+                                selectedVoice = state.selectedVoice,
+                                onSelect = viewModel::chooseVoice,
+                            )
+                        StepKind.DOWNLOAD_PACKS ->
+                            DownloadPacksCard(
+                                state = state,
+                                onDownload = viewModel::download,
+                                onCancel = viewModel::cancelDownload,
+                                onOptInSystemTts = viewModel::optInSystemTts,
+                            )
+                        StepKind.IMPORT_BOOK ->
+                            ImportBookCard(
+                                state = state,
+                                onPickBooks = { launcher.launch(IMPORT_MIME_TYPES) },
+                                onDismissSummary = viewModel::consumeImportSummary,
+                                onFinish = onFinished,
+                            )
                         StepKind.COMPLETE, StepKind.DEGRADED_READY -> Unit // LaunchedEffect above
                     }
                 }
@@ -140,13 +146,13 @@ private fun ChooseVoiceCard(
             metas.forEach { meta ->
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .selectable(
-                            selected = selectedVoice == meta.name,
-                            onClick = { onSelect(meta.name) },
-                        )
-                        .padding(vertical = AyvuSpacing.XS),
+                    modifier =
+                        Modifier
+                            .fillMaxWidth()
+                            .selectable(
+                                selected = selectedVoice == meta.name,
+                                onClick = { onSelect(meta.name) },
+                            ).padding(vertical = AyvuSpacing.XS),
                 ) {
                     RadioButton(
                         selected = selectedVoice == meta.name,
@@ -185,11 +191,12 @@ private fun DownloadPacksCard(
             onDownload = onDownload,
             onCancel = onCancel,
             storageLine = storageLine(state),
-            shortfall = if (state.shortfallBytes > 0L) {
-                "Not enough free space — free ${formatBytes(state.shortfallBytes)} more to download the plan."
-            } else {
-                null
-            },
+            shortfall =
+                if (state.shortfallBytes > 0L) {
+                    "Not enough free space — free ${formatBytes(state.shortfallBytes)} more to download the plan."
+                } else {
+                    null
+                },
             footer = {
                 Text(
                     "Audio you generate later grows separately from these engine assets — " +
@@ -213,11 +220,12 @@ private fun DownloadPacksCard(
 private fun storageLine(state: SetupUiState): String {
     // "X of Y MB free — needs Z MB" where Z = the still-to-download bytes.
     val need = state.requiredBytes
-    val needLabel = if (state.requiredBytes < state.storageTotalBytes) {
-        "${formatBytes(need)} more"
-    } else {
-        formatBytes(state.storageTotalBytes)
-    }
+    val needLabel =
+        if (state.requiredBytes < state.storageTotalBytes) {
+            "${formatBytes(need)} more"
+        } else {
+            formatBytes(state.storageTotalBytes)
+        }
     return "${formatBytes(state.availableBytes)} free — needs $needLabel"
 }
 
@@ -262,10 +270,11 @@ private fun StepCard(content: @Composable ColumnScope.() -> Unit) {
     }
 }
 
-private val IMPORT_MIME_TYPES = arrayOf(
-    "application/epub+zip",
-    "text/plain",
-    "text/markdown",
-    "text/x-markdown",
-    "application/octet-stream",
-)
+private val IMPORT_MIME_TYPES =
+    arrayOf(
+        "application/epub+zip",
+        "text/plain",
+        "text/markdown",
+        "text/x-markdown",
+        "application/octet-stream",
+    )

@@ -2,9 +2,9 @@ package com.moronigranja.localttsreader.tts
 
 import com.moronigranja.localttsreader.tts.kokoro.KokoroPacks
 import com.moronigranja.localttsreader.tts.kokoro.KokoroVoiceBank
-import java.io.File
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import java.io.File
 
 /**
  * The voice names for the picker (V1, moved to core-tts in C1.3 — pack/voice
@@ -20,18 +20,21 @@ import kotlinx.coroutines.withContext
 class VoiceCatalog(
     private val cache: PackCache,
 ) {
-
     @Volatile private var names: Set<String>? = null
 
     suspend fun names(): Set<String> {
         names?.let { return it }
-        val loaded = withContext(Dispatchers.IO) {
-            runCatching {
-                val file: File = cache.targetFile(KokoroPacks.voices)
-                if (!cache.isVerified(KokoroPacks.voices)) emptySet()
-                else KokoroVoiceBank.load(file).voiceNames
-            }.getOrDefault(emptySet())
-        }
+        val loaded =
+            withContext(Dispatchers.IO) {
+                runCatching {
+                    val file: File = cache.targetFile(KokoroPacks.voices)
+                    if (!cache.isVerified(KokoroPacks.voices)) {
+                        emptySet()
+                    } else {
+                        KokoroVoiceBank.load(file).voiceNames
+                    }
+                }.getOrDefault(emptySet())
+            }
         names = loaded
         return loaded
     }

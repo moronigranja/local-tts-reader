@@ -18,13 +18,13 @@ import com.moronigranja.localttsreader.tts.PackKind
 import com.moronigranja.localttsreader.tts.PackRegistry
 import com.moronigranja.localttsreader.tts.TtsPack
 import com.moronigranja.localttsreader.tts.sha256Hex
-import java.io.File
 import kotlinx.coroutines.test.runTest
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
+import java.io.File
 
 /**
  * C1.4 (JVM, fakes — no Robolectric): the gate re-derives from durable facts
@@ -33,7 +33,6 @@ import org.junit.jupiter.api.io.TempDir
  * with the real kokoro ids.
  */
 class SetupGateTest {
-
     @TempDir
     lateinit var root: File
 
@@ -52,69 +51,75 @@ class SetupGateTest {
     fun setUp() {
         filesDir = File(root, "files").apply { mkdirs() }
         cache = PackCache(filesDir)
-        val descriptors = listOf(
-            EngineDescriptor(
-                spec = EngineSpec("kokoro-82m", "Kokoro", EngineTier.PRIMARY, setOf("en")),
-                packs = listOf(model, voices, espeak),
-            ),
-        )
+        val descriptors =
+            listOf(
+                EngineDescriptor(
+                    spec = EngineSpec("kokoro-82m", "Kokoro", EngineTier.PRIMARY, setOf("en")),
+                    packs = listOf(model, voices, espeak),
+                ),
+            )
         registry = PackRegistry(cache, PackDownloader(cache, FailTransport()), descriptors)
         library = InMemoryLibraryStore()
         settings = AppSettings(SettingsStore(dao))
     }
 
     @Test
-    fun `zero books and missing packs keeps the gate active`() = runTest {
-        val gate = gate()
-        gate.evaluate()
-        assertTrue(gate.active, "a clean install must show setup")
-    }
+    fun `zero books and missing packs keeps the gate active`() =
+        runTest {
+            val gate = gate()
+            gate.evaluate()
+            assertTrue(gate.active, "a clean install must show setup")
+        }
 
     @Test
-    fun `packs ready with no books still shows the import step`() = runTest {
-        markReady(model)
-        markReady(voices)
-        markReady(espeak)
-        markStagedEspeak()
+    fun `packs ready with no books still shows the import step`() =
+        runTest {
+            markReady(model)
+            markReady(voices)
+            markReady(espeak)
+            markStagedEspeak()
 
-        val gate = gate()
-        gate.evaluate()
-        assertTrue(gate.active, "packs done but no book → setup offers the import step")
-    }
-
-    @Test
-    fun `everything ready with a book deactivates the gate`() = runTest {
-        markReady(model)
-        markReady(voices)
-        markReady(espeak)
-        markStagedEspeak()
-        library.add(entry("book-1"))
-
-        val gate = gate()
-        gate.evaluate()
-        assertFalse(gate.active, "books + ready packs → library, no setup")
-    }
+            val gate = gate()
+            gate.evaluate()
+            assertTrue(gate.active, "packs done but no book → setup offers the import step")
+        }
 
     @Test
-    fun `system tts opted in with missing packs and a book is inactive`() = runTest {
-        // decisions #102 leg 6: user took the degraded path, imported a book —
-        // the flow is over even though no Kokoro pack exists.
-        settings.setTtsEngine(SettingsStore.SYSTEM_TTS_ENGINE)
-        library.add(entry("book-1"))
+    fun `everything ready with a book deactivates the gate`() =
+        runTest {
+            markReady(model)
+            markReady(voices)
+            markReady(espeak)
+            markStagedEspeak()
+            library.add(entry("book-1"))
 
-        val gate = gate()
-        gate.evaluate()
-        assertFalse(gate.active, "degraded-ready is terminal")
-    }
+            val gate = gate()
+            gate.evaluate()
+            assertFalse(gate.active, "books + ready packs → library, no setup")
+        }
 
     @Test
-    fun `system tts opted in with missing packs and no book stays active`() = runTest {
-        settings.setTtsEngine(SettingsStore.SYSTEM_TTS_ENGINE)
+    fun `system tts opted in with missing packs and a book is inactive`() =
+        runTest {
+            // decisions #102 leg 6: user took the degraded path, imported a book —
+            // the flow is over even though no Kokoro pack exists.
+            settings.setTtsEngine(SettingsStore.SYSTEM_TTS_ENGINE)
+            library.add(entry("book-1"))
 
-        val gate = gate()
-        gate.evaluate()
-        assertTrue(gate.active, "opted-in user still must import a book")
-    }
+            val gate = gate()
+            gate.evaluate()
+            assertFalse(gate.active, "degraded-ready is terminal")
+        }
+
+    @Test
+    fun `system tts opted in with missing packs and no book stays active`() =
+        runTest {
+            settings.setTtsEngine(SettingsStore.SYSTEM_TTS_ENGINE)
+
+            val gate = gate()
+            gate.evaluate()
+            assertTrue(gate.active, "opted-in user still must import a book")
+        }
 
     private fun gate(): SetupGate = SetupGate(registry, settings, library, filesDir)
 
@@ -133,28 +138,36 @@ class SetupGateTest {
         File(bundle, "espeak-ng-data/voices").writeText("x")
     }
 
-    private fun fixturePack(id: String, size: Long): TtsPack = TtsPack(
-        id = id,
-        engineId = "kokoro-82m",
-        kind = PackKind.MODEL,
-        displayName = id,
-        url = "https://example.test/$id",
-        sha256Hex = sha256Hex(ByteArray(size.toInt())),
-        sizeBytes = size,
-    )
+    private fun fixturePack(
+        id: String,
+        size: Long,
+    ): TtsPack =
+        TtsPack(
+            id = id,
+            engineId = "kokoro-82m",
+            kind = PackKind.MODEL,
+            displayName = id,
+            url = "https://example.test/$id",
+            sha256Hex = sha256Hex(ByteArray(size.toInt())),
+            sizeBytes = size,
+        )
 
     private fun entry(id: String) = LibraryEntry(Book(id = id, title = id), importedAtEpochMillis = 1)
 
     /** Downloads never run in gate tests; statuses stay disk-derived. */
     private class FailTransport : DownloadTransport {
-        override suspend fun open(url: String, rangeFrom: Long?): OpenResult =
-            OpenResult.HttpError(404)
+        override suspend fun open(
+            url: String,
+            rangeFrom: Long?,
+        ): OpenResult = OpenResult.HttpError(404)
     }
 }
 
 class FakeSettingsDao : SettingsDao {
     val rows = mutableMapOf<String, String>()
+
     override suspend fun get(key: String): String? = rows[key]
+
     override suspend fun put(setting: SettingEntity) {
         rows[setting.key] = setting.value
     }
