@@ -9,7 +9,7 @@
         <error line="67" column="19" source="standard:multiline-expression-wrapping" />
         <error line="68" column="20" source="standard:multiline-expression-wrapping" />
         <error line="68" column="24" source="standard:chain-method-continuation" />
-        <error line="108" column="1" source="standard:final-newline" />
+        <error line="111" column="1" source="standard:final-newline" />
     </file>
     <file name="app/src/androidTest/kotlin/com/moronigranja/localttsreader/ItVoiceE2eTest.kt">
         <error line="3" column="1" source="standard:import-ordering" />
@@ -20,7 +20,7 @@
         <error line="67" column="19" source="standard:multiline-expression-wrapping" />
         <error line="68" column="20" source="standard:multiline-expression-wrapping" />
         <error line="68" column="24" source="standard:chain-method-continuation" />
-        <error line="108" column="1" source="standard:final-newline" />
+        <error line="111" column="1" source="standard:final-newline" />
     </file>
     <file name="app/src/androidTest/kotlin/com/moronigranja/localttsreader/OcrSmokeInstrumentedTest.kt">
         <error line="3" column="1" source="standard:import-ordering" />
@@ -38,13 +38,13 @@
         <error line="70" column="19" source="standard:multiline-expression-wrapping" />
         <error line="71" column="20" source="standard:multiline-expression-wrapping" />
         <error line="71" column="24" source="standard:chain-method-continuation" />
-        <error line="116" column="26" source="standard:function-signature" />
-        <error line="116" column="26" source="standard:multiline-expression-wrapping" />
-        <error line="122" column="47" source="standard:function-signature" />
-        <error line="122" column="47" source="standard:multiline-expression-wrapping" />
-        <error line="129" column="28" source="standard:function-signature" />
-        <error line="129" column="42" source="standard:function-signature" />
-        <error line="129" column="76" source="standard:function-signature" />
+        <error line="119" column="26" source="standard:function-signature" />
+        <error line="119" column="26" source="standard:multiline-expression-wrapping" />
+        <error line="125" column="47" source="standard:function-signature" />
+        <error line="125" column="47" source="standard:multiline-expression-wrapping" />
+        <error line="132" column="28" source="standard:function-signature" />
+        <error line="132" column="42" source="standard:function-signature" />
+        <error line="132" column="76" source="standard:function-signature" />
     </file>
     <file name="app/src/androidTest/kotlin/com/moronigranja/localttsreader/OpusDriftInstrumentedTest.kt">
         <error line="3" column="1" source="standard:import-ordering" />
@@ -195,7 +195,7 @@
         <error line="67" column="19" source="standard:multiline-expression-wrapping" />
         <error line="68" column="20" source="standard:multiline-expression-wrapping" />
         <error line="68" column="24" source="standard:chain-method-continuation" />
-        <error line="108" column="1" source="standard:final-newline" />
+        <error line="111" column="1" source="standard:final-newline" />
     </file>
     <file name="app/src/androidTest/kotlin/com/moronigranja/localttsreader/RealEpubImportProbe.kt">
         <error line="3" column="1" source="standard:import-ordering" />
