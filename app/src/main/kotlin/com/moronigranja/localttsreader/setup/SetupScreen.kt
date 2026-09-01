@@ -87,9 +87,12 @@ fun SetupScreen(
                         StepKind.PRIVACY -> PrivacyCard()
                         StepKind.CHOOSE_VOICE ->
                             ChooseVoiceCard(
-                                voices = state.voices,
-                                selectedVoice = state.selectedVoice,
+                                voiceSelector = state.voiceSelector,
                                 onSelect = viewModel::chooseVoice,
+                                onToggleFavorite = viewModel::toggleFavorite,
+                                onPreview = viewModel::previewVoice,
+                                onStopPreview = viewModel::stopPreview,
+                                onDownload = viewModel::downloadVoicePacks,
                             )
                         StepKind.DOWNLOAD_PACKS ->
                             DownloadPacksCard(
@@ -129,46 +132,30 @@ private fun PrivacyCard() {
 
 @Composable
 private fun ChooseVoiceCard(
-    voices: List<KokoroVoiceMeta>,
-    selectedVoice: String,
+    voiceSelector: com.moronigranja.localttsreader.ui.VoiceSelectorUiState,
     onSelect: (String) -> Unit,
+    onToggleFavorite: (String) -> Unit,
+    onPreview: (String) -> Unit,
+    onStopPreview: () -> Unit,
+    onDownload: () -> Unit,
 ) {
     StepCard {
         Text("Choose a voice", style = MaterialTheme.typography.titleMedium)
         Text(
             "Voices are listed from Ayvu's built-in catalog, so you can pick before " +
-                "anything downloads. Your choice is saved immediately.",
+                "anything downloads. Your choice is saved immediately. Preview needs " +
+                "the speech packs — until they are installed each voice shows the " +
+                "download action instead.",
             style = MaterialTheme.typography.bodyMedium,
         )
-        val grouped = voices.groupBy { it.language }
-        grouped.forEach { (language, metas) ->
-            SectionHeader(language, Modifier.padding(top = AyvuSpacing.MD, bottom = AyvuSpacing.XS))
-            metas.forEach { meta ->
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier =
-                        Modifier
-                            .fillMaxWidth()
-                            .selectable(
-                                selected = selectedVoice == meta.name,
-                                onClick = { onSelect(meta.name) },
-                            ).padding(vertical = AyvuSpacing.XS),
-                ) {
-                    RadioButton(
-                        selected = selectedVoice == meta.name,
-                        onClick = { onSelect(meta.name) },
-                    )
-                    Column {
-                        Text(meta.name, style = MaterialTheme.typography.bodyMedium)
-                        Text(
-                            meta.gender,
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                }
-            }
-        }
+        com.moronigranja.localttsreader.ui.VoiceSelector(
+            state = voiceSelector,
+            onSelect = onSelect,
+            onToggleFavorite = onToggleFavorite,
+            onPreview = onPreview,
+            onStopPreview = onStopPreview,
+            onDownload = { onDownload() },
+        )
     }
 }
 

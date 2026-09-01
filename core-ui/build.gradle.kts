@@ -46,6 +46,7 @@ dependencies {
     implementation(libs.compose.material.icons.core)
     implementation(libs.compose.material.icons.extended)
     implementation(project(":core-player")) // PlaybackUiState / PlayerCommands / formatBytes
+    implementation(project(":core-tts")) { exclude(group = "net.java.dev.jna") } // KokoroVoiceMeta (selector rows)
 
     testImplementation(libs.junit4)
     testImplementation(libs.vintage.engine)

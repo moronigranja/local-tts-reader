@@ -201,6 +201,19 @@ durable facts (#102) and the voice selector is shared groundwork for C2.
 
 ### C2 — Voice selector in the primary flow
 
+**Complete (2026-09-01, decisions #105):** ONE shared selector surface
+(`core-ui` `VoiceSelector` + `buildVoiceSelectorState`) reused across
+first-run setup, Settings and a new reader voice sheet; persistent
+"Selected voice:" summary with exactly one selection indicator; the star is
+independent; per-row Preview/Stop with a single audition (cancellable
+"Generating sample…", narration capture/pause/resume only when playing, A5);
+missing packs → explicit download action; saved-voice-absent renders
+unavailable; voice change preserves the playhead and restarts once at the
+same position (supersedes stale synthesis). Host tests: 14 new cases.
+Device-verified on the HiBreak (Settings + reader sheets, Preview no ANR,
+restart-persistent change). Full record in decisions #105.
+
+
 The full voice picker + favorites already exists in Settings; the missing part is
 discoverable selection where listening starts. Reuse one selector/state model in:
 
@@ -772,20 +785,20 @@ player state machinery.
 - Continue physical-device acceptance on the S22 and HiBreak for behavior or performance
   claims affecting playback.
 
-### Device re-verification debt register (2026-08-31, decisions #96)
-
-Phase A items closed on host evidence with device-acceptance notes still
-pending. The runs are batched into the next S22/HiBreak sessions rather than
-reopening the completed items:
-
 | Source | Pending device evidence |
 |---|---|
-| A1 (#60) | `PregenE2eTest` whole-book/no-budget re-run on the Bigme B6 / S22 |
-| A2 (#61) | stop-mid-passage / kill / reopen acceptance on the B6 / S22 |
+| ~~A1 (#60)~~ | ~~`PregenE2eTest` whole-book/no-budget re-run on the Bigme B6 / S22~~ **Done (2026-08-31, decisions #105):** B6 `OK (1 test)` in 222 s — `PregenWorker` SUCCESS + playback completed over the warm disk tier. |
+| A2 (#61) | stop-mid-passage / kill / reopen acceptance on the B6 / S22 — **B6 manual stop/kill/reopen deferred to the next HiBreak session** (the S22 unplugged mid-session); playback itself verified via PregenE2e/PlayPositionE2e on the B6/S22. |
 | A4 (#63) | fill-cap / force-stop / relaunch acceptance on the S22 |
-| A5/A7 (#62) | MediaSession/notification re-verification on the B6 / S22 |
+| A5/A7 (#62) | MediaSession/notification re-verification on the B6 / S22 — **deferred with A2** (the S22 unplugged); pause-settles host-pinned by `PlaybackServiceA57Test`. |
 | A6 (#66) | import/share/pregen flow regression on the S22 |
 | F2 (#90) | runtime verification of the library search UI on the S22 |
 
+B4's device checks are complete (2026-08-31, decisions #98); **C2's device
+legs were verified on the HiBreak in the same session** (decisions #105):
+the shared voice selector in Settings + the reader voice sheet, Preview with
+the off-main engine fix (no ANR, cancellable "Generating sample…"), exactly
+one selection indicator, star-independence, and a persisted mid-session
+voice change that survives process restart.
+
 B4's device checks are complete (2026-08-31, decisions #98); this register
-is the remaining device-session batch.

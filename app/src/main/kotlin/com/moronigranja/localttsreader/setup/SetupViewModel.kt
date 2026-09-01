@@ -10,6 +10,7 @@ import com.moronigranja.localttsreader.persistence.AppSettings
 import com.moronigranja.localttsreader.persistence.SettingsStore
 import com.moronigranja.localttsreader.player.EspeakStager
 import com.moronigranja.localttsreader.player.IoDispatcher
+import com.moronigranja.localttsreader.player.VoiceAudition
 import com.moronigranja.localttsreader.tts.DownloadFailureReason
 import com.moronigranja.localttsreader.tts.DownloadOutcome
 import com.moronigranja.localttsreader.tts.PackCache
@@ -48,6 +49,11 @@ data class SetupUiState(
     /** Static 54-voice catalog — usable before any download. */
     val voices: List<KokoroVoiceMeta> = KokoroVoiceMetadata.all,
     val selectedVoice: String = SettingsStore.DEFAULT_VOICE,
+    /** C2: the shared selector rows + "Selected voice:" summary (+ the one
+     * audition), built from the static catalog + pack readiness. */
+    val voiceSelector: com.moronigranja.localttsreader.ui.VoiceSelectorUiState =
+        com.moronigranja.localttsreader.ui
+            .VoiceSelectorUiState(),
     /** Sum of the three required packs' descriptor sizes — the plan's total. */
     val storageTotalBytes: Long = 0L,
     /** Sum of the not-yet-ready required packs' sizes — what still needs
@@ -85,9 +91,11 @@ class SetupViewModel
         private val storageProbe: StorageProbe,
         private val coordinator: ImportCoordinator,
         @IoDispatcher private val ioDispatcher: CoroutineDispatcher,
+        private val voiceAudition: VoiceAudition,
     ) : ViewModel() {
         private val errors = MutableStateFlow<Map<String, String>>(emptyMap())
         private val stageTick = MutableStateFlow(0)
+        private val auditionFlow = voiceAudition.state
         private val importTick = MutableStateFlow(0)
         private val jobs = mutableMapOf<String, Job>()
         private var importSummaryValue: String? = null
@@ -102,7 +110,8 @@ class SetupViewModel
                 libraryStore.books,
                 stageTick,
                 importTick,
-            ) { (packs, err, prefs), books, _, _ ->
+                auditionFlow,
+            ) { (packs, err, prefs), books, _, _, audition ->
                 val required = REQUIRED_PACK_IDS.mapNotNull { id -> packs.firstOrNull { it.pack.id == id } }
                 val requiredReady =
                     REQUIRED_PACK_IDS.all { id -> packs.firstOrNull { it.pack.id == id }?.status == PackStatus.Ready }
@@ -121,6 +130,7 @@ class SetupViewModel
                     steps = steps,
                     packs = required.map { it.toPlanRow(err, filesDir) },
                     selectedVoice = prefs.voice,
+                    voiceSelector = voiceSelector(required, prefs, audition),
                     voices = KokoroVoiceMetadata.all,
                     storageTotalBytes = required.sumOf { it.pack.sizeBytes },
                     requiredBytes = requiredBytes,
@@ -177,8 +187,39 @@ class SetupViewModel
 
         fun chooseVoice(name: String) = viewModelScope.launch { settings.setVoice(name) }
 
+        /** C2: the star toggles favorite state only — selection is the row tap. */
+        fun toggleFavorite(name: String) = viewModelScope.launch { settings.toggleFavorite(name) }
+
         /** decisions #102: opt into the zero-download degraded device voice. */
         fun optInSystemTts() = viewModelScope.launch { settings.setTtsEngine(SettingsStore.SYSTEM_TTS_ENGINE) }
+
+        /** C2: audition one voice without selecting it (one at a time). */
+        fun previewVoice(voice: String) = voiceAudition.preview(voice)
+
+        fun stopPreview() = voiceAudition.stop()
+
+        /** C2: the explicit per-row download action while Kokoro packs are
+         * missing — starts the same three downloads the plan card lists. */
+        fun downloadVoicePacks() {
+            REQUIRED_PACK_IDS.forEach { download(it) }
+        }
+
+        /** C2 shared selector state — pack readiness + the one audition,
+         * via the single shared builder (C2, #102.4). */
+        private fun voiceSelector(
+            required: List<PackState>,
+            prefs: com.moronigranja.localttsreader.persistence.AppSettings.Snapshot,
+            audition: com.moronigranja.localttsreader.player.AuditionUiState,
+        ): com.moronigranja.localttsreader.ui.VoiceSelectorUiState {
+            val ready = required.all { it.status == com.moronigranja.localttsreader.tts.PackStatus.Ready }
+            return com.moronigranja.localttsreader.ui.buildVoiceSelectorState(
+                voices = com.moronigranja.localttsreader.tts.kokoro.KokoroVoiceMetadata.all,
+                selectedVoice = prefs.voice,
+                favorites = prefs.favorites.toSet(),
+                ready = ready,
+                audition = audition,
+            )
+        }
 
         /** SAF import hand-off — the contact LibraryScreen uses, driven here
          * against app-injected dependencies (no feature-library VM). */

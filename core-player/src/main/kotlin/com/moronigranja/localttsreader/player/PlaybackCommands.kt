@@ -14,12 +14,27 @@ interface PlayerCommands {
     fun play(bookId: String)
 
     /** Starts audio at an explicit passage (share "Listen here", reader gesture). */
-    fun playAt(bookId: String, chapterIndex: Int, passageIndex: Int)
+    fun playAt(
+        bookId: String,
+        chapterIndex: Int,
+        passageIndex: Int,
+    )
+
+    /** Rebuilds the active book on a NEW voice while preserving the playhead
+     * (C2): supersedes in-flight synthesis through the A5 single-writer
+     * command model — one pause/restart at the same position, the following
+     * passage rendered with the new voice. No-op when the voice is unchanged
+     * or no book is open. */
+    fun changeVoice(voice: String)
 
     fun resume()
+
     fun pause()
+
     fun stop()
+
     fun seekForward()
+
     fun seekBackward()
 }
 
@@ -36,7 +51,10 @@ data class PregenJobState(
  * behind [PregenManager], hidden from features behind this core contract. */
 interface PregenScheduler {
     /** Starts a manual run for one book; null budget = whole book. */
-    fun pregenerate(bookId: String, budgetMinutes: Long? = null)
+    fun pregenerate(
+        bookId: String,
+        budgetMinutes: Long? = null,
+    )
 
     /** Cancels the book's queued manual run. */
     fun cancel(bookId: String)

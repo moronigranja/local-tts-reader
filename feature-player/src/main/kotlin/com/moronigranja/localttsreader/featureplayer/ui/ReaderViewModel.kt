@@ -3,76 +3,190 @@ package com.moronigranja.localttsreader.featureplayer.ui
 import android.content.Context
 import android.content.Intent
 import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
 import com.moronigranja.localttsreader.featureplayer.playback.PlaybackService
+import com.moronigranja.localttsreader.persistence.AppSettings
 import com.moronigranja.localttsreader.player.PlaybackStateHolder
 import com.moronigranja.localttsreader.player.PlaybackUiState
 import com.moronigranja.localttsreader.player.PlayerCommands
+import com.moronigranja.localttsreader.player.VoiceAudition
+import com.moronigranja.localttsreader.player.VoicePackDownloader
+import com.moronigranja.localttsreader.tts.PackRegistry
+import com.moronigranja.localttsreader.tts.PackStatus
+import com.moronigranja.localttsreader.tts.kokoro.KokoroPacks
+import com.moronigranja.localttsreader.tts.kokoro.KokoroVoiceMetadata
+import com.moronigranja.localttsreader.ui.VoiceSelectorUiState
+import com.moronigranja.localttsreader.ui.buildVoiceSelectorState
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
-import javax.inject.Inject
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.launch
+import javax.inject.Inject
 
 /**
  * Reader-side commands to the [PlaybackService]; state is read from the
  * service-published [PlaybackStateHolder] (the service is the single writer).
+ *
+ * C2: the reader voice sheet reuses the shared [VoiceAudition] coordinator
+ * and [buildVoiceSelectorState] builder; selecting a voice persists it AND
+ * rebuilds the active book under it at the same playhead via [changeVoice]
+ * (A5 single-writer — stale synthesis can never publish).
  */
 @HiltViewModel
-class ReaderViewModel @Inject constructor(
-    @ApplicationContext private val context: Context,
-) : ViewModel(), PlayerCommands {
+class ReaderViewModel
+    @Inject
+    constructor(
+        @ApplicationContext private val context: Context,
+        private val settings: AppSettings,
+        private val audition: VoiceAudition,
+        private val registry: PackRegistry,
+        private val download: VoicePackDownloader,
+    ) : ViewModel(),
+        PlayerCommands {
+        val state: StateFlow<PlaybackUiState> = PlaybackStateHolder.state
 
-    val state: StateFlow<PlaybackUiState> = PlaybackStateHolder.state
+        /** C2: the shared selector state for the reader's voice sheet. */
+        val voiceSelector: StateFlow<VoiceSelectorUiState> =
+            combine(settings.state, audition.state, registry.packs) { prefs, aud, packs ->
+                val ready =
+                    setOf(KokoroPacks.model.id, KokoroPacks.voices.id, KokoroPacks.espeak.id)
+                        .all { id -> packs.firstOrNull { it.pack.id == id }?.status == PackStatus.Ready }
+                buildVoiceSelectorState(
+                    voices = KokoroVoiceMetadata.all,
+                    selectedVoice = prefs.voice,
+                    favorites = prefs.favorites.toSet(),
+                    ready = ready,
+                    audition = aud,
+                )
+            }.stateIn(
+                viewModelScope,
+                SharingStarted.WhileSubscribed(5_000),
+                buildVoiceSelectorState(
+                    voices = KokoroVoiceMetadata.all,
+                    selectedVoice = settings.state.value.voice,
+                    favorites =
+                        settings.state.value.favorites
+                            .toSet(),
+                    ready = false,
+                    audition = audition.state.value,
+                ),
+            )
 
-    /** The book this reader shows — [resume] carries it so a machine-less
-     * service (STOP's post-stop fill self-stopped it) can rebuild and
-     * resume from the persisted playhead instead of dead-ending the
-     * play button. */
-    private var openedBookId: String? = null
+        /** The book this reader shows — [resume] carries it so a machine-less
+         * service (STOP's post-stop fill self-stopped it) can rebuild and
+         * resume from the persisted playhead instead of dead-ending the
+         * play button. */
+        private var openedBookId: String? = null
 
-    /** Opens a book in the reader WITHOUT starting playback (decisions #52). */
-    fun open(bookId: String) {
-        openedBookId = bookId
-        command(PlaybackService.ACTION_OPEN, bookId)
-    }
-
-    override fun play(bookId: String) {
-        openedBookId = bookId
-        command(PlaybackService.ACTION_PLAY, bookId)
-    }
-
-    override fun playAt(bookId: String, chapterIndex: Int, passageIndex: Int) {
-        openedBookId = bookId
-        command(PlaybackService.ACTION_PLAY_POSITION, bookId, chapterIndex, passageIndex)
-    }
-
-    fun playPosition(bookId: String, chapter: Int, passage: Int) {
-        openedBookId = bookId
-        command(PlaybackService.ACTION_PLAY_POSITION, bookId, chapter, passage)
-    }
-
-    fun openChapter(bookId: String, direction: Int) =
-        command(PlaybackService.ACTION_OPEN_CHAPTER, bookId, direction = direction)
-    fun skipForward() = command(PlaybackService.ACTION_SKIP_FORWARD)
-    fun skipBackward() = command(PlaybackService.ACTION_SKIP_BACKWARD)
-    fun undo() = command(PlaybackService.ACTION_UNDO)
-    override fun stop() = command(PlaybackService.ACTION_STOP)
-    fun cycleSleep() = command(PlaybackService.ACTION_SLEEP)
-    fun bookmark() = command(PlaybackService.ACTION_BOOKMARK)
-
-    override fun resume() = command(PlaybackService.ACTION_RESUME, openedBookId)
-    override fun pause() = command(PlaybackService.ACTION_PAUSE)
-    override fun seekForward() = command(PlaybackService.ACTION_SEEK_FORWARD)
-    override fun seekBackward() = command(PlaybackService.ACTION_SEEK_BACKWARD)
-    private fun command(action: String, bookId: String? = null, chapter: Int = 0, passage: Int = 0, direction: Int = 0) {
-        val intent = Intent(context, PlaybackService::class.java).setAction(action)
-        if (bookId != null) intent.putExtra(PlaybackService.EXTRA_BOOK_ID, bookId)
-        if (action == PlaybackService.ACTION_PLAY_POSITION) {
-            intent.putExtra(PlaybackService.EXTRA_CHAPTER, chapter)
-            intent.putExtra(PlaybackService.EXTRA_PASSAGE, passage)
+        /** C2: select a voice AND rebuild the active book under it at the same
+         * playhead (persist via [settings], supersede stale synthesis via
+         * [changeVoice]). */
+        fun selectVoice(voice: String) {
+            val current = settings.state.value.voice
+            if (voice != current) {
+                viewModelScope.launch { settings.setVoice(voice) }
+                changeVoice(voice)
+            }
         }
-        if (action == PlaybackService.ACTION_OPEN_CHAPTER) {
-            intent.putExtra(PlaybackService.EXTRA_DIRECTION, direction)
+
+        /** The star toggles favorite state only — selection is the row tap. */
+        fun toggleFavorite(voice: String) {
+            viewModelScope.launch { settings.toggleFavorite(voice) }
         }
-        runCatching { context.startForegroundService(intent) }
+
+        fun previewVoice(voice: String) = audition.preview(voice)
+
+        fun stopPreview() = audition.stop()
+
+        /** C2: explicit voice-pack download action while Kokoro packs are
+         * missing — routed to the composition root (A6). */
+        fun downloadVoicePacks() = download.requestDownload()
+
+        /** Opens a book in the reader WITHOUT starting playback (decisions #52). */
+        fun open(bookId: String) {
+            openedBookId = bookId
+            command(PlaybackService.ACTION_OPEN, bookId)
+        }
+
+        override fun play(bookId: String) {
+            openedBookId = bookId
+            command(PlaybackService.ACTION_PLAY, bookId)
+        }
+
+        override fun playAt(
+            bookId: String,
+            chapterIndex: Int,
+            passageIndex: Int,
+        ) {
+            openedBookId = bookId
+            command(PlaybackService.ACTION_PLAY_POSITION, bookId, chapterIndex, passageIndex)
+        }
+
+        /** C2: the persisted voice was already switched by the selector — this
+         * rebuilds the active book under it, preserving the playhead (A5). */
+        override fun changeVoice(voice: String) {
+            runCatching {
+                context.startForegroundService(
+                    Intent(context, PlaybackService::class.java)
+                        .setAction(PlaybackService.ACTION_CHANGE_VOICE)
+                        .putExtra(PlaybackService.EXTRA_VOICE, voice),
+                )
+            }
+        }
+
+        fun playPosition(
+            bookId: String,
+            chapter: Int,
+            passage: Int,
+        ) {
+            openedBookId = bookId
+            command(PlaybackService.ACTION_PLAY_POSITION, bookId, chapter, passage)
+        }
+
+        fun openChapter(
+            bookId: String,
+            direction: Int,
+        ) = command(PlaybackService.ACTION_OPEN_CHAPTER, bookId, direction = direction)
+
+        fun skipForward() = command(PlaybackService.ACTION_SKIP_FORWARD)
+
+        fun skipBackward() = command(PlaybackService.ACTION_SKIP_BACKWARD)
+
+        fun undo() = command(PlaybackService.ACTION_UNDO)
+
+        override fun stop() = command(PlaybackService.ACTION_STOP)
+
+        fun cycleSleep() = command(PlaybackService.ACTION_SLEEP)
+
+        fun bookmark() = command(PlaybackService.ACTION_BOOKMARK)
+
+        override fun resume() = command(PlaybackService.ACTION_RESUME, openedBookId)
+
+        override fun pause() = command(PlaybackService.ACTION_PAUSE)
+
+        override fun seekForward() = command(PlaybackService.ACTION_SEEK_FORWARD)
+
+        override fun seekBackward() = command(PlaybackService.ACTION_SEEK_BACKWARD)
+
+        private fun command(
+            action: String,
+            bookId: String? = null,
+            chapter: Int = 0,
+            passage: Int = 0,
+            direction: Int = 0,
+        ) {
+            val intent = Intent(context, PlaybackService::class.java).setAction(action)
+            if (bookId != null) intent.putExtra(PlaybackService.EXTRA_BOOK_ID, bookId)
+            if (action == PlaybackService.ACTION_PLAY_POSITION) {
+                intent.putExtra(PlaybackService.EXTRA_CHAPTER, chapter)
+                intent.putExtra(PlaybackService.EXTRA_PASSAGE, passage)
+            }
+            if (action == PlaybackService.ACTION_OPEN_CHAPTER) {
+                intent.putExtra(PlaybackService.EXTRA_DIRECTION, direction)
+            }
+            runCatching { context.startForegroundService(intent) }
+        }
     }
-}

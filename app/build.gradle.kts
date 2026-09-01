@@ -108,12 +108,18 @@ dependencies {
     testImplementation(libs.junit.jupiter)
     testRuntimeOnly(libs.junit.platform.launcher)
     testImplementation(libs.kotlinx.coroutines.test)
+    // JUnit4 + Robolectric (vintage engine) for the service-edge/audition tests
+    // that need a real android Context (matches core-ui/A57 convention).
+    testImplementation(libs.junit4)
+    testImplementation(libs.vintage.engine)
+    testImplementation(libs.robolectric)
 }
 
 android {
     testOptions {
         unitTests.all {
             it.useJUnitPlatform()
+                it.testLogging { events("passed", "failed", "skipped"); showStandardStreams = true }
             it.testLogging {
                 events("passed", "failed", "skipped")
             }

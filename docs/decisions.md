@@ -1,5 +1,66 @@
 # Decision log
 
+## 105. C2 voice selector shipped + B6/S22 device session (2026-08-31)
+
+C2 (voice selector in the primary flow) landed host-verified and device-
+verified on the HiBreak in the same session that ran the A1 debt-register
+re-verification. Decisions #102.4's shape holds: ONE selector surface is
+built in core-ui (`VoiceSelector` + `buildVoiceSelectorState`) and reused by
+first-run setup (`ChooseVoiceCard`), Settings and a new reader voice sheet —
+no second convention. core-ui gained the `VoiceSelector` composable and the
+pure builder; the selector renders the C2 contract verbatim:
+
+- persistent **Selected voice: _name_** summary; exactly one row carries the
+  radio indicator; the star is a separate favorite action (row tap selects,
+  star toggles the favorite, never implied selection);
+- every ready row exposes **Preview/Stop**; slow synthesis shows cancellable
+  **Generating sample…**; missing engine assets replace Preview with the same
+  explicit download action used elsewhere (never silence, never an
+  unannounced fallback);
+- a saved voice absent from the catalog renders as unavailable with a
+  download/reselect action, never an all-unselected list.
+
+**Audition** — `VoiceAudition` core contract + composition-root
+`VoiceAuditionCoordinator` (app): one sample at a time (starting another
+cancels the first; the completion poll is synchronized so stop/finish never
+double-resumes), ephemeral audio (played straight to its own
+`AudioTrackPassageOutput`; excluded from book progress, history and the
+passage disk cache), and narration capture/pause/resume through
+[PlayerCommands] only when the book was playing (A5 single-writer).
+Fixed during the device pass: engine resolution (the FIRST call cold-opens
+the Kokoro model, minutes on the HiBreak) must run off-main inside the job —
+devices showed the original design ANR'd.
+
+**Change-voice** — `PlayerCommands.changeVoice` + `ACTION_CHANGE_VOICE`:
+the reader voice sheet persists the new voice then sends the command; the
+service captures the live playhead, supersedes in-flight synthesis through
+the A5 generation model, rebuilds the voice-keyed queue/fill and restarts
+once at the same position (paused sessions stay paused). Unchanged-voice and
+no-open-book are no-ops at the sender/service respectively.
+
+Host evidence: `:app:assembleDebug`, all unit suites, `checkFeatureBoundaries`
+and `:ktlintCheck` (baseline regenerated) green; new tests —
+`BuildVoiceSelectorStateTest` (5), `VoicePreviewTest` (3),
+`VoiceAuditionCoordinatorTest` (4, Robolectric), `PlaybackServiceChangeVoiceTest` (2).
+
+Device legs (HiBreak B6, serial B6CLR0B2FHFA006000712, build = the C2 HEAD):
+- Settings voice selector renders summary + radios + Preview; row-tap
+  selected `af_alloy` (summary + exactly one checked radio); star toggled
+  favorite without changing selection;
+- Settings Preview showed "Generating sample…" with NO ANR (the off-main
+  fix), then completed back to Preview;
+- reader "Change voice" sheet opened the same selector; selecting `af_bella`
+  closed the sheet, kept the reader at the same passage, and the persisted
+  voice survived process restart (`Selected voice: af_bella`).
+- A1 debt row: `PregenE2eTest` on the B6 **OK (1 test)** in 222 s —
+  `PregenWorker` SUCCESS + playback completed over the warm disk tier.
+
+The S22 was staged with the same pinned packs and ran VoiceSelectionE2e +
+PlayPositionE2e green (espeak bundle staged), but unplugged mid-session;
+A2 / A5-A7 manual legs (stop-mid-passage, kill/reopen, MediaSession/
+notification stress) are deferred to the next B6/S22 session per the
+register. Roadmap register updated accordingly.
+
 ## 103. C1 guided first-run setup — host slices landed (2026-08-31)
 
 Implemented per the approved C1 plan (local plan doc; owner decisions #102):

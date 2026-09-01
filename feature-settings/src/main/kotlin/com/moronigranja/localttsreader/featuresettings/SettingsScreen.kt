@@ -1,6 +1,5 @@
 package com.moronigranja.localttsreader.featuresettings
 import androidx.activity.compose.BackHandler
-
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -11,6 +10,11 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.selection.selectable
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Star
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -22,21 +26,18 @@ import androidx.compose.material3.Slider
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
-import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.Star
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import com.moronigranja.localttsreader.player.formatBytes
+import androidx.hilt.navigation.compose.hiltViewModel
 import com.moronigranja.localttsreader.persistence.SettingsStore
 import com.moronigranja.localttsreader.persistence.ThemeMode
+import com.moronigranja.localttsreader.player.formatBytes
 import com.moronigranja.localttsreader.tts.PackStatus
 import com.moronigranja.localttsreader.ui.AyvuSpacing
 import com.moronigranja.localttsreader.ui.ConfirmDialog
@@ -45,9 +46,6 @@ import com.moronigranja.localttsreader.ui.PillButton
 import com.moronigranja.localttsreader.ui.PlanPackRow
 import com.moronigranja.localttsreader.ui.PlanPackStatus
 import com.moronigranja.localttsreader.ui.SectionHeader
-import androidx.hilt.navigation.compose.hiltViewModel
-import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.getValue
 
 /**
  * V1 settings: engines + packs (download/status), voice picker + favorites,
@@ -85,195 +83,196 @@ fun SettingsScreen(
         },
     ) { padding ->
         if (pane == SettingsPane.Root) {
-        LazyColumn(
-            modifier = Modifier.fillMaxSize().padding(padding),
-            contentPadding = androidx.compose.foundation.layout.PaddingValues(AyvuSpacing.LG),
-            verticalArrangement = Arrangement.spacedBy(AyvuSpacing.SM),
-        ) {
-            item { SectionHeader("Engine", Modifier.padding(top = AyvuSpacing.LG, bottom = AyvuSpacing.XS)) }
-            items(state.packs.filter { it.packId == "kokoro-model" || it.packId == "kokoro-voices" || it.packId == "espeak-ng" }) { row ->
-                PackRow(row, onDownload = { viewModel.download(row.packId) })
-            }
-            item {
-                Text(
-                    "espeak-ng: ${state.espeakDetail}",
-                    style = MaterialTheme.typography.bodySmall,
-                    modifier = Modifier.padding(horizontal = AyvuSpacing.XS, vertical = AyvuSpacing.XS),
-                )
-            }
-
-            item {
-                SectionHeader("Speech engine", Modifier.padding(top = AyvuSpacing.LG, bottom = AyvuSpacing.XS))
-            }
-            item {
-                Column {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .selectable(
-                                selected = state.ttsEngine == SettingsStore.DEFAULT_TTS_ENGINE,
-                                onClick = { viewModel.setEngine(SettingsStore.DEFAULT_TTS_ENGINE) },
-                            )
-                            .padding(vertical = AyvuSpacing.XS),
-                    ) {
-                        RadioButton(
-                            selected = state.ttsEngine == SettingsStore.DEFAULT_TTS_ENGINE,
-                            onClick = { viewModel.setEngine(SettingsStore.DEFAULT_TTS_ENGINE) },
-                        )
-                        Column {
-                            Text("Kokoro-82M (downloaded)", style = MaterialTheme.typography.bodyMedium)
-                            Text(
-                                "High-quality offline voices — download required.",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                        }
-                    }
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .selectable(
-                                selected = state.ttsEngine == SettingsStore.SYSTEM_TTS_ENGINE,
-                                onClick = { viewModel.setEngine(SettingsStore.SYSTEM_TTS_ENGINE) },
-                            )
-                            .padding(vertical = AyvuSpacing.XS),
-                    ) {
-                        RadioButton(
-                            selected = state.ttsEngine == SettingsStore.SYSTEM_TTS_ENGINE,
-                            onClick = { viewModel.setEngine(SettingsStore.SYSTEM_TTS_ENGINE) },
-                        )
-                        Column {
-                            Text("Device voice (system)", style = MaterialTheme.typography.bodyMedium)
-                            Text(
-                                "Zero-download fallback — degraded quality, no read-along highlights.",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                        }
-                    }
-                }
-            }
-            // C1.5: with the degraded voice active but Kokoro packs missing,
-            // Settings offers the same install plan the setup flow shows.
-            if (state.ttsEngine == SettingsStore.SYSTEM_TTS_ENGINE &&
-                state.packs.any { it.packId in KOKORO_PACK_IDS && it.status != PackStatus.Ready }
+            LazyColumn(
+                modifier = Modifier.fillMaxSize().padding(padding),
+                contentPadding =
+                    androidx.compose.foundation.layout
+                        .PaddingValues(AyvuSpacing.LG),
+                verticalArrangement = Arrangement.spacedBy(AyvuSpacing.SM),
             ) {
-                item {
-                    PacksPlanCard(
-                        rows = state.packs.filter { it.packId in KOKORO_PACK_IDS }.map { it.toPlanRow() },
-                        onDownload = { viewModel.download(it) },
-                        onCancel = { /* settings downloads are not user-cancelled */ },
-                    )
+                item { SectionHeader("Engine", Modifier.padding(top = AyvuSpacing.LG, bottom = AyvuSpacing.XS)) }
+                items(
+                    state.packs.filter { it.packId == "kokoro-model" || it.packId == "kokoro-voices" || it.packId == "espeak-ng" },
+                ) { row ->
+                    PackRow(row, onDownload = { viewModel.download(row.packId) })
                 }
-            }
-
-            item { SectionHeader("Voice", Modifier.padding(top = AyvuSpacing.LG, bottom = AyvuSpacing.XS)) }
-            if (state.voices.isEmpty()) {
                 item {
                     Text(
-                        "Download the voices pack above to pick a voice.",
+                        "espeak-ng: ${state.espeakDetail}",
                         style = MaterialTheme.typography.bodySmall,
-                        modifier = Modifier.padding(horizontal = AyvuSpacing.XS),
-                    )
-                }
-            } else {
-                items(state.voices) { voice ->
-                    VoiceRow(
-                        name = voice,
-                        selected = voice == state.selectedVoice,
-                        favorite = voice in state.favoriteVoices,
-                        onSelect = { viewModel.selectVoice(voice) },
-                        onToggleFavorite = { viewModel.toggleFavorite(voice) },
-                    )
-                }
-            }
-
-            item { SectionHeader("Share & reading", Modifier.padding(top = AyvuSpacing.LG, bottom = AyvuSpacing.XS)) }
-            item {
-                Column {
-                    Text("Match threshold: ${"%.2f".format(state.matchThreshold)}", style = MaterialTheme.typography.bodyMedium)
-                    Text(
-                        "How closely a shared snippet must match a book passage.",
-                        style = MaterialTheme.typography.bodySmall,
-                    )
-                    Slider(
-                        value = state.matchThreshold.toFloat(),
-                        onValueChange = { viewModel.setThreshold(it.toDouble()) },
-                        valueRange = 0.3f..0.9f,
-                    )
-                }
-            }
-
-            item {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable { pane = SettingsPane.OcrLanguages }
-                        .padding(vertical = AyvuSpacing.SM),
-                ) {
-                    Text(
-                        "OCR languages",
-                        style = MaterialTheme.typography.bodyLarge,
-                        modifier = Modifier.weight(1f),
-                    )
-                    Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = null)
-                }
-            }
-
-            item { SectionHeader("Offline audio", Modifier.padding(top = AyvuSpacing.LG, bottom = AyvuSpacing.XS)) }
-            if (offlineRows.isEmpty()) {
-                item {
-                    Text(
-                        "No pre-generated audio — the library row's Pre-generate fills it.",
-                        style = MaterialTheme.typography.bodySmall,
-                        modifier = Modifier.padding(horizontal = AyvuSpacing.XS),
-                    )
-                }
-            } else {
-                item {
-                    Text(
-                        "Total: ${formatBytes(offlineRows.sumOf { it.bytes })} — one listened hour ≈ 170 MB",
-                        style = MaterialTheme.typography.bodyMedium,
                         modifier = Modifier.padding(horizontal = AyvuSpacing.XS, vertical = AyvuSpacing.XS),
                     )
                 }
-                items(offlineRows, key = { it.bookId }) { row ->
-                    OfflineAudioRow(
-                        title = row.title,
-                        bytes = row.bytes,
-                        onDelete = { viewModel.deleteOffline(row.bookId) },
-                    )
-                }
-            }
 
-            item { SectionHeader("Appearance", Modifier.padding(top = AyvuSpacing.LG, bottom = AyvuSpacing.XS)) }
-            item {
-                Column {
-                    ThemeMode.entries.forEach { mode ->
+                item {
+                    SectionHeader("Speech engine", Modifier.padding(top = AyvuSpacing.LG, bottom = AyvuSpacing.XS))
+                }
+                item {
+                    Column {
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .selectable(
-                                    selected = state.themeMode == mode,
-                                    onClick = { viewModel.setTheme(mode) },
-                                )
-                                .padding(vertical = AyvuSpacing.XS),
+                            modifier =
+                                Modifier
+                                    .fillMaxWidth()
+                                    .selectable(
+                                        selected = state.ttsEngine == SettingsStore.DEFAULT_TTS_ENGINE,
+                                        onClick = { viewModel.setEngine(SettingsStore.DEFAULT_TTS_ENGINE) },
+                                    ).padding(vertical = AyvuSpacing.XS),
                         ) {
-                            RadioButton(selected = state.themeMode == mode, onClick = { viewModel.setTheme(mode) })
-                            Text(when (mode) {
-                                ThemeMode.SYSTEM -> "Follow system"
-                                ThemeMode.LIGHT -> "Light"
-                                ThemeMode.DARK -> "Dark"
-                            })
+                            RadioButton(
+                                selected = state.ttsEngine == SettingsStore.DEFAULT_TTS_ENGINE,
+                                onClick = { viewModel.setEngine(SettingsStore.DEFAULT_TTS_ENGINE) },
+                            )
+                            Column {
+                                Text("Kokoro-82M (downloaded)", style = MaterialTheme.typography.bodyMedium)
+                                Text(
+                                    "High-quality offline voices — download required.",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                        }
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier =
+                                Modifier
+                                    .fillMaxWidth()
+                                    .selectable(
+                                        selected = state.ttsEngine == SettingsStore.SYSTEM_TTS_ENGINE,
+                                        onClick = { viewModel.setEngine(SettingsStore.SYSTEM_TTS_ENGINE) },
+                                    ).padding(vertical = AyvuSpacing.XS),
+                        ) {
+                            RadioButton(
+                                selected = state.ttsEngine == SettingsStore.SYSTEM_TTS_ENGINE,
+                                onClick = { viewModel.setEngine(SettingsStore.SYSTEM_TTS_ENGINE) },
+                            )
+                            Column {
+                                Text("Device voice (system)", style = MaterialTheme.typography.bodyMedium)
+                                Text(
+                                    "Zero-download fallback — degraded quality, no read-along highlights.",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                        }
+                    }
+                }
+                // C1.5: with the degraded voice active but Kokoro packs missing,
+                // Settings offers the same install plan the setup flow shows.
+                if (state.ttsEngine == SettingsStore.SYSTEM_TTS_ENGINE &&
+                    state.packs.any { it.packId in KOKORO_PACK_IDS && it.status != PackStatus.Ready }
+                ) {
+                    item {
+                        PacksPlanCard(
+                            rows = state.packs.filter { it.packId in KOKORO_PACK_IDS }.map { it.toPlanRow() },
+                            onDownload = { viewModel.download(it) },
+                            onCancel = { /* settings downloads are not user-cancelled */ },
+                        )
+                    }
+                }
+
+                item { SectionHeader("Voice", Modifier.padding(top = AyvuSpacing.LG, bottom = AyvuSpacing.XS)) }
+                // C2 shared selector: persistent "Selected voice:" summary, one
+                // radio indicator, favorites independent, per-row Preview/Stop,
+                // missing packs → the explicit download action.
+                item {
+                    com.moronigranja.localttsreader.ui.VoiceSelector(
+                        state = state.voiceSelector,
+                        onSelect = viewModel::selectVoice,
+                        onToggleFavorite = viewModel::toggleFavorite,
+                        onPreview = viewModel::previewVoice,
+                        onStopPreview = viewModel::stopPreview,
+                        onDownload = { viewModel.downloadKokoroPacks() },
+                    )
+                }
+
+                item { SectionHeader("Share & reading", Modifier.padding(top = AyvuSpacing.LG, bottom = AyvuSpacing.XS)) }
+                item {
+                    Column {
+                        Text("Match threshold: ${"%.2f".format(state.matchThreshold)}", style = MaterialTheme.typography.bodyMedium)
+                        Text(
+                            "How closely a shared snippet must match a book passage.",
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                        Slider(
+                            value = state.matchThreshold.toFloat(),
+                            onValueChange = { viewModel.setThreshold(it.toDouble()) },
+                            valueRange = 0.3f..0.9f,
+                        )
+                    }
+                }
+
+                item {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier =
+                            Modifier
+                                .fillMaxWidth()
+                                .clickable { pane = SettingsPane.OcrLanguages }
+                                .padding(vertical = AyvuSpacing.SM),
+                    ) {
+                        Text(
+                            "OCR languages",
+                            style = MaterialTheme.typography.bodyLarge,
+                            modifier = Modifier.weight(1f),
+                        )
+                        Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = null)
+                    }
+                }
+
+                item { SectionHeader("Offline audio", Modifier.padding(top = AyvuSpacing.LG, bottom = AyvuSpacing.XS)) }
+                if (offlineRows.isEmpty()) {
+                    item {
+                        Text(
+                            "No pre-generated audio — the library row's Pre-generate fills it.",
+                            style = MaterialTheme.typography.bodySmall,
+                            modifier = Modifier.padding(horizontal = AyvuSpacing.XS),
+                        )
+                    }
+                } else {
+                    item {
+                        Text(
+                            "Total: ${formatBytes(offlineRows.sumOf { it.bytes })} — one listened hour ≈ 170 MB",
+                            style = MaterialTheme.typography.bodyMedium,
+                            modifier = Modifier.padding(horizontal = AyvuSpacing.XS, vertical = AyvuSpacing.XS),
+                        )
+                    }
+                    items(offlineRows, key = { it.bookId }) { row ->
+                        OfflineAudioRow(
+                            title = row.title,
+                            bytes = row.bytes,
+                            onDelete = { viewModel.deleteOffline(row.bookId) },
+                        )
+                    }
+                }
+
+                item { SectionHeader("Appearance", Modifier.padding(top = AyvuSpacing.LG, bottom = AyvuSpacing.XS)) }
+                item {
+                    Column {
+                        ThemeMode.entries.forEach { mode ->
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier =
+                                    Modifier
+                                        .fillMaxWidth()
+                                        .selectable(
+                                            selected = state.themeMode == mode,
+                                            onClick = { viewModel.setTheme(mode) },
+                                        ).padding(vertical = AyvuSpacing.XS),
+                            ) {
+                                RadioButton(selected = state.themeMode == mode, onClick = { viewModel.setTheme(mode) })
+                                Text(
+                                    when (mode) {
+                                        ThemeMode.SYSTEM -> "Follow system"
+                                        ThemeMode.LIGHT -> "Light"
+                                        ThemeMode.DARK -> "Dark"
+                                    },
+                                )
+                            }
                         }
                     }
                 }
             }
-        }
         } else {
             LazyColumn(
                 modifier = Modifier.fillMaxSize().padding(padding),
@@ -301,7 +300,11 @@ fun SettingsScreen(
 }
 
 @Composable
-private fun OfflineAudioRow(title: String, bytes: Long, onDelete: () -> Unit) {
+private fun OfflineAudioRow(
+    title: String,
+    bytes: Long,
+    onDelete: () -> Unit,
+) {
     // Destructive action behind an explicit confirm (decisions #94) — the
     // delete cancels queued pregen work and drops cached audio.
     var confirmDelete by remember { mutableStateOf(false) }
@@ -332,7 +335,10 @@ private fun OfflineAudioRow(title: String, bytes: Long, onDelete: () -> Unit) {
 }
 
 @Composable
-private fun PackRow(row: PackRow, onDownload: () -> Unit) {
+private fun PackRow(
+    row: PackRow,
+    onDownload: () -> Unit,
+) {
     Row(
         verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier.fillMaxWidth().padding(vertical = AyvuSpacing.XS),
@@ -348,19 +354,21 @@ private fun PackRow(row: PackRow, onDownload: () -> Unit) {
                     )
                     Text("${(row.progress * 100).toInt()}%", style = MaterialTheme.typography.labelSmall)
                 }
-                row.status == PackStatus.Ready -> Text(
-                    if (row.staged) "ready · installed" else "ready",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.primary,
-                )
+                row.status == PackStatus.Ready ->
+                    Text(
+                        if (row.staged) "ready · installed" else "ready",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.primary,
+                    )
                 row.error != null -> {
                     Text("failed: ${row.error}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.error)
                     PillButton("Retry", onClick = onDownload)
                 }
-                else -> Text(
-                    "${row.sizeBytes / 1_048_576} MiB — download required",
-                    style = MaterialTheme.typography.labelSmall,
-                )
+                else ->
+                    Text(
+                        "${row.sizeBytes / 1_048_576} MiB — download required",
+                        style = MaterialTheme.typography.labelSmall,
+                    )
             }
         }
         if (row.progress == null && row.status != PackStatus.Ready) {
@@ -373,9 +381,13 @@ private fun PackRow(row: PackRow, onDownload: () -> Unit) {
     }
 }
 
-
 @Composable
-private fun OcrLanguageRow(packId: String, enabled: Boolean, selected: Boolean, onToggle: (Boolean) -> Unit) {
+private fun OcrLanguageRow(
+    packId: String,
+    enabled: Boolean,
+    selected: Boolean,
+    onToggle: (Boolean) -> Unit,
+) {
     Row(
         verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier.fillMaxWidth().padding(start = AyvuSpacing.SM, end = AyvuSpacing.XS, bottom = AyvuSpacing.SM),
@@ -393,47 +405,19 @@ private fun OcrLanguageRow(packId: String, enabled: Boolean, selected: Boolean, 
     }
 }
 
-@Composable
-private fun VoiceRow(
-    name: String,
-    selected: Boolean,
-    favorite: Boolean,
-    onSelect: () -> Unit,
-    onToggleFavorite: () -> Unit,
-) {
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
-        modifier = Modifier.fillMaxWidth().clickable(onClick = onSelect).padding(vertical = AyvuSpacing.XS),
-    ) {
-        Text(
-            name,
-            style = MaterialTheme.typography.bodyMedium,
-            color = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
-            modifier = Modifier.weight(1f),
-        )
-        IconButton(onClick = onToggleFavorite) {
-            Icon(
-                Icons.Filled.Star,
-                contentDescription = if (favorite) "Unfavorite $name" else "Favorite $name",
-                tint = if (favorite) MaterialTheme.colorScheme.tertiary else MaterialTheme.colorScheme.outline,
-            )
-        }
-    }
-}
-
-
 private val OCR_PACK_IDS = setOf("eng", "spa", "fra", "deu", "por", "ita")
 
 private val KOKORO_PACK_IDS = setOf("kokoro-model", "kokoro-voices", "espeak-ng")
 
 /** C1.5: settings PackRow → the shared plan card's neutral row shape. */
 private fun PackRow.toPlanRow(): PlanPackRow {
-    val planStatus = when (val s = status) {
-        is PackStatus.Downloading -> PlanPackStatus.Downloading(s.downloadedBytes, s.totalBytes)
-        PackStatus.Ready -> PlanPackStatus.Ready
-        is PackStatus.Failed -> PlanPackStatus.Failed(error)
-        PackStatus.NotDownloaded -> PlanPackStatus.NotDownloaded
-    }
+    val planStatus =
+        when (val s = status) {
+            is PackStatus.Downloading -> PlanPackStatus.Downloading(s.downloadedBytes, s.totalBytes)
+            PackStatus.Ready -> PlanPackStatus.Ready
+            is PackStatus.Failed -> PlanPackStatus.Failed(error)
+            PackStatus.NotDownloaded -> PlanPackStatus.NotDownloaded
+        }
     return PlanPackRow(
         packId = packId,
         displayName = displayName,

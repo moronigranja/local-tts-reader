@@ -5,67 +5,67 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.app.Service
-import android.graphics.Bitmap
-import android.graphics.BitmapFactory
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.content.pm.ApplicationInfo
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.media.AudioAttributes
 import android.media.AudioFocusRequest
 import android.media.AudioManager
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
+import android.support.v4.media.MediaMetadataCompat
+import android.support.v4.media.session.MediaSessionCompat
+import android.support.v4.media.session.PlaybackStateCompat
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.app.ServiceCompat
 import androidx.core.content.ContextCompat
-import android.support.v4.media.MediaMetadataCompat
-import android.support.v4.media.session.MediaSessionCompat
-import android.support.v4.media.session.PlaybackStateCompat
 import androidx.media.app.NotificationCompat.MediaStyle
 import com.moronigranja.localttsreader.model.Book
+import com.moronigranja.localttsreader.persistence.AppSettings
+import com.moronigranja.localttsreader.persistence.RoomLibraryStore
 import com.moronigranja.localttsreader.player.BookLayout
 import com.moronigranja.localttsreader.player.BookProgress
+import com.moronigranja.localttsreader.player.PlaybackStateHolder
+import com.moronigranja.localttsreader.player.PlaybackUiState
 import com.moronigranja.localttsreader.player.PlayerEvent
 import com.moronigranja.localttsreader.player.PlayerPhase
 import com.moronigranja.localttsreader.player.PlayerPosition
+import com.moronigranja.localttsreader.player.PlayerState
 import com.moronigranja.localttsreader.player.PlayerStateMachine
 import com.moronigranja.localttsreader.player.PlayerStore
-import com.moronigranja.localttsreader.player.PlaybackStateHolder
-import com.moronigranja.localttsreader.player.PlaybackUiState
+import com.moronigranja.localttsreader.player.SleepTimer
 import com.moronigranja.localttsreader.player.passageText
 import com.moronigranja.localttsreader.player.pregen.PregenAudio
 import com.moronigranja.localttsreader.player.pregen.PregenKey
 import com.moronigranja.localttsreader.player.pregen.PregenQueue
-import com.moronigranja.localttsreader.player.PlayerState
-import com.moronigranja.localttsreader.player.SleepTimer
-import com.moronigranja.localttsreader.persistence.AppSettings
-import com.moronigranja.localttsreader.persistence.RoomLibraryStore
 import com.moronigranja.localttsreader.tts.SegmentAnchor
 import com.moronigranja.localttsreader.tts.SynthesisOutcome
 import com.moronigranja.localttsreader.tts.SynthesisRequest
 import dagger.hilt.android.AndroidEntryPoint
-import java.io.File
-import java.util.concurrent.Executors
-import javax.inject.Inject
 import kotlinx.coroutines.CompletableDeferred
-import kotlinx.coroutines.asCoroutineDispatcher
-import kotlinx.coroutines.withContext
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
-import kotlin.coroutines.coroutineContext
-import kotlinx.coroutines.delay
+import kotlinx.coroutines.asCoroutineDispatcher
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.selects.onTimeout
 import kotlinx.coroutines.selects.select
+import kotlinx.coroutines.withContext
+import java.io.File
+import java.util.concurrent.Executors
+import javax.inject.Inject
+import kotlin.coroutines.coroutineContext
 
 /**
  * T4-2 playback: foreground service running the [PlayerStateMachine] against
@@ -77,17 +77,22 @@ import kotlinx.coroutines.selects.select
  */
 @AndroidEntryPoint
 class PlaybackService : Service() {
-
     @Inject lateinit var store: PlayerStore
+
     @Inject lateinit var libraryStore: RoomLibraryStore
+
     @Inject lateinit var runtime: KokoroRuntime
+
     // C1.5 (decisions #102): the engine seam — Kokoro or the degraded device
     // voice, selected by the persisted tts_engine setting.
     @Inject lateinit var selector: EngineSelector
+
     @Inject lateinit var settings: AppSettings
+
     @Inject lateinit var pregenCache: PregenCache
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+
     /** Dedicated player thread (decisions #85): the loop + ticker run on their
      * own single-thread dispatcher so the boundary path (advance → publish →
      * next dispatch) never queues behind the prefill's synthesis on
@@ -95,13 +100,18 @@ class PlaybackService : Service() {
      * 7-45 ms of CPU-contention time with the session/notify already gated.
      * Single-threaded also hardens the machine's single-writer edge (ticker
      * and loop share one thread). */
-    private val playerDispatcher = Executors.newSingleThreadExecutor { r ->
-        Thread(r, "AyvuPlayer").apply { priority = Thread.MAX_PRIORITY }
-    }.asCoroutineDispatcher()
+    private val playerDispatcher =
+        Executors
+            .newSingleThreadExecutor { r ->
+                Thread(r, "AyvuPlayer").apply { priority = Thread.MAX_PRIORITY }
+            }.asCoroutineDispatcher()
+
     /** CR-2 host-test seam: the current machine (set by tests directly). */
     internal var machine: PlayerStateMachine? = null
+
     /** Active book (internal for host tests that drive commands directly). */
     internal var book: Book? = null
+
     /** CR-2 host-test seam: the passage output (tests inject a fake).
      * Default: the static track (decisions #84) — MODE_STREAM proved inert
      * on the S22 (PLAYING with a frozen head, #83), so playback stays on
@@ -112,33 +122,41 @@ class PlaybackService : Service() {
     private var tickerJob: Job? = null
     private var pregenJob: Job? = null
     private var queue: PregenQueue? = null
+
     /** The last passage's rendered audio, keyed identically to the disk tier —
      * a seek that stays in the passage replays it with zero synthesis (decisions
      * #55 layer 1). Cleared on book switch. */
     private var lastAudio: Pair<PregenKey, PregenAudio>? = null
+
     /** In-flight first-listen persists; seek paths join them so a re-fetch of
      * a just-listened passage always finds the disk entry. Never cancelled —
      * a new first-listen must not drop the previous passage's write. */
     private val pendingPersists = mutableListOf<Job>()
+
     /** The active play loop coroutine; cancelled directly by [stopEverything]
      * so a stale loop can never advance the machine after a newer command. */
     private var loopJob: Job? = null
+
     /** Serializes transport commands (seek/chapter/skip/speed): rapid taps
      * queue instead of racing the machine's single-writer state. */
     private val commandLock = kotlinx.coroutines.sync.Mutex()
     private var stopSignal = CompletableDeferred<Unit>()
+
     /** The graceful STOP's final machine write (CR-2): onDestroy joins it so
      * exactly one authoritative stop persists — never a stale teardown write
      * overwriting the captured playhead. */
     private var finalStopJob: Job? = null
+
     /** Last live-playhead checkpoint (CR-2): monotonic interval gate. */
     private var lastCheckpointAt = 0L
+
     /** The in-flight command coroutine (CR-5): every control-plane command
      * (open/play/pause/seek/navigate/...) runs here; a NEWER command's
      * [stopEverything] cancels it so a superseded load can never advance or
      * publish shared state. The long-running synthesis/play loop runs inside
      * its command, so commands stay cancellable. */
     private var commandJob: Job? = null
+
     /**
      * Monotonic command generation (CR-5/CR-7): bumped by every
      * [stopEverything]. A command captures the generation it was launched
@@ -148,14 +166,17 @@ class PlaybackService : Service() {
      */
     @Volatile private var commandGeneration = 0L
     private var segments: List<SegmentAnchor> = emptyList()
+
     /** CR-2 host-test seam: the current PCM slice's start offset (book-time). */
     internal var baselineOffset = 0.0
+
     /** The last rendered passage's sample rate (S5, decisions #77): the live
      * playhead and the completion margin must use the actual audio rate, not a
      * kokoro constant — a future 22.05/16 kHz engine would silently miscompute
      * both. Defaults to kokoro's 24 kHz before the first passage renders. */
     private var lastSampleRateHz = DEFAULT_SAMPLE_RATE_HZ
     private var ringHasEntries = false
+
     // Measurement probes (goals §Measurement): tap-to-audio dispatch baseline
     // + boundary-gap consecutive-play baseline. Debug-gated (probesActive) and
     // log-only — never block, publish, or reorder.
@@ -163,9 +184,11 @@ class PlaybackService : Service() {
     private var tapAction: String? = null
     private var playAt = 0L
     private var prevFrames = 0
+
     /** Marker-accurate gap baseline (decisions #81): set when the
      * end-of-buffer marker fires, consumed by the next play dispatch. */
     private var lastMarkerAt = 0L
+
     /** The notification key of the last re-`notify` (decisions #82): the
      * per-boundary re-notify was an IPC to system_server on the player
      * coroutine, a measurable part of the boundary gap. Skipped when the
@@ -173,9 +196,11 @@ class PlaybackService : Service() {
      * unchanged — the passage ordinal in the shade may lag until the next
      * phase/transport change (a fresh notify fires then). */
     private var lastNotifiedKey: String? = null
+
     /** MediaSession content key (decisions #85): book + phase — the session
      * is updated only when this changes, not at every passage boundary. */
     private var lastSessionKey: String? = null
+
     // Media-notification cover art, cached per book (files/covers/<bookId>).
     private var coverArtBookId: String? = null
     private var coverArt: Bitmap? = null
@@ -200,7 +225,10 @@ class PlaybackService : Service() {
     /** Single gated emit point for every probe: logs only — never blocks,
      * publishes, or reorders, so the 50 ms poll loop and CR-2/CR-5/CR-7
      * ordering are untouched. Tags are consumed by a dev script. */
-    private fun probe(tag: String, message: String) {
+    private fun probe(
+        tag: String,
+        message: String,
+    ) {
         if (!probesActive) return
         android.util.Log.d(tag, message)
     }
@@ -221,10 +249,11 @@ class PlaybackService : Service() {
         super.onCreate()
         createNotificationChannel()
         audioManager = getSystemService(Context.AUDIO_SERVICE) as AudioManager
-        session = MediaSessionCompat(this, "local-tts-reader").apply {
-            setCallback(mediaCallback)
-            isActive = true
-        }
+        session =
+            MediaSessionCompat(this, "local-tts-reader").apply {
+                setCallback(mediaCallback)
+                isActive = true
+            }
         ContextCompat.registerReceiver(
             this,
             noisyReceiver,
@@ -233,7 +262,11 @@ class PlaybackService : Service() {
         )
     }
 
-    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+    override fun onStartCommand(
+        intent: Intent?,
+        flags: Int,
+        startId: Int,
+    ): Int {
         if (intent == null) return START_NOT_STICKY
         // Measurement probe (goals §Measurement): the tap timestamp is taken
         // at dispatch — before the foreground/when block — and consumed at
@@ -258,6 +291,7 @@ class PlaybackService : Service() {
             ACTION_STOP -> stopPlayer()
             ACTION_SLEEP -> cycleSleepTimer()
             ACTION_BOOKMARK -> addBookmarkAtPlayhead()
+            ACTION_CHANGE_VOICE -> intent.getStringExtra(EXTRA_VOICE)?.let(::changeVoice)
         }
         return START_NOT_STICKY
     }
@@ -277,8 +311,11 @@ class PlaybackService : Service() {
         stopEverything()
         launchCommand { generation ->
             settings.reload()
-            val activeBook = runCatching { libraryStore.cachedBooks() }.getOrNull()
-                ?.firstOrNull { it.id == id }?.toBook()
+            val activeBook =
+                runCatching { libraryStore.cachedBooks() }
+                    .getOrNull()
+                    ?.firstOrNull { it.id == id }
+                    ?.toBook()
             // CR-5: a superseding command cancelled us — never touch shared state.
             if (!active(generation)) return@launchCommand
             if (activeBook == null) return@launchCommand
@@ -313,10 +350,18 @@ class PlaybackService : Service() {
      * edge is a no-op. Playback never starts; the reader pages to the
      * presented passage itself.
      */
-    internal fun openChapter(bookId: String?, direction: Int) {
+    internal fun openChapter(
+        bookId: String?,
+        direction: Int,
+    ) {
         val id = bookId ?: return
         val activeBook = book ?: return
-        val current = machine?.state?.value?.position?.chapterIndex ?: return
+        val current =
+            machine
+                ?.state
+                ?.value
+                ?.position
+                ?.chapterIndex ?: return
         // Resolve the neighbor BEFORE touching the machine/audio: a book-edge
         // turn is a pure no-op and must leave the present machine intact —
         // rebuilding below before this null check would null the position and
@@ -327,8 +372,11 @@ class PlaybackService : Service() {
         stopEverything()
         launchCommand { generation ->
             settings.reload()
-            val reloaded = runCatching { libraryStore.cachedBooks() }.getOrNull()
-                ?.firstOrNull { it.id == id }?.toBook()
+            val reloaded =
+                runCatching { libraryStore.cachedBooks() }
+                    .getOrNull()
+                    ?.firstOrNull { it.id == id }
+                    ?.toBook()
             // CR-5: a superseding command cancelled us — never touch shared state.
             if (!active(generation)) return@launchCommand
             if (reloaded == null) return@launchCommand
@@ -357,7 +405,11 @@ class PlaybackService : Service() {
         }
     }
 
-    private fun startPlayback(bookId: String?, explicit: Boolean, intent: Intent? = null) {
+    private fun startPlayback(
+        bookId: String?,
+        explicit: Boolean,
+        intent: Intent? = null,
+    ) {
         val id = bookId ?: return
         if (selector.engine() == null) {
             PlaybackStateHolder.update { it.copy(failure = selector.failureReason ?: "engine unavailable") }
@@ -367,8 +419,11 @@ class PlaybackService : Service() {
         requestFocus()
         launchCommand { generation ->
             settings.reload() // V1: settings written by the UI apply at the next play action
-            val activeBook = runCatching { libraryStore.cachedBooks() }.getOrNull()
-                ?.firstOrNull { it.id == id }?.toBook()
+            val activeBook =
+                runCatching { libraryStore.cachedBooks() }
+                    .getOrNull()
+                    ?.firstOrNull { it.id == id }
+                    ?.toBook()
             // CR-5: a superseding command cancelled us — never touch shared state.
             if (!active(generation)) return@launchCommand
             if (activeBook == null) return@launchCommand
@@ -377,21 +432,24 @@ class PlaybackService : Service() {
             lastAudio = null
             queue = buildQueue()
             refreshBookmarks()
-            val position = if (explicit) {
-                PlayerPosition(id, intent?.getIntExtra(EXTRA_CHAPTER, 0) ?: 0, intent?.getIntExtra(EXTRA_PASSAGE, 0) ?: 0)
-            } else {
-                null
-            }
+            val position =
+                if (explicit) {
+                    PlayerPosition(id, intent?.getIntExtra(EXTRA_CHAPTER, 0) ?: 0, intent?.getIntExtra(EXTRA_PASSAGE, 0) ?: 0)
+                } else {
+                    null
+                }
             if (position != null) {
                 machine!!.playFrom(position)
             } else if (machine!!.resume() == null) {
                 // First play: start at the book's first *playable* passage —
                 // segmentation renumbers from 0, but a stale/empty parse must
                 // not crash the (0,0) require.
-                machine!!.playFrom(machine!!.firstPosition() ?: run {
-                    PlaybackStateHolder.update { it.copy(failure = "nothing to play") }
-                    return@launchCommand
-                })
+                machine!!.playFrom(
+                    machine!!.firstPosition() ?: run {
+                        PlaybackStateHolder.update { it.copy(failure = "nothing to play") }
+                        return@launchCommand
+                    },
+                )
             }
             if (machine!!.state.value.phase != PlayerPhase.LOADING) {
                 PlaybackStateHolder.update { it.copy(failure = "nothing to play") }
@@ -399,7 +457,9 @@ class PlaybackService : Service() {
             }
             // Keep a time-buffer filled while the loop runs (startPrefill owns
             // the long-lived synthesis job; the loop no longer cancel-relaunches).
-            machine!!.state.value.position?.let { startPrefill(it) }
+            machine!!
+                .state.value.position
+                ?.let { startPrefill(it) }
             // CR-5/CR-7: a superseded play must not enter the foreground or
             // start its loop after a newer command won.
             if (!active(generation)) return@launchCommand
@@ -409,6 +469,60 @@ class PlaybackService : Service() {
             startForeground(NOTIFICATION_ID, buildNotification())
             publish()
             startLoop()
+        }
+    }
+
+    /**
+     * C2: switches the ACTIVE book to a newly selected voice while preserving
+     * the playhead (roadmap acceptance: "pause/restart occurs once at the
+     * same position; the following passage uses the new voice"). Runs as a
+     * tracked command under the A5 single-writer model: the live position is
+     * captured BEFORE [stopEverything] supersedes in-flight synthesis, the
+     * settings reload picks up the new voice, and the queue/fill rebuild
+     * voice-keyed exactly like any other queue build — so a stale generation
+     * from the old voice can never publish (CR-5) and the disk cache selects
+     * the new voice's entries naturally. The persisted setting is written by
+     * the caller (selector surface) BEFORE dispatch; this command only
+     * rebuilds. Playing resumes at the captured playhead; a paused session
+     * stays paused at the same position (no auto-resume).
+     */
+    internal fun changeVoice(voice: String) {
+        if (voice.isBlank()) return
+        // Callers (the reader's voice sheet) persist the new voice BEFORE
+        // dispatch and only dispatch on a real change (voice != current), so
+        // a `voice == activeVoice()` guard here would always early-return and
+        // the rebuild would never run. The service rebuilds whenever a
+        // different voice is handed to it, preserving the playhead (A5).
+        val active = machine ?: return // nothing open — the setting alone suffices
+        val wasPlaying =
+            active.state.value.phase == PlayerPhase.PLAYING || active.state.value.phase == PlayerPhase.LOADING
+        val position =
+            active.state.value.position
+                ?.copy(offsetSeconds = liveOffsetSeconds())
+        stopEverything()
+        launchCommand { generation ->
+            settings.reload() // C2: the new voice landed before dispatch
+            if (!active(generation)) return@launchCommand
+            if (position == null || machine == null) return@launchCommand
+            queue = buildQueue()
+            if (wasPlaying) {
+                machine!!.playFrom(position)
+            } else {
+                machine!!.present(position)
+            }
+            if (!active(generation)) return@launchCommand
+            if (wasPlaying) {
+                machine!!
+                    .state.value.position
+                    ?.let { startPrefill(it) }
+                PlaybackActive.markStarted()
+                startForeground(NOTIFICATION_ID, buildNotification())
+                publish()
+                startLoop()
+            } else {
+                publish()
+                ServiceCompat.stopForeground(this@PlaybackService, ServiceCompat.STOP_FOREGROUND_REMOVE)
+            }
         }
     }
 
@@ -440,7 +554,8 @@ class PlaybackService : Service() {
             }
             if (!active(generation)) return@launchCommand
             queue = buildQueue()
-            active.state.value.position?.let { startPrefill(it) }
+            active.state.value.position
+                ?.let { startPrefill(it) }
             // G2: the session window starts here and ends only when the
             // post-stop fill completes (markStopped in startPostStopPrefill).
             PlaybackActive.markStarted()
@@ -455,7 +570,10 @@ class PlaybackService : Service() {
      * and publishes PAUSED on every surface — but only if no newer command
      * superseded this pause before its publish (CR-5/CR-7).
      */
-    internal fun pausePlayer(reason: PauseReason, resumeOnGain: Boolean = false) {
+    internal fun pausePlayer(
+        reason: PauseReason,
+        resumeOnGain: Boolean = false,
+    ) {
         this.resumeOnGain = resumeOnGain
         val active = machine ?: return
         val live = liveOffsetSeconds()
@@ -490,7 +608,10 @@ class PlaybackService : Service() {
                 // D1: the long-lived follow-playhead fill SURVIVED
                 // (stopFill=false) — its ensure re-arms from the machine's new
                 // position on the next tick; guard only against an absent fill.
-                if (pregenJob == null) active.state.value.position?.let { startPrefill(it) }
+                if (pregenJob == null) {
+                    active.state.value.position
+                        ?.let { startPrefill(it) }
+                }
                 startLoop()
             }
         }
@@ -515,10 +636,11 @@ class PlaybackService : Service() {
                 active.notePlaybackOffset(live)
                 val activeBook = book ?: return@launchCommand
                 val position = active.state.value.position ?: return@launchCommand
-                val target = BookProgress.positionAt(
-                    activeBook,
-                    BookProgress.elapsedSeconds(activeBook, position) + deltaSeconds,
-                )
+                val target =
+                    BookProgress.positionAt(
+                        activeBook,
+                        BookProgress.elapsedSeconds(activeBook, position) + deltaSeconds,
+                    )
                 active.seekTo(target)
                 ringHasEntries = store.readRing(active.bookId).isNotEmpty()
                 // A7 (CR-7): seek repositions a paused playhead without resuming.
@@ -534,7 +656,10 @@ class PlaybackService : Service() {
                 // D1: the long-lived follow-playhead fill SURVIVED
                 // (stopFill=false) — its ensure re-arms from the machine's new
                 // position on the next tick; guard only against an absent fill.
-                if (pregenJob == null) active.state.value.position?.let { startPrefill(it) }
+                if (pregenJob == null) {
+                    active.state.value.position
+                        ?.let { startPrefill(it) }
+                }
                 startLoop()
             }
         }
@@ -562,7 +687,10 @@ class PlaybackService : Service() {
                 // D1: the long-lived follow-playhead fill SURVIVED
                 // (stopFill=false) — its ensure re-arms from the machine's new
                 // position on the next tick; guard only against an absent fill.
-                if (pregenJob == null) active.state.value.position?.let { startPrefill(it) }
+                if (pregenJob == null) {
+                    active.state.value.position
+                        ?.let { startPrefill(it) }
+                }
                 startLoop()
             }
         }
@@ -570,11 +698,12 @@ class PlaybackService : Service() {
 
     private fun cycleSleepTimer() {
         val active = machine ?: return
-        val next = when (active.state.value.sleepTimer) {
-            SleepTimer.Off -> SleepTimer.EndOfChapter
-            SleepTimer.EndOfChapter -> SleepTimer.Duration(clock() + 30 * 60_000L)
-            is SleepTimer.Duration -> SleepTimer.Off
-        }
+        val next =
+            when (active.state.value.sleepTimer) {
+                SleepTimer.Off -> SleepTimer.EndOfChapter
+                SleepTimer.EndOfChapter -> SleepTimer.Duration(clock() + 30 * 60_000L)
+                is SleepTimer.Duration -> SleepTimer.Off
+            }
         active.setSleepTimer(next)
         publish()
     }
@@ -620,10 +749,11 @@ class PlaybackService : Service() {
     internal fun captureAndStop(): Double {
         val finalOffset = liveOffsetSeconds()
         stopEverything()
-        finalStopJob = scope.launch {
-            machine?.stop(finalOffset)
-            PlaybackStateHolder.reset()
-        }
+        finalStopJob =
+            scope.launch {
+                machine?.stop(finalOffset)
+                PlaybackStateHolder.reset()
+            }
         return finalOffset
     }
 
@@ -658,39 +788,45 @@ class PlaybackService : Service() {
             // land before any re-fetch, so a played passage is always on disk.
             pendingPersists.forEach { it.join() }
             val fromLast = lastAudio?.takeIf { it.first == key }?.second
-            val fromQueue = fromLast
-                ?.let { null }
-                ?: queue?.take(position.chapterIndex, position.passageIndex)
-            val fromDisk = fromQueue
-                ?.let { null }
-                ?: pregenCache.cache.get(key)
-            val outcome = fromLast
-                ?.let { SynthesisOutcome.Audio(it.pcm, it.sampleRateHz, channelCount = 1, segments = it.segments) }
-                ?: fromQueue
+            val fromQueue =
+                fromLast
+                    ?.let { null }
+                    ?: queue?.take(position.chapterIndex, position.passageIndex)
+            val fromDisk =
+                fromQueue
+                    ?.let { null }
+                    ?: pregenCache.cache.get(key)
+            val outcome =
+                fromLast
                     ?.let { SynthesisOutcome.Audio(it.pcm, it.sampleRateHz, channelCount = 1, segments = it.segments) }
-                ?: fromDisk
-                    ?.let { SynthesisOutcome.Audio(it.pcm, it.sampleRateHz, channelCount = 1, segments = it.segments) }
-                ?: bufferForPlayback(position, voice, current.speed, text)
-            val sourceKey = when {
-                fromLast != null -> "buffer"
-                fromQueue != null -> "pregen"
-                fromDisk != null -> "disk"
-                else -> "synthesized"
-            }
+                    ?: fromQueue
+                        ?.let { SynthesisOutcome.Audio(it.pcm, it.sampleRateHz, channelCount = 1, segments = it.segments) }
+                    ?: fromDisk
+                        ?.let { SynthesisOutcome.Audio(it.pcm, it.sampleRateHz, channelCount = 1, segments = it.segments) }
+                    ?: bufferForPlayback(position, voice, current.speed, text)
+            val sourceKey =
+                when {
+                    fromLast != null -> "buffer"
+                    fromQueue != null -> "pregen"
+                    fromDisk != null -> "disk"
+                    else -> "synthesized"
+                }
             android.util.Log.d("PlaybackService", "loop: source=$sourceKey")
-            val audio = outcome as? SynthesisOutcome.Audio ?: run {
-                val reason = (outcome as? SynthesisOutcome.Failed)?.reason ?: "engine/packs unavailable"
-                PlaybackStateHolder.update { it.copy(failure = "synthesis failed: $reason") }
-                return
-            }
+            val audio =
+                outcome as? SynthesisOutcome.Audio ?: run {
+                    val reason = (outcome as? SynthesisOutcome.Failed)?.reason ?: "engine/packs unavailable"
+                    PlaybackStateHolder.update { it.copy(failure = "synthesis failed: $reason") }
+                    return
+                }
             // First listen of this passage (no source had it): persist it so
             // an offline run never redoes the work — normal use fills the cache.
             // The write is tracked so seek paths join it (deterministic disk).
             if (fromLast == null && fromQueue == null && fromDisk == null) {
                 val toCache = PregenAudio(audio.pcm, audio.sampleRateHz, audio.segments)
-                pendingPersists += scope.launch(Dispatchers.IO) {
-                    pregenCache.cache.put(key, toCache)
-                }
+                pendingPersists +=
+                    scope.launch(Dispatchers.IO) {
+                        pregenCache.cache.put(key, toCache)
+                    }
             }
             // Keep the rendered passage for same-passage seek reuse (layer 1).
             lastAudio = key to PregenAudio(audio.pcm, audio.sampleRateHz, audio.segments)
@@ -714,9 +850,10 @@ class PlaybackService : Service() {
             // miss just skips the pre-arm (the boundary falls back to build).
             runCatching {
                 val next = nextPosition(position, activeBook) ?: return@runCatching
-                val nextPcm = queue
-                    ?.peek(next.chapterIndex, next.passageIndex)
-                    ?: pregenCache.cache.get(PregenKey(activeBook.id, next.chapterIndex, next.passageIndex, voice, current.speed))
+                val nextPcm =
+                    queue
+                        ?.peek(next.chapterIndex, next.passageIndex)
+                        ?: pregenCache.cache.get(PregenKey(activeBook.id, next.chapterIndex, next.passageIndex, voice, current.speed))
                 if (nextPcm != null) output.prearm(nextPcm.pcm.size, nextPcm.sampleRateHz)
             }
             // Measurement probes (goals §Measurement): tap-to-audio at the
@@ -729,19 +866,23 @@ class PlaybackService : Service() {
                 val frames = sliced.size / 2
                 val now = clock()
                 val markerUsed = lastMarkerAt > 0L
-                val gapMs = if (markerUsed) {
-                    // Marker-accurate audible gap (decisions #81): audio N's
-                    // exact end (marker callback) to this play's dispatch —
-                    // no poll quantization. Falls back to [computeGapMs] when
-                    // the marker did not fire (unreliable-device concern).
-                    val g = now - lastMarkerAt
-                    lastMarkerAt = 0L
-                    g.takeIf { it >= 0 }
-                } else {
-                    computeGapMs(now, playAt, prevFrames, audio.sampleRateHz)
-                }
+                val gapMs =
+                    if (markerUsed) {
+                        // Marker-accurate audible gap (decisions #81): audio N's
+                        // exact end (marker callback) to this play's dispatch —
+                        // no poll quantization. Falls back to [computeGapMs] when
+                        // the marker did not fire (unreliable-device concern).
+                        val g = now - lastMarkerAt
+                        lastMarkerAt = 0L
+                        g.takeIf { it >= 0 }
+                    } else {
+                        computeGapMs(now, playAt, prevFrames, audio.sampleRateHz)
+                    }
                 if (gapMs != null) {
-                    probe("AyvuGap", "gap-ms=$gapMs m=${if (markerUsed) 1 else 0} passage=${position.chapterIndex}/${position.passageIndex}")
+                    probe(
+                        "AyvuGap",
+                        "gap-ms=$gapMs m=${if (markerUsed) 1 else 0} passage=${position.chapterIndex}/${position.passageIndex}",
+                    )
                 }
                 playAt = now
                 prevFrames = frames
@@ -755,7 +896,10 @@ class PlaybackService : Service() {
             // and every passage change paid a cold restart. The fill job only
             // stops on stopEveryState/rebuild.
             val finished = awaitPlaybackOrStop(sliced.size / 2, audio.sampleRateHz, active)
-            android.util.Log.d("PlaybackService", "loop: await returned finished=$finished (pos=${output.positionSamples}/${sliced.size / 2})")
+            android.util.Log.d(
+                "PlaybackService",
+                "loop: await returned finished=$finished (pos=${output.positionSamples}/${sliced.size / 2})",
+            )
             if (!finished) return
 
             // Boundary stage-attribution (decisions #82): the marker-accurate
@@ -782,7 +926,11 @@ class PlaybackService : Service() {
         }
     }
 
-    private suspend fun awaitPlaybackOrStop(totalFrames: Int, sampleRate: Int, active: PlayerStateMachine): Boolean {
+    private suspend fun awaitPlaybackOrStop(
+        totalFrames: Int,
+        sampleRate: Int,
+        active: PlayerStateMachine,
+    ): Boolean {
         // Marker-based completion (decisions #81): an exact end-of-buffer
         // marker removes the 50 ms poll quantization from the boundary gap —
         // the poll stays as the fallback for devices where static markers
@@ -851,7 +999,11 @@ class PlaybackService : Service() {
     }
 
     private fun publish() {
-        val active = machine ?: run { PlaybackStateHolder.reset(); return }
+        val active =
+            machine ?: run {
+                PlaybackStateHolder.reset()
+                return
+            }
         val state = active.state.value
         // The reader's per-second progress/read-along surface (StateFlow
         // only) is always kept current — cheap, no IPC.
@@ -865,19 +1017,20 @@ class PlaybackService : Service() {
         val sessionKey = "${book?.id}|${state.phase}"
         if (sessionKey != lastSessionKey) {
             session.setMetadata(
-                MediaMetadataCompat.Builder()
+                MediaMetadataCompat
+                    .Builder()
                     .putString(MediaMetadataCompat.METADATA_KEY_TITLE, book?.title ?: "")
                     .putString(MediaMetadataCompat.METADATA_KEY_ARTIST, "local-tts-reader")
                     .build(),
             )
             session.setPlaybackState(
-                PlaybackStateCompat.Builder()
+                PlaybackStateCompat
+                    .Builder()
                     .setActions(
                         PlaybackStateCompat.ACTION_PLAY or PlaybackStateCompat.ACTION_PAUSE or
                             PlaybackStateCompat.ACTION_SKIP_TO_PREVIOUS or PlaybackStateCompat.ACTION_SKIP_TO_NEXT or
                             PlaybackStateCompat.ACTION_STOP,
-                    )
-                    .setState(
+                    ).setState(
                         when (state.phase) {
                             PlayerPhase.PLAYING, PlayerPhase.LOADING -> PlaybackStateCompat.STATE_PLAYING
                             PlayerPhase.PAUSED -> PlaybackStateCompat.STATE_PAUSED
@@ -886,8 +1039,7 @@ class PlaybackService : Service() {
                         },
                         PlaybackStateCompat.PLAYBACK_POSITION_UNKNOWN,
                         1f,
-                    )
-                    .build(),
+                    ).build(),
             )
             lastSessionKey = sessionKey
         }
@@ -917,7 +1069,10 @@ class PlaybackService : Service() {
      * the repo has burned on twice (CR-8/CR-9 collateral drops). Both
      * [publish] (structural snapshot) and [publishDetails] (per-second feed)
      * drive through here so every field stays populated on every path. */
-    private fun stateCopy(base: PlaybackUiState, active: PlayerStateMachine): PlaybackUiState {
+    private fun stateCopy(
+        base: PlaybackUiState,
+        active: PlayerStateMachine,
+    ): PlaybackUiState {
         val state = active.state.value
         val position = state.position
         return base.copy(
@@ -929,16 +1084,22 @@ class PlaybackService : Service() {
             passageText = position?.let { p -> book?.passageText(p.chapterIndex, p.passageIndex) } ?: "",
             passageDurationSeconds = segments.lastOrNull()?.endSeconds ?: 0.0,
             chapters = book?.chapters?.map { it.title.orEmpty() } ?: emptyList(),
-            chapterPassages = position?.let { p ->
-                book?.chapters?.firstOrNull { it.index == p.chapterIndex }?.passages?.map { it.text }
-            } ?: emptyList(),
+            chapterPassages =
+                position?.let { p ->
+                    book
+                        ?.chapters
+                        ?.firstOrNull { it.index == p.chapterIndex }
+                        ?.passages
+                        ?.map { it.text }
+                } ?: emptyList(),
             segments = segments,
             offsetSeconds = liveOffsetSeconds(),
             readFraction = position?.let { p -> book?.let { BookProgress.fraction(it, p.chapterIndex, p.passageIndex) } } ?: 0f,
             elapsedSeconds = position?.let { p -> book?.let { BookProgress.elapsedSeconds(it, p) } } ?: 0.0,
-            timeLeftSeconds = position?.let { p ->
-                book?.let { BookProgress.remainingSeconds(it, p.chapterIndex, p.passageIndex, liveOffsetSeconds(), state.speed) }
-            } ?: 0.0,
+            timeLeftSeconds =
+                position?.let { p ->
+                    book?.let { BookProgress.remainingSeconds(it, p.chapterIndex, p.passageIndex, liveOffsetSeconds(), state.speed) }
+                } ?: 0.0,
             generatedAheadSeconds = position?.let { queue?.aheadSeconds(it) } ?: 0.0,
             speed = state.speed,
             phase = state.phase,
@@ -962,63 +1123,75 @@ class PlaybackService : Service() {
     // ------------------------------------------------------------------
     // Media session / focus / noisy / notification
 
-    private val mediaCallback = object : MediaSessionCompat.Callback() {
-        override fun onPlay() {
-            // Measurement probe (goals §Measurement, L3): media-button/headset
-            // resume tap — in-process resume AND the post-death rebuild (arms
-            // before resumePlayer's machine==null startPlayback).
-            if (probesActive) probeTap(ACTION_RESUME)
-            resumePlayer(PlaybackStateHolder.state.value.bookId)
+    private val mediaCallback =
+        object : MediaSessionCompat.Callback() {
+            override fun onPlay() {
+                // Measurement probe (goals §Measurement, L3): media-button/headset
+                // resume tap — in-process resume AND the post-death rebuild (arms
+                // before resumePlayer's machine==null startPlayback).
+                if (probesActive) probeTap(ACTION_RESUME)
+                resumePlayer(PlaybackStateHolder.state.value.bookId)
+            }
+
+            override fun onPause() = pausePlayer(PauseReason.USER)
+
+            override fun onStop() = stopPlayer()
+
+            override fun onSkipToNext() = navigate { it.skipForward() }
+
+            override fun onSkipToPrevious() = navigate { it.skipBackward() }
         }
-        override fun onPause() = pausePlayer(PauseReason.USER)
-        override fun onStop() = stopPlayer()
-        override fun onSkipToNext() = navigate { it.skipForward() }
-        override fun onSkipToPrevious() = navigate { it.skipBackward() }
-    }
 
     private fun requestFocus() {
-        val request = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN)
-            .setAudioAttributes(
-                AudioAttributes.Builder()
-                    .setUsage(AudioAttributes.USAGE_MEDIA)
-                    .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
-                    .build(),
-            )
-            .setOnAudioFocusChangeListener(focusListener, mainHandler)
-            .build()
+        val request =
+            AudioFocusRequest
+                .Builder(AudioManager.AUDIOFOCUS_GAIN)
+                .setAudioAttributes(
+                    AudioAttributes
+                        .Builder()
+                        .setUsage(AudioAttributes.USAGE_MEDIA)
+                        .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
+                        .build(),
+                ).setOnAudioFocusChangeListener(focusListener, mainHandler)
+                .build()
         focusRequest = request
         audioManager.requestAudioFocus(request)
     }
 
-    private val focusListener = AudioManager.OnAudioFocusChangeListener { change ->
-        when (change) {
-            AudioManager.AUDIOFOCUS_GAIN -> {
-                if (ducking) {
+    private val focusListener =
+        AudioManager.OnAudioFocusChangeListener { change ->
+            when (change) {
+                AudioManager.AUDIOFOCUS_GAIN -> {
+                    if (ducking) {
+                        ducking = false
+                        output.setVolume(1f)
+                    }
+                    if (resumeOnGain && machine?.state?.value?.phase == PlayerPhase.PAUSED) {
+                        resumeOnGain = false
+                        resumePlayer()
+                    }
+                }
+                AudioManager.AUDIOFOCUS_LOSS -> {
                     ducking = false
-                    output.setVolume(1f)
+                    pausePlayer(PauseReason.FOCUS, resumeOnGain = false)
                 }
-                if (resumeOnGain && machine?.state?.value?.phase == PlayerPhase.PAUSED) {
-                    resumeOnGain = false
-                    resumePlayer()
+                AudioManager.AUDIOFOCUS_LOSS_TRANSIENT -> pausePlayer(PauseReason.FOCUS, resumeOnGain = true)
+                AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK -> {
+                    ducking = true
+                    output.setVolume(DUCK_VOLUME)
                 }
-            }
-            AudioManager.AUDIOFOCUS_LOSS -> {
-                ducking = false
-                pausePlayer(PauseReason.FOCUS, resumeOnGain = false)
-            }
-            AudioManager.AUDIOFOCUS_LOSS_TRANSIENT -> pausePlayer(PauseReason.FOCUS, resumeOnGain = true)
-            AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK -> {
-                ducking = true
-                output.setVolume(DUCK_VOLUME)
             }
         }
-    }
 
-    private val noisyReceiver = object : BroadcastReceiver() {
-        override fun onReceive(context: Context?, intent: Intent?) {
-            if (intent?.action == AudioManager.ACTION_AUDIO_BECOMING_NOISY) pausePlayer(PauseReason.NOISY)
+    private val noisyReceiver =
+        object : BroadcastReceiver() {
+            override fun onReceive(
+                context: Context?,
+                intent: Intent?,
+            ) {
+                if (intent?.action == AudioManager.ACTION_AUDIO_BECOMING_NOISY) pausePlayer(PauseReason.NOISY)
+            }
         }
-    }
 
     /** The transport-relevant identity of the media notification's visible
      * content (decisions #82): book + whether the play/pause action shows
@@ -1033,23 +1206,33 @@ class PlaybackService : Service() {
 
     private fun buildNotification(): Notification {
         val launch = packageManager.getLaunchIntentForPackage(packageName)
-        val openApp = launch?.let {
-            PendingIntent.getActivity(this, 0, it, PendingIntent.FLAG_IMMUTABLE)
-        }
-        fun action(intentAction: String, icon: Int, label: String) = NotificationCompat.Action(
-            icon, label,
+        val openApp =
+            launch?.let {
+                PendingIntent.getActivity(this, 0, it, PendingIntent.FLAG_IMMUTABLE)
+            }
+
+        fun action(
+            intentAction: String,
+            icon: Int,
+            label: String,
+        ) = NotificationCompat.Action(
+            icon,
+            label,
             PendingIntent.getService(
-                this, intentAction.hashCode(),
+                this,
+                intentAction.hashCode(),
                 Intent(this, PlaybackService::class.java).setAction(intentAction).putExtra(EXTRA_BOOK_ID, book?.id),
                 PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
             ),
         )
         val active = machine?.state?.value
         val playing = active?.phase == PlayerPhase.PLAYING || active?.phase == PlayerPhase.LOADING
-        return NotificationCompat.Builder(this, CHANNEL_ID)
-                        .setContentTitle(book?.title ?: "Ayvu")
-                        .setContentText("Chapter ${(active?.position?.chapterIndex ?: 0) + 1} · Passage ${(active?.position?.passageIndex ?: 0) + 1}")
-            .setLargeIcon(coverArt())
+        return NotificationCompat
+            .Builder(this, CHANNEL_ID)
+            .setContentTitle(book?.title ?: "Ayvu")
+            .setContentText(
+                "Chapter ${(active?.position?.chapterIndex ?: 0) + 1} · Passage ${(active?.position?.passageIndex ?: 0) + 1}",
+            ).setLargeIcon(coverArt())
             .setSmallIcon(android.R.drawable.ic_media_play)
             .setOngoing(true)
             .setContentIntent(openApp)
@@ -1061,16 +1244,18 @@ class PlaybackService : Service() {
                     if (playing) android.R.drawable.ic_media_pause else android.R.drawable.ic_media_play,
                     if (playing) "Pause" else "Play",
                 ),
-            )
-            .addAction(action(ACTION_SKIP_FORWARD, android.R.drawable.ic_media_next, "Next"))
+            ).addAction(action(ACTION_SKIP_FORWARD, android.R.drawable.ic_media_next, "Next"))
             .addAction(action(ACTION_STOP, android.R.drawable.ic_menu_close_clear_cancel, "Stop"))
             .setStyle(MediaStyle().setMediaSession(session.sessionToken).setShowActionsInCompactView(1))
             .build()
-        }
+    }
 
     /** The passage after [position] in spine order, or null at the book's end
      * (decisions #84 — the boundary pre-arm target). */
-    private fun nextPosition(position: PlayerPosition, book: Book): PlayerPosition? {
+    private fun nextPosition(
+        position: PlayerPosition,
+        book: Book,
+    ): PlayerPosition? {
         var chapter = position.chapterIndex
         var passage = position.passageIndex + 1
         while (chapter < book.chapters.size) {
@@ -1090,17 +1275,18 @@ class PlaybackService : Service() {
         if (coverArtBookId == id) return coverArt
         coverArtBookId = id
         val file = File(filesDir, "covers/$id")
-        coverArt = if (file.isFile) {
-            runCatching {
-                val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-                BitmapFactory.decodeFile(file.absolutePath, bounds)
-                var sample = 1
-                while (bounds.outWidth / (sample * 2) >= 512 && bounds.outHeight / (sample * 2) >= 512) sample *= 2
-                BitmapFactory.decodeFile(file.absolutePath, BitmapFactory.Options().apply { inSampleSize = sample })
-            }.getOrNull()
-        } else {
-            null
-        }
+        coverArt =
+            if (file.isFile) {
+                runCatching {
+                    val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+                    BitmapFactory.decodeFile(file.absolutePath, bounds)
+                    var sample = 1
+                    while (bounds.outWidth / (sample * 2) >= 512 && bounds.outHeight / (sample * 2) >= 512) sample *= 2
+                    BitmapFactory.decodeFile(file.absolutePath, BitmapFactory.Options().apply { inSampleSize = sample })
+                }.getOrNull()
+            } else {
+                null
+            }
         return coverArt
     }
 
@@ -1165,27 +1351,28 @@ class PlaybackService : Service() {
     ) {
         val q = queue ?: return
         pregenJob?.cancel() // superseded queue (speed/voice/book) — safe to drop
-        pregenJob = scope.launch {
-            val startedAt = System.currentTimeMillis()
-            while (isActive) {
-                if (deadlineMs != null && System.currentTimeMillis() - startedAt >= deadlineMs) break
-                // Re-arm from the live playhead every tick so consumed passages
-                // stay pruned and the fill tracks the moving position; [from]
-                // is the start (a book opened idle front-loads its opening).
-                val playhead = if (followPlayhead) machine?.state?.value?.position ?: from else from
-                // D1: the live playhead is re-checked BETWEEN passages inside
-                // ensure, so a seek during a fill does not synthesize the
-                // stale plan (the plan yields once the playhead overtakes the
-                // next planned key).
-                q.ensure(playhead) { machine?.state?.value?.position }
-                if (!followPlayhead && q.aheadSeconds(playhead) >= PREFILL_LOOKAHEAD_SECONDS) {
-                    android.util.Log.d("PlaybackService", "postStop: fill done ahead=${q.aheadSeconds(playhead)} self-stopping")
-                    break
+        pregenJob =
+            scope.launch {
+                val startedAt = System.currentTimeMillis()
+                while (isActive) {
+                    if (deadlineMs != null && System.currentTimeMillis() - startedAt >= deadlineMs) break
+                    // Re-arm from the live playhead every tick so consumed passages
+                    // stay pruned and the fill tracks the moving position; [from]
+                    // is the start (a book opened idle front-loads its opening).
+                    val playhead = if (followPlayhead) machine?.state?.value?.position ?: from else from
+                    // D1: the live playhead is re-checked BETWEEN passages inside
+                    // ensure, so a seek during a fill does not synthesize the
+                    // stale plan (the plan yields once the playhead overtakes the
+                    // next planned key).
+                    q.ensure(playhead) { machine?.state?.value?.position }
+                    if (!followPlayhead && q.aheadSeconds(playhead) >= PREFILL_LOOKAHEAD_SECONDS) {
+                        android.util.Log.d("PlaybackService", "postStop: fill done ahead=${q.aheadSeconds(playhead)} self-stopping")
+                        break
+                    }
+                    delay(PREFILL_TICK_MS)
                 }
-                delay(PREFILL_TICK_MS)
+                onDone?.invoke()
             }
-            onDone?.invoke()
-        }
     }
 
     /**
@@ -1346,9 +1533,11 @@ class PlaybackService : Service() {
         private const val CHANNEL_ID = "playback"
         private const val NOTIFICATION_ID = 42
         private const val TICK_MS = 1_000L
+
         /** CR-2 live-playhead persistence cadence (roadmap A2). */
         internal const val CHECKPOINT_MS = 5_000L
         private const val SEEK_STEP_SECONDS = 30.0
+
         /** Kokoro's sample rate — the default before a passage renders (S5). */
         private const val DEFAULT_SAMPLE_RATE_HZ = 24_000
         private const val DUCK_VOLUME = 0.2f
@@ -1361,19 +1550,25 @@ class PlaybackService : Service() {
         // would reduce the buffer-before-start headroom on the B6 (RTF 2.9).
         // Survive-seek (the D1 slice that landed) is what makes seeks cheap;
         // a narrower horizon is a measured follow-up, not a blind change.
+
         /** Prefill: buffer this many seconds of audio ahead while playing. */
         private const val PREFILL_LOOKAHEAD_SECONDS = 45.0
+
         /** Prefill: hard passage ceiling (bulwark against tiny-passage books). */
         private const val PREFILL_LOOKAHEAD_PASSAGES = 60
+
         /** Prefill: re-check cadence; ensure() returns early once the target is met. */
         private const val PREFILL_TICK_MS = 200L
+
         /** Buffer-before-start: max wall time to wait for the prefill queue to
          * render a cold/jumped passage before falling back to a sync synthesize. */
         private const val PLAY_BUFFER_TIMEOUT_MS = 60_000L
+
         /** Post-STOP fill: keep filling for at most this long before tearing down. */
         private const val POST_STOP_MAX_MS = 120_000L
         private val SETTLED_PHASES = setOf(PlayerPhase.PLAYING, PlayerPhase.PAUSED, PlayerPhase.LOADING)
         private var clock: () -> Long = System::currentTimeMillis
+
         /** Measurement-probe master toggle (goals §Measurement): one-line
          * kill switch; the runtime gate additionally requires a debuggable
          * app build (feature-player has no BuildConfig). */
@@ -1389,7 +1584,12 @@ class PlaybackService : Service() {
          * clock went backwards. Approximation: play-dispatch to play-dispatch,
          * not a true passage-end measurement.
          */
-        internal fun computeGapMs(now: Long, prevPlayAt: Long, prevFrames: Int, sampleRate: Int): Long? {
+        internal fun computeGapMs(
+            now: Long,
+            prevPlayAt: Long,
+            prevFrames: Int,
+            sampleRate: Int,
+        ): Long? {
             if (prevPlayAt <= 0L || prevFrames <= 0 || sampleRate <= 0) return null
             val expectedEnd = prevPlayAt + (prevFrames * 1000L) / sampleRate
             if (now < expectedEnd) return null
@@ -1410,10 +1610,12 @@ class PlaybackService : Service() {
         const val ACTION_STOP = "stop"
         const val ACTION_SLEEP = "sleep"
         const val ACTION_BOOKMARK = "bookmark"
+        const val ACTION_CHANGE_VOICE = "change_voice"
         const val EXTRA_BOOK_ID = "bookId"
         const val EXTRA_CHAPTER = "chapter"
         const val EXTRA_PASSAGE = "passage"
         const val EXTRA_DIRECTION = "direction"
+        const val EXTRA_VOICE = "voice"
 
         /**
          * Book-time start slicing: trims the passage PCM to the playhead only.
@@ -1422,7 +1624,12 @@ class PlaybackService : Service() {
          * mid-passage resume skips exactly `offsetSeconds * sampleRate` frames
          * at any speed (decisions #52).
          */
-        fun sliceForSpeed(pcm: ByteArray, offsetSeconds: Double, sampleRate: Int, speed: Double): ByteArray {
+        fun sliceForSpeed(
+            pcm: ByteArray,
+            offsetSeconds: Double,
+            sampleRate: Int,
+            speed: Double,
+        ): ByteArray {
             if (offsetSeconds <= 0.0) return pcm
             val skipBytes = ((offsetSeconds * sampleRate).toInt() * 2).coerceIn(0, maxOf(pcm.size - 2, 0))
             return pcm.copyOfRange(skipBytes, pcm.size)
