@@ -100,13 +100,19 @@ session. Outcome:
 - **F2 (#90) — library search UI:** ***genuinely display-driven → deferred***,
   same cause (needs the physical power button). The search logic is
   host-tested (`LibraryViewModelTest` +4, 13/13).
-- **A6 (#66) — import/share/pregen regression:** the pregen leg is verified
-  (`PregenE2eTest` green on the S22, the A1 pregen core). The import/share
-  instrumented legs (`RealEpubImportProbe`, `SharePipelineInstrumentedTest`)
-  did not complete cleanly — the app could not come to front with the
-  display off, making those E2Es pathologically slow/hang. The import
-  (BookImporter/ImportCoordinator) and share (TextIndex/SharePipeline)
-  contracts are host-tested; the device regression is **deferred** with F2.
+- **A6 (#66) — import/share/pregen regression:** **CLOSED — all headless
+  legs pass on the S22.** `RealEpubImportProbe` **OK (2 tests)** — the
+  real-world P&P (24.8 MB, `files/import-probe/pp.epub`) parses through the
+  Android Expat DOM + `BookImporter` (`Added`), and
+  `niceGuyEntityEpubImportsOnDevice` ("No More Mr Nice Guy", entity-laden
+  OPF metadata, `nmmng.epub`) passes the #53 entity case on-device.
+  `SharePipelineInstrumentedTest` **OK (2 tests)** — text share resolves to
+  the book passage and image share decodes/OCRs through the real
+  `TextIndex` + tess-two. Combined with `PregenE2eTest` green earlier in the
+  session (worker SUCCESS + disk-tier playback), the full A6 regression
+  surface is exercised. Note: these are headless instrumentation runs — they
+  did NOT need the display, which is what made them runnable while the
+  screen was physical-off.
 
 **Deferral condition:** the S22's display must be woken with the physical
 power button (adb power keyevents put it into an off state that software
