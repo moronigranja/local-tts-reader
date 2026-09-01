@@ -55,11 +55,33 @@ Device legs (HiBreak B6, serial B6CLR0B2FHFA006000712, build = the C2 HEAD):
 - A1 debt row: `PregenE2eTest` on the B6 **OK (1 test)** in 222 s —
   `PregenWorker` SUCCESS + playback completed over the warm disk tier.
 
-The S22 was staged with the same pinned packs and ran VoiceSelectionE2e +
-PlayPositionE2e green (espeak bundle staged), but unplugged mid-session;
-A2 / A5-A7 manual legs (stop-mid-passage, kill/reopen, MediaSession/
-notification stress) are deferred to the next B6/S22 session per the
-register. Roadmap register updated accordingly.
+The S22 device legs completed in a follow-up session (same build, S22
+serial R5CT119ZTMX), closing the register's A2 / A5-A7 / C1 rows:
+
+- **A2 — stop/kill/reopen (decision #61):** mid-passage STOP persisted the
+  live playhead — the Room `progress` row read `(t4-e2e-book, 0, 0, 15.14s)`
+  after STOP with the loop PLAYING inside passage 1; `am force-stop`
+  mid-play then relaunch resumed at the SAME 0:10 playhead (resume row
+  `10.16s`), within the 5 s checkpoint.
+- **A5/A7 — MediaSession/notification (decision #62):** pause/play through
+  the transport settled deterministically — a rapid double-`ACTION_PLAY`
+  command race superseded cleanly (PLAYING → PAUSED → PLAYING → STOPPED with
+  no stale republish), MediaSession held `E2E Test Book` metadata with
+  `state=PAUSED/PLAYING` matching the UI, and the id-42 playback notification
+  (channel `playback`, 4 transport actions) stayed alive through the cycle.
+  The pause-cancels-generation path itself is host-pinned by
+  `PlaybackServiceA57Test`.
+- **C1 (decisions #102/.3):** `pm clear` clean install launched straight into
+  the derived first-run flow — privacy → voice selector → the download plan
+  card with exact per-pack bytes (Kokoro model 310.4 MB, voices 26.9 MB,
+  espeak 9.4 MB), a storage line naming the shortfall/headroom ("622589.5 MB
+  free — needs 346.7 MB"), the never-default "Continue with the device voice
+  (degraded)" opt-in, and the terminal Import-a-book step. Durable-fact
+  derivation confirmed (C3): `pm clear` wiped packs so the plan re-appeared;
+  with packs ready it collapses to import-only.
+
+Roadmap register updated accordingly — **A1/A2/A5-A7/C1 device rows are all
+now closed**.
 
 ## 103. C1 guided first-run setup — host slices landed (2026-08-31)
 

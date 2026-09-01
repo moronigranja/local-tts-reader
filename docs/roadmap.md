@@ -788,9 +788,9 @@ player state machinery.
 | Source | Pending device evidence |
 |---|---|
 | ~~A1 (#60)~~ | ~~`PregenE2eTest` whole-book/no-budget re-run on the Bigme B6 / S22~~ **Done (2026-08-31, decisions #105):** B6 `OK (1 test)` in 222 s — `PregenWorker` SUCCESS + playback completed over the warm disk tier. |
-| A2 (#61) | stop-mid-passage / kill / reopen acceptance on the B6 / S22 — **B6 manual stop/kill/reopen deferred to the next HiBreak session** (the S22 unplugged mid-session); playback itself verified via PregenE2e/PlayPositionE2e on the B6/S22. |
+| ~~A2 (#61)~~ | ~~stop-mid-passage / kill / reopen acceptance on the B6 / S22~~ **Done (2026-08-31, decisions #105):** S22 — STOP persisted live playhead `15.14s`; force-stop + relaunch resumed the same `10.16s`, within the 5 s checkpoint. |
 | A4 (#63) | fill-cap / force-stop / relaunch acceptance on the S22 |
-| A5/A7 (#62) | MediaSession/notification re-verification on the B6 / S22 — **deferred with A2** (the S22 unplugged); pause-settles host-pinned by `PlaybackServiceA57Test`. |
+| ~~A5/A7 (#62)~~ | ~~MediaSession/notification re-verification on the B6 / S22~~ **Done (2026-08-31, decisions #105):** S22 — double-play command race superseded cleanly; MediaSession held E2E Book metadata with PAUSED/PLAYING matching the UI; playback notification (id 42, 4 actions) stable. |
 | A6 (#66) | import/share/pregen flow regression on the S22 |
 | F2 (#90) | runtime verification of the library search UI on the S22 |
 
