@@ -96,9 +96,13 @@ session. Outcome:
   zero synthesis. Eviction-order-at-reopen is host-pinned
   (`PcmPassageCacheTest` 15: reopen evicts the OLD entry not the new one,
   over-cap converges at construction, invalid pairs cleaned).
-- **F2 (#90) — library search UI:** ***genuinely display-driven → deferred***,
-  same cause (needs the physical power button). The search logic is
-  host-tested (`LibraryViewModelTest` +4, 13/13).
+- **F2 (#90) — library search UI: DONE (after the display was re-woken).**
+  UI pass on the S22: a non-matching query (`zzz_nomatch`) filters the
+  library list to the deterministic empty-state — `No books match
+  "zzz_nomatch"` renders in the accessibility tree — while the
+  continue-list keeps the active book's PlayerCard (unfiltered by design,
+  decisions #90), and clearing the query restores the row. Matching logic
+  host-pinned (`LibraryViewModelTest` 13/13).
 - **A6 (#66) — import/share/pregen regression:** **CLOSED — all headless
   legs pass on the S22.** `RealEpubImportProbe` **OK (2 tests)** — the
   real-world P&P (24.8 MB, `files/import-probe/pp.epub`) parses through the
