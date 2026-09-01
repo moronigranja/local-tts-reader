@@ -83,6 +83,40 @@ serial R5CT119ZTMX), closing the register's A2 / A5-A7 / C1 rows:
 Roadmap register updated accordingly — **A1/A2/A5-A7/C1 device rows are all
 now closed**.
 
+### A4 / F2 / A6 S22 follow-up (2026-09-01)
+
+Attempted the remaining register rows on the S22 (R5CT119ZTMX) in one
+session. Outcome:
+
+- **A4 (#63) — fill-cap/force-stop/relaunch:** the on-disk cache core is
+  host-pinned (`PcmPassageCacheTest`: bootstrap order, cap convergence,
+  invalid-entry cleanup) and the pregen+playback-over-warm-cache flow ran
+  green on the S22 via `PregenE2eTest` earlier in the session; A2's
+  force-stop/relaunch already proved the resume row + process survival.
+  The UI-driven fill-cap toggle leg is **deferred**: the S22's physical
+  display went off mid-session (power-key toggling during the A2/A5 legs)
+  and needs the hardware power button to wake — UI automation cannot drive
+  the app.
+- **F2 (#90) — library search UI:** ***genuinely display-driven → deferred***,
+  same cause (needs the physical power button). The search logic is
+  host-tested (`LibraryViewModelTest` +4, 13/13).
+- **A6 (#66) — import/share/pregen regression:** the pregen leg is verified
+  (`PregenE2eTest` green on the S22, the A1 pregen core). The import/share
+  instrumented legs (`RealEpubImportProbe`, `SharePipelineInstrumentedTest`)
+  did not complete cleanly — the app could not come to front with the
+  display off, making those E2Es pathologically slow/hang. The import
+  (BookImporter/ImportCoordinator) and share (TextIndex/SharePipeline)
+  contracts are host-tested; the device regression is **deferred** with F2.
+
+**Deferral condition:** the S22's display must be woken with the physical
+power button (adb power keyevents put it into an off state that software
+wake does not recover). The register reflects these rows as blocked.
+
+**Also noted:** a pause→resume product observation — the resumed passage
+starts a bit earlier than the live playhead (ideas.md; investigate whether
+resume should keep the exact playhead or intentionally pull back to the
+sentence start).
+
 ## 103. C1 guided first-run setup — host slices landed (2026-08-31)
 
 Implemented per the approved C1 plan (local plan doc; owner decisions #102):

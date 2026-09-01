@@ -136,3 +136,18 @@ session (agent `EreaderComparison-2`); the ranked takeaway:
 | 8 | RSVP speed-reading mode | Librera | Cheap distinctive complement to TTS skimming |
 | 9 | Profiles / per-book defaults (day/night, listening vs reading) | Librera/KOReader, Kindle themes | One-tap mode switching, reset-safe |
 | 10 | Library: progress badges, series/collections, recent-reads sort, play widget | Kindle/Librera | Makes the library a resume surface |
+
+
+### Pause-resume starts a bit earlier (2026-09-01)
+
+Open product observation (S22, decisions #105 session): a pause then resume
+lands a touch before where the user paused — the resumed passage starts a bit
+earlier than the live playhead. (Note: the A2 verification showed STOP/kill/
+reopen resumed AT the playhead; this is the *pause→resume same-session* case,
+which may feel like the passage is re-listened from its start or a few frames
+earlier.) Investigate the pause→resume boundary — whether it re-uses the
+captured offset, re-synthesizes from a trimmed-to-offset PCM, or restarts the
+passage slightly early — and decide whether resume should keep the exact
+playhead or intentionally pull back a breath-length phrase. If intentional
+pull-back, gate it on a small, documented amount (e.g. back to the sentence
+start) and make it smooth, not a disjointed replay.
