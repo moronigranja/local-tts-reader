@@ -135,6 +135,7 @@ pressed-passage/EmptyState, settings tokenization + Retry pill + delete
 confirm, share-result cards with the error-role encoding. The #87
 bottom-crop invariant holds by construction (indicator reserve flows through
 the same `linesPerPage(reservedPx)` mechanism as the title). Device visual
+acceptance ran as B4 the same day (decisions #95/#98).
 
 ### B4 — Visual and accessibility acceptance
 
@@ -800,5 +801,3 @@ the shared voice selector in Settings + the reader voice sheet, Preview with
 the off-main engine fix (no ANR, cancellable "Generating sample…"), exactly
 one selection indicator, star-independence, and a persisted mid-session
 voice change that survives process restart.
-
-B4's device checks are complete (2026-08-31, decisions #98); this register

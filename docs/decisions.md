@@ -586,6 +586,7 @@ the four feature modules; the only remaining dp/sp literals are the reader's
 `30.sp` measurement constant, `SWIPE_PAGE_THRESHOLD`, and PillButton's
 content padding. Tests: `AyvuThemeTest` +elevation/`formatPercent` locks,
 new `PlaybackUiStateTest` (speed conversion + clamps). Host-verified; device
+visual acceptance ran in the same-day B4 pass (decisions #95/#98).
 
 
 ## 93. D3 — first device column: the four-engine comparison on the S22 (2026-08-30)
