@@ -80,7 +80,10 @@ class OpenChapterE2eTest {
     fun tearDown() {
         context.stopService(Intent(context, PlaybackService::class.java))
         database.close()
-        context.deleteDatabase("local-tts-reader.db")
+        // No deleteDatabase (A8): this is the app's live DB — the app's Hilt
+        // Room singleton (PlaybackService/PregenWorker) holds a connection;
+        // unlinking it under the running app wiped production data (same
+        // class as the #42 finding fixed in PlaybackE2eTest/PregenE2eTest).
     }
 
     @Test
