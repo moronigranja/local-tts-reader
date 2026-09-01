@@ -1,5 +1,48 @@
 # Decision log
 
+## 107. A8 — Room reinstall anomaly classified: our E2E teardowns, not Samsung (2026-09-01)
+
+S22 session (SM-S908U1, R5CT119ZTMX) reproducing the open-bugs row: "no
+`files/databases/` for hours after `adb install -r`, then an empty 68 B
+skeleton; library rendered books from non-Room state" (decisions #88's
+app-side trace had already excluded a data-flow defect).
+
+**Reproduced the observation, not the defect — the path was wrong.** The
+connected device showed exactly the 08-29 signature (`files/databases/`
+absent; `run-as find -name '*db*'` empty; only `cache/local-tts-reader.db.lck`)
+— but the DB lives at `<data-root>/databases/` via Room's
+`getDatabasePath()`; Room NEVER writes under `files/`. Pulled and
+checkpointed live: full schema (`books/passages/progress/settings/
+bookmarks/position_history`), 1 book + 1 progress row, and the library
+screen renders "Continue listening — Pregen E2E Book, 100%, 2.5 MB
+offline" straight from Room. The "non-Room render" reading was the
+`files/`-scoped `find`; the `.lck` in `cache/` is an instrumentation
+SQLite lock artifact, not a data-dir signal.
+
+**The deletion mechanism is our own instrumentation.** 8 of 10 E2E tests
+used `context.deleteDatabase("local-tts-reader.db")` in `@After` —
+unlinking the production DB of the same package under the running app's
+Hilt Room singleton. `#42` had already named this class (worker starvation)
+and fixed it only in `PlaybackE2eTest`/`PregenE2eTest`; the six remaining
+tests (Es/It/Pt Voice, OpenChapter, PlayPosition, VoiceSelection) kept
+wiping user data every instrumented run — the A6 2026-09-01 session is why
+the S22 library holds only `t42-pregen-e2e-book` today (the 08-29 "A
+Deepness in the Sky" rows were wiped by that day's E2E pass). The "empty
+68 B skeleton after hours" is the post-delete state: the still-running
+singleton re-creates the file (fresh empty schema) on next DAO access
+while the deleted-but-open inode holds the old rows.
+
+**Samsung install-time handling excluded by experiment.** `adb install -r`
+of HEAD: DB + WAL SHA-256 byte-identical pre/post install and after
+relaunch; library intact on screen.
+
+**Fix shipped:** the six remaining `deleteDatabase` teardowns removed
+(commit `1df3a57`; `:app:compileDebugAndroidTestKotlin` green). No
+production-code change warranted — no FS-side DB deletion exists outside
+instrumentation, and `CorruptDatabaseGuard` (#88) already covers the
+residual "file replaced by garbage" class. A8 closed with evidence; the
+Phase C gate (decisions #96) is satisfied.
+
 ## 106. C3 — setup recovery and re-entry: the gate IS the contract, host-verified (2026-09-01)
 
 C3's spec (roadmap): first-run state derives from durable facts — required
