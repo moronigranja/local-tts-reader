@@ -789,10 +789,10 @@ player state machinery.
 |---|---|
 | ~~A1 (#60)~~ | ~~`PregenE2eTest` whole-book/no-budget re-run on the Bigme B6 / S22~~ **Done (2026-08-31, decisions #105):** B6 `OK (1 test)` in 222 s — `PregenWorker` SUCCESS + playback completed over the warm disk tier. |
 | ~~A2 (#61)~~ | ~~stop-mid-passage / kill / reopen acceptance on the B6 / S22~~ **Done (2026-08-31, decisions #105):** S22 — STOP persisted live playhead `15.14s`; force-stop + relaunch resumed the same `10.16s`, within the 5 s checkpoint. |
-| A4 (#63) | fill-cap / force-stop / relaunch acceptance on the S22 — **pregen + warm-cache playback verified (`PregenE2eTest` green on S22); cache core host-pinned (`PcmPassageCacheTest` 15)**; UI fill-cap toggle deferred on the S22 display (needs the physical power button to wake). |
+| ~~A4 (#63)~~ | ~~fill-cap / force-stop / relaunch acceptance on the S22~~ **Done (2026-09-01, decisions #105):** UI whole-book pre-gen filled 2.6 MB / 8 files (Worker SUCCESS); `am force-stop` + COLD relaunch left the cache byte-identical (reopen bootstrap), and playback over it resolved `loop: source=disk` with zero synthesis; eviction-order guarantee host-pinned (`PcmPassageCacheTest` 15). |
 | ~~A5/A7 (#62)~~ | ~~MediaSession/notification re-verification on the B6 / S22~~ **Done (2026-08-31, decisions #105):** S22 — double-play command race superseded cleanly; MediaSession held E2E Book metadata with PAUSED/PLAYING matching the UI; playback notification (id 42, 4 actions) stable. |
 | ~~A6 (#66)~~ | ~~import/share/pregen flow regression on the S22~~ **Done (2026-09-01, decisions #105):** S22 — `RealEpubImportProbe` OK (2: P&P android-DOM import + entity-in-metadata case), `SharePipelineInstrumentedTest` OK (2: text + image share via TextIndex/OCR), `PregenE2eTest` green — all headless legs pass. |
-| ~~F2 (#90)~~ | ~~runtime verification of the library search UI on the S22~~ **Deferred (not closed):** S22 display needs the physical power button to wake; search logic host-tested (`LibraryViewModelTest` +4, 13/13). |
+| ~~F2 (#90)~~ | ~~runtime verification of the library search UI on the S22~~ **Done (2026-09-01, decisions #105):** S22 UI pass — a non-matching query filters the library list to the "No books match" empty-state (rendered, deterministic), the continue-list stays unfiltered by design, and clearing the query restores the row; matching-logic host-pinned (`LibraryViewModelTest` 13/13). |
 
 B4's device checks are complete (2026-08-31, decisions #98); **C2's device
 legs were verified on the HiBreak in the same session** (decisions #105):

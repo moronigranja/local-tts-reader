@@ -88,15 +88,14 @@ now closed**.
 Attempted the remaining register rows on the S22 (R5CT119ZTMX) in one
 session. Outcome:
 
-- **A4 (#63) — fill-cap/force-stop/relaunch:** the on-disk cache core is
-  host-pinned (`PcmPassageCacheTest`: bootstrap order, cap convergence,
-  invalid-entry cleanup) and the pregen+playback-over-warm-cache flow ran
-  green on the S22 via `PregenE2eTest` earlier in the session; A2's
-  force-stop/relaunch already proved the resume row + process survival.
-  The UI-driven fill-cap toggle leg is **deferred**: the S22's physical
-  display went off mid-session (power-key toggling during the A2/A5 legs)
-  and needs the hardware power button to wake — UI automation cannot drive
-  the app.
+- **A4 (#63) — fill-cap/force-stop/relaunch: DONE (after the display was
+  re-woken).** UI whole-book pre-generate on the library card filled the
+  tier to 2,613,858 bytes / 8 files (`PregenWorker` SUCCESS); `am
+  force-stop` + COLD relaunch left the cache byte-identical (the CR-4
+  reopen bootstrap) and playback over it resolved `loop: source=disk` with
+  zero synthesis. Eviction-order-at-reopen is host-pinned
+  (`PcmPassageCacheTest` 15: reopen evicts the OLD entry not the new one,
+  over-cap converges at construction, invalid pairs cleaned).
 - **F2 (#90) — library search UI:** ***genuinely display-driven → deferred***,
   same cause (needs the physical power button). The search logic is
   host-tested (`LibraryViewModelTest` +4, 13/13).
@@ -114,9 +113,8 @@ session. Outcome:
   did NOT need the display, which is what made them runnable while the
   screen was physical-off.
 
-**Deferral condition:** the S22's display must be woken with the physical
-power button (adb power keyevents put it into an off state that software
-wake does not recover). The register reflects these rows as blocked.
+A4 and F2 are both closed in this follow-up (the display came back on and
+the UI legs ran). No rows remain blocked in the register.
 
 **Also noted:** a pause→resume product observation — the resumed passage
 starts a bit earlier than the live playhead (ideas.md; investigate whether
