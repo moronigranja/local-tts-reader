@@ -265,6 +265,16 @@ at least one book available—not a one-shot "onboarding complete" flag. A user 
 loses a pack, clears cached assets or re-enters setup later sees the actual missing step.
 Every setup action remains reachable from normal settings after onboarding.
 
+**Complete (2026-09-01, decisions #106):** the gate IS the contract —
+`SetupGate` re-derives from durable facts (pack markers, espeak staging,
+book count, persisted voice/engine) on every cold start and after
+dismissal; no onboarding flag. "Skips" is the recorded system-TTS opt-in
+(#102); no skip affordance added. New `SetupGateTest` C3 cases: a lost pack
+or wiped espeak staging reactivates a completed setup; dismissal is
+non-sticky. Every setup action was already reachable from Settings (C1.5
+pack plan, C2 voice selector). Host-verified; no device leg required by the
+spec.
+
 ## Phase D — playback latency and weak-device performance
 
 ### D1 — Instant ±30-second seek horizon — designed

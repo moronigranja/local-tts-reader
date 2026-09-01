@@ -1,5 +1,45 @@
 # Decision log
 
+## 106. C3 — setup recovery and re-entry: the gate IS the contract, host-verified (2026-09-01)
+
+C3's spec (roadmap): first-run state derives from durable facts — required
+packs ready, a voice selected, ≥1 book — not a one-shot flag; a user who
+skips, loses a pack, clears cached assets or re-enters setup later sees the
+actual missing step; every setup action remains reachable from normal
+settings after onboarding.
+
+**Owner call:** "skips" means the recorded system-TTS opt-in (decisions
+#102) — the degraded path IS the skip. No "Skip for now" affordance is
+added; system back stays swallowed mid-setup (C1: the gate owns dismissal).
+An offline user's first audio comes from the device voice, and the Kokoro
+download plan resurfaces in Settings the moment they are degraded+missing
+(C1.5's `PacksPlanCard` route).
+
+**What already held (built C3-compatible by C1, #102.4 — now pinned by
+tests, nothing to build):**
+- No onboarding flag: `SetupGate.evaluate()` re-derives from disk/settings
+  truth (`PackRegistry.refresh()` + `EspeakStager.isStaged` + book count +
+  persisted voice/engine) on every cold start and after dismissal
+  (`SetupGate.kt`). Deleting the pack files deletes the `.ready` markers
+  with them (`PackCache` — the cache IS the pack state), so a lost pack or
+  wiped espeak staging reactivates the gate showing the actual missing step.
+- Re-entry: packs ready + no books → import-only checklist; every step is
+  reachable from Settings post-onboarding (voice selector C2, pack plan C1.5,
+  import via the library).
+- New `SetupGateTest` C3 cases (JVM, real-file fixture pattern): a completed
+  setup reactivates when a required pack's artifacts are deleted, when the
+  espeak bundle is wiped, and dismissal is proven non-sticky (re-derivation
+  resurrects an incomplete setup). 8 gate cases total, green.
+
+**Toolchain note:** backtick test names must stay ASCII-mappable — an
+em-dash in a test name breaks `:app:compileDebugUnitTestKotlin` under the
+docker toolchain's POSIX locale (`InvalidPathException` on the generated
+`.class` filename).
+
+Remaining device-bound C3 evidence: none required by the spec — recovery is
+exercised through the same disk truth the gate reads; a device pass can
+fold into the next S22/HiBreak session (delete a pack via `adb shell`,
+relaunch, observe the re-derived checklist).
 ## 105. C2 voice selector shipped + B6/S22 device session (2026-08-31)
 
 C2 (voice selector in the primary flow) landed host-verified and device-

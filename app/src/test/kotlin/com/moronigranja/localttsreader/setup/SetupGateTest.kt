@@ -121,6 +121,63 @@ class SetupGateTest {
             assertTrue(gate.active, "opted-in user still must import a book")
         }
 
+    // ------------------------------------------------------------------
+    // C3 — recovery and re-entry (roadmap): the gate re-derives from
+    // durable facts, so losing what made setup complete re-activates it.
+    // ------------------------------------------------------------------
+
+    @Test
+    fun `losing a pack reactivates a completed setup`() =
+        runTest {
+            markReady(model)
+            markReady(voices)
+            markReady(espeak)
+            markStagedEspeak()
+            library.add(entry("book-1"))
+            val gate = gate()
+            gate.evaluate()
+            assertFalse(gate.active, "precondition: setup is complete")
+
+            // The user deleted the pack files on their storage — the marker
+            // goes with them (PackCache: the cache IS the pack state).
+            cache.deleteArtifacts(voices)
+            gate.evaluate()
+            assertTrue(gate.active, "a lost required pack re-derives setup as active")
+        }
+
+    @Test
+    fun `wiped espeak staging reactivates a completed setup`() =
+        runTest {
+            markReady(model)
+            markReady(voices)
+            markReady(espeak)
+            markStagedEspeak()
+            library.add(entry("book-1"))
+            val gate = gate()
+            gate.evaluate()
+            assertFalse(gate.active, "precondition: setup is complete")
+
+            File(filesDir, "espeak").deleteRecursively()
+            gate.evaluate()
+            assertTrue(gate.active, "a wiped engine-gate bundle re-derives setup as active")
+        }
+
+    @Test
+    fun `dismissal is not sticky and re-derivation resurrects an incomplete setup`() =
+        runTest {
+            val gate = gate()
+            gate.evaluate()
+            assertTrue(gate.active)
+            gate.dismiss()
+            assertFalse(gate.active, "dismissal hides the flow")
+
+            // Nothing changed on disk: the next evaluate (cold start in
+            // production) re-derives the same durable facts — dismissal is
+            // NOT an onboarding flag (C1/C3 contract).
+            gate.evaluate()
+            assertTrue(gate.active, "an incomplete setup resurfaces on re-derivation")
+        }
+
     private fun gate(): SetupGate = SetupGate(registry, settings, library, filesDir)
 
     private fun markReady(pack: TtsPack) {

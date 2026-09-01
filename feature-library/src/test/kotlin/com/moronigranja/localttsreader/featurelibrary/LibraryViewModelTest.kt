@@ -57,6 +57,7 @@ class LibraryViewModelTest {
     private val noopCommands = object : PlayerCommands {
         override fun play(bookId: String) = Unit
         override fun playAt(bookId: String, chapterIndex: Int, passageIndex: Int) = Unit
+        override fun changeVoice(voice: String) = Unit
         override fun resume() = Unit
         override fun pause() = Unit
         override fun stop() = Unit
