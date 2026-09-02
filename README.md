@@ -33,7 +33,7 @@ playback (with read-along sentence highlighting) → share-and-resume, plus sett
 | Module | What it does |
 |---|---|
 | `core-persistence` | Room schema v2 (books, cached passages, progress + offset/speed, settings, bookmarks, position_history); stores + launch-time rebuild |
-| `feature-library` | SAF multi-file import (progress, typed failures, idempotent) + library list UI |
+| `feature-library` | SAF multi-file + folder import (F3 tree grant, progress, typed failures, idempotent) + library list UI |
 | `feature-player` | Foreground playback service (MediaSession, focus/ducking, notification), pre-generation wiring, reader surface with sentence highlight + S3 gestures |
 | `feature-settings` | Settings screen: engine/voice/OCR pack downloads, voice picker + favorites, match threshold, OCR languages, theme; Android HTTP transport |
 | `feature-share` | ACTION_SEND gateway (text + image), typed resolver (found / not-found with closest hint), OpenTarget contract |

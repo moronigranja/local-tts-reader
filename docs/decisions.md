@@ -1,5 +1,58 @@
 # Decision log
 
+## 108. F3 — folder import via SAF tree (2026-09-02)
+
+F3 (roadmap) promotes the "folder import via SAF tree" idea (ideas.md): a
+persisted `ACTION_OPEN_DOCUMENT_TREE` grant feeds supported files through the
+existing batch importer. Recursion policy and a per-batch cap are decided
+before build; folder scanning is the hostile-input audit's first consumer
+(decisions #96.8), not a parallel policy.
+
+**The two "decide before build" items, conservative defaults:**
+
+- **Recursion policy — root + one nested level.** `FolderScanPolicy.MAX_DEPTH =
+  1`: files directly in the granted root plus one level of subfolders are
+  scanned; anything deeper is pruned. A tree grant is library-shaped (a folder,
+  or a folder of per-author/series subfolders), so one level covers the real
+  case without an unbounded-recursion surface on an adversarial tree.
+- **Per-batch cap — 200 files.** `FolderScanPolicy.MAX_FILES = 200`. Reaching
+  it stops the walk and sets `FolderScanResult.truncated`; the library surfaces
+  it (snackbar "folder capped at 200 files", dialog "later files were not
+  imported") rather than silently shrinking the batch.
+
+**Shape.** The recursion/cap policy lives in a pure, lazily-enumerated
+`FolderScanPolicy` (`ScanNode<T>` + `collect`) so the hostile-input decisions
+are host-testable without Android; the `FolderScanner` `DocumentFile` adapter
+supplies the tree with deferred `listFiles()` — a hostile tree is never
+materialized past the depth bound. The extension gate is the shared
+`EBookFormats.parserFor` — no second extension list; the importer's
+`UnsupportedFormat` path stays the backstop for strays.
+
+**UI/flow.** The library "Import" action is now a two-item menu (Import
+files / Import folder). Folder import reuses the F1 per-file progress: a
+`Scanning` state (no file count → indeterminate) → the normal `Importing`
+batch → the summary. An empty folder surfaces as a typed "no supported book
+files found" failure, never a silent no-op. The tree URI gets the same
+persistable READ grant as multi-file picks (`takeReadPermission`), so a re-scan
+after restart keeps working where the provider allows it.
+
+**Evidence:** `FolderScanPolicyTest` (6 cases: walk order + skipped,
+one-level scan, deeper-than-one pruned, cap truncation, default `EBookFormats`
+gate, custom predicate) green; `:feature-library:testDebugUnitTest` 19/19 (13
+existing + 6 new); `:app:assembleDebug` + `ktlintCheck` green (baseline
+refreshed for the line shifts the F3 edits moved).
+
+**Device leg (S22, SM-S908U1, 2026-09-02):** granted a tree on
+`/sdcard/Download/F3Books` (root files `book-one.epub` + `book-two.txt` +
+`notes.pdf`, plus `series/book-three.md` and a two-level-deep
+`series/deep/too-deep.txt`) via the real SAF picker → "Allow Ayvu to access
+folder?" → import. Library gained exactly three books — `F3 Book One` (epub
+title), `book-two` (txt), `book-three` (md, from the one nested level):
+root + one-level recursion works, `notes.pdf` is filtered (no second
+extension list), and the two-level-deep `too-deep.txt` is pruned. No crash,
+no dialog/progress left behind. Reference: `docs/prints/f3/folder-import-s22.png`.
+
+
 ## 107. A8 — Room reinstall anomaly classified: our E2E teardowns, not Samsung (2026-09-01)
 
 S22 session (SM-S908U1, R5CT119ZTMX) reproducing the open-bugs row: "no

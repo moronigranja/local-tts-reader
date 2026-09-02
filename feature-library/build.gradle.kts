@@ -50,6 +50,8 @@ dependencies {
     implementation("androidx.compose.material:material-icons-core")
     implementation(libs.lifecycle.viewmodel.compose)
     implementation(libs.androidx.activity.compose)
+    // F3: DocumentFile walk over an ACTION_OPEN_DOCUMENT_TREE grant.
+    implementation(libs.androidx.documentfile)
     implementation(libs.hilt.android)
     ksp(libs.hilt.compiler)
     debugImplementation(libs.compose.ui.tooling)

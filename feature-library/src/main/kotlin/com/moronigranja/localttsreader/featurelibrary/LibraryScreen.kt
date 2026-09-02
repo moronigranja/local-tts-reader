@@ -112,7 +112,7 @@ fun LibraryScreen(
     // The last finished batch's summary; non-null while the result dialog is up.
     var resultSummary by remember { mutableStateOf<ImportUiState.Summary?>(null) }
 
-    val launcher = rememberLauncherForActivityResult(
+    val fileLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenMultipleDocuments(),
     ) { uris ->
         if (uris.isNotEmpty()) {
@@ -120,6 +120,19 @@ fun LibraryScreen(
             context.toEBookSources(uris).let(viewModel::import)
         }
     }
+
+    // F3: folder import over a persisted SAF tree grant (root + one nested
+    // level, capped at FolderScanPolicy.MAX_FILES files by the hostile-input
+    // policy — see FolderScanPolicy/FolderScanner).
+    val folderLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocumentTree(),
+    ) { uri ->
+        uri?.let {
+            context.takeReadPermission(it)
+            viewModel.importFolder(it)
+        }
+    }
+    var importMenuOpen by remember { mutableStateOf(false) }
 
     // The active session's book card (decisions #55/#56): it REPLACES the
     // top "Continue listening" row in place (no dock) and carries the row's
@@ -181,7 +194,8 @@ fun LibraryScreen(
                 resultSummary = doneState.summary
             } else if (doneState.summary.added > 0) {
                 snackbarHostState.showSnackbar(
-                    "Added ${doneState.summary.added} · Unchanged ${doneState.summary.unchanged}",
+                    "Added ${doneState.summary.added} · Unchanged ${doneState.summary.unchanged}" +
+                        if (doneState.summary.truncated) " · folder capped at ${FolderScanPolicy.MAX_FILES} files" else "",
                 )
             }
             viewModel.consumeImportResult()
@@ -196,8 +210,29 @@ fun LibraryScreen(
                     IconButton(onClick = onOpenSettings) {
                         Icon(Icons.Filled.Settings, contentDescription = "Settings")
                     }
-                    TextButton(onClick = { launcher.launch(IMPORT_MIME_TYPES) }) {
-                        Text("Import books")
+                    Box {
+                        TextButton(onClick = { importMenuOpen = true }) {
+                            Text("Import")
+                        }
+                        DropdownMenu(
+                            expanded = importMenuOpen,
+                            onDismissRequest = { importMenuOpen = false },
+                        ) {
+                            DropdownMenuItem(
+                                text = { Text("Import files") },
+                                onClick = {
+                                    importMenuOpen = false
+                                    fileLauncher.launch(IMPORT_MIME_TYPES)
+                                },
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Import folder") },
+                                onClick = {
+                                    importMenuOpen = false
+                                    folderLauncher.launch(null)
+                                },
+                            )
+                        }
                     }
                 },
             )
@@ -229,6 +264,29 @@ fun LibraryScreen(
                 singleLine = true,
             )
 
+            // F3: folder scan in flight — no file count yet, so indeterminate
+            // progress with the same clean cancellation as the import batch.
+            (importState as? ImportUiState.Scanning)?.let { scanning ->
+                LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = AyvuSpacing.LG, vertical = AyvuSpacing.XS),
+                ) {
+                    Text(
+                        text = scanning.description,
+                        style = MaterialTheme.typography.bodyMedium,
+                        modifier = Modifier.weight(1f),
+                    )
+                    TextButton(
+                        onClick = {
+                            viewModel.cancelImport()
+                            scope.launch { snackbarHostState.showSnackbar("Import cancelled") }
+                        },
+                    ) { Text("Cancel") }
+                }
+            }
             (importState as? ImportUiState.Importing)?.let { importing ->
                 LinearProgressIndicator(
                     progress = { importing.done / importing.total.toFloat() },
@@ -390,6 +448,13 @@ fun LibraryScreen(
             text = {
                 Column {
                     Text("Added ${summary.added} · Unchanged ${summary.unchanged}")
+                    if (summary.truncated) {
+                        Text(
+                            text = "Folder import reached its ${FolderScanPolicy.MAX_FILES}-file cap; later files were not imported.",
+                            style = MaterialTheme.typography.bodyMedium,
+                            modifier = Modifier.padding(top = AyvuSpacing.XS),
+                        )
+                    }
                     for ((fileName, message) in summary.failed) {
                         Text(
                             text = "$fileName: $message",

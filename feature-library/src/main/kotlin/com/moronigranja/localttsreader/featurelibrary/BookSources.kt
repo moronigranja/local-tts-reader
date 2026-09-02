@@ -22,6 +22,17 @@ fun Context.toEBookSources(uris: List<Uri>): List<EBookSource> =
         }
     }
 
+/** Resolves a folder scan (F3) to [EBookSource]s, reusing the scanned display
+ * names instead of re-querying each URI's [OpenableColumns.DISPLAY_NAME]. */
+fun Context.toEBookSources(result: FolderScanResult<Uri>): List<EBookSource> =
+    result.files.map { file ->
+        EBookSource(
+            fileName = file.name,
+        ) {
+            contentResolver.openInputStream(file.payload) ?: error("cannot open ${file.name}")
+        }
+    }
+
 private fun Context.displayName(uri: Uri): String? = try {
     contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { cursor ->
         if (cursor.moveToFirst()) cursor.getString(0) else null

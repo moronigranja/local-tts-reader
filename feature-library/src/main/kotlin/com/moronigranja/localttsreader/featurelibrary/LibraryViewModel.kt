@@ -4,6 +4,7 @@ import androidx.lifecycle.LiveData
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import android.content.Context
+import android.net.Uri
 import com.moronigranja.localttsreader.ebook.EBookSource
 import com.moronigranja.localttsreader.ebook.ImportCoordinator
 import com.moronigranja.localttsreader.ebook.ImportFailureReason
@@ -238,18 +239,61 @@ class LibraryViewModel @Inject constructor(
         )
         importJob = viewModelScope.launch {
             try {
-                                val outcomes = withContext(ioDispatcher) {
-                    coordinator.importAll(sources) { current, done, total ->
-                        _importState.value = ImportUiState.Importing(done, total, current.fileName)
-                    }
-                }
-                val summary = buildSummary(outcomes)
-                coroutineContext.ensureActive() // a racing cancel must never land Done
-                _importState.value = ImportUiState.Done(summary)
+                runImport(sources, truncated = false)
             } catch (e: CancellationException) {
                 throw e // cancelImport already published Idle; never a partial Done
             }
         }
+    }
+
+    /**
+     * F3: scans a SAF tree grant off-main (publishing [ImportUiState.Scanning],
+     * which has no file count), then feeds the supported files through the
+     * shared batch importer. An empty scan surfaces as a typed failure, never a
+     * silent no-op; a scan that hit [FolderScanPolicy.MAX_FILES] carries its
+     * truncation through to the summary.
+     */
+    fun importFolder(uri: Uri) {
+        val ctx = context ?: return
+        importJob?.cancel()
+        _importState.value = ImportUiState.Scanning("Scanning folder\u2026")
+        importJob = viewModelScope.launch {
+            try {
+                val result = withContext(ioDispatcher) { ctx.scanTree(uri) }
+                coroutineContext.ensureActive()
+                if (result.files.isEmpty()) {
+                    _importState.value = ImportUiState.Done(
+                        ImportUiState.Summary(
+                            added = 0,
+                            unchanged = 0,
+                            failed = listOf("Folder" to NO_BOOKS_MESSAGE),
+                        ),
+                    )
+                    return@launch
+                }
+                _importState.value = ImportUiState.Importing(
+                    done = 0,
+                    total = result.files.size,
+                    currentFileName = result.files.first().name,
+                )
+                runImport(ctx.toEBookSources(result), truncated = result.truncated)
+            } catch (e: CancellationException) {
+                throw e
+            }
+        }
+    }
+
+    /** The shared import loop for file and folder batches: progress → durable
+     * commit/index (owned by the coordinator) → the summary, in-flight-truncated. */
+    private suspend fun runImport(sources: List<EBookSource>, truncated: Boolean) {
+        val outcomes = withContext(ioDispatcher) {
+            coordinator.importAll(sources) { current, done, total ->
+                _importState.value = ImportUiState.Importing(done, total, current.fileName)
+            }
+        }
+        val summary = buildSummary(outcomes)
+        currentCoroutineContext().ensureActive() // a racing cancel must never land Done
+        _importState.value = ImportUiState.Done(summary.copy(truncated = truncated))
     }
 
     /** Cancels the in-flight import (F1): the batch stops at the next file
@@ -289,5 +333,8 @@ class LibraryViewModel @Inject constructor(
     }
     private companion object {
         const val MAX_RECENT = 5
+
+        /** The empty-folder ("no supported books") message for a folder import (F3). */
+        const val NO_BOOKS_MESSAGE = "no supported book files found"
     }
 }
