@@ -22,6 +22,7 @@ import com.moronigranja.localttsreader.player.PregenScheduler
 import kotlinx.coroutines.flow.flowOf
 import com.moronigranja.localttsreader.model.LibraryEntry
 import com.moronigranja.localttsreader.model.LibraryStore
+import com.moronigranja.localttsreader.persistence.BookFileStore
 import com.moronigranja.localttsreader.persistence.ChapterCount
 import com.moronigranja.localttsreader.persistence.PassageDao
 import com.moronigranja.localttsreader.persistence.ProgressDao
@@ -72,6 +73,8 @@ class LibraryViewModel @Inject constructor(
     private val progressDao: ProgressDao? = null,
     // Default null: unit tests drop the index; Hilt provides the shared one.
     private val index: TextIndex? = null,
+    // Default null: pure-JVM unit tests skip the book-bytes sidecar (Hilt provides it).
+    private val bookFileStore: BookFileStore? = null,
     // A6: the app binds the intent-dispatching sender; tests pass a fake.
     private val commands: PlayerCommands,
 ) : ViewModel() {
@@ -212,6 +215,7 @@ class LibraryViewModel @Inject constructor(
                 indexLock?.withExclusiveIndex { index?.remove(bookId) }
                 storage?.deleteBook(bookId) // cancels queued pre-gen first
                 context?.let { CoverStore(File(it.filesDir, "covers")).delete(bookId) }
+                bookFileStore?.deleteForBook(bookId) // E1: no `files/books/` orphans
             }
             refreshOffline()
         }
@@ -316,6 +320,16 @@ class LibraryViewModel @Inject constructor(
                     // happened in the coordinator — the VM only owns UI work.
                     outcome.coverBytes?.let { cover ->
                         context?.let { CoverStore(File(it.filesDir, "covers")).save(outcome.entry.book.id, cover) }
+                    }
+                    // E1: capture the original bytes for the opt-in include-books
+                    // export — `files/books/<bookId>.<ext>`.
+                    outcome.sourceBytes?.let { bytes ->
+                        outcome.sourceFileName?.let { fileName ->
+                            bookFileStore?.save(
+                                outcome.entry.book.id + "." + fileName.substringAfterLast('.', "bin"),
+                                bytes,
+                            )
+                        }
                     }
                 }
                 is ImportOutcome.Unchanged -> unchanged += 1

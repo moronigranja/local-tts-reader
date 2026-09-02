@@ -24,6 +24,10 @@ interface PositionHistoryDao {
     @Query("DELETE FROM position_history WHERE bookId = :bookId")
     suspend fun deleteByBook(bookId: String)
 
+    /** One-shot read of every row — the backup snapshot source (E1). */
+    @Query("SELECT * FROM position_history ORDER BY bookId, id")
+    suspend fun all(): List<PositionHistoryEntity>
+
     /** Keeps the newest [keep] rows for the book — the cap (decisions #29). */
     @Query(
         """

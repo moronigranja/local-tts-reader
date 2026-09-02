@@ -62,6 +62,8 @@ dependencies {
     implementation(libs.compose.ui.graphics)
     implementation(libs.compose.ui.tooling.preview)
     implementation(libs.compose.material3)
+    // material-icons-core: the voice dropdown chevron on setup.
+    implementation("androidx.compose.material:material-icons-core")
     implementation(libs.androidx.activity.compose)
     debugImplementation(libs.compose.ui.tooling)
     implementation(libs.hilt.android)

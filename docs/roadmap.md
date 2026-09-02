@@ -218,7 +218,10 @@ restart-persistent change). Full record in decisions #105.
 The full voice picker + favorites already exists in Settings; the missing part is
 discoverable selection where listening starts. Reuse one selector/state model in:
 
-- first-run setup;
+- first-run setup — now a compact catalog dropdown (`ExposedDropdownMenuBox`)
+  consuming the SAME shared state builder, with the selected voice's
+  Preview/Stop/Download action beneath; favorites stay a Settings surface
+  (2026-09-02, decisions #112);
 - the active player/reader surface, with exact placement settled during B3;
 - Settings for full voice and pack management.
 
@@ -535,10 +538,13 @@ the quality gate is strong from day one.
 
 ## Phase E — data safety
 
-**Status (2026-08-31, decisions #96):** phase 1 is shipped — the pure-JVM
-`core-backup` archive codec + DTOs (`BackupSnapshot`/`BackupCodec`, decisions
-#89). Phases 2 (snapshot/merge in core-persistence) and 3 (SAF edge) remain,
-and both wait on E0.
+**Status (2026-09-02, decisions #111):** complete. Phase 1 shipped the
+pure-JVM `core-backup` archive codec + DTOs (#89); phases 2
+(snapshot/merge in `core-persistence`) and 3 (SAF edge + settings section +
+index resync) landed together with the opt-in book-byte capture and are
+device-verified — full record in decisions #111, spec in
+[post-v1-plan.md](post-v1-plan.md#slice-b-app-exportbackup--restore).
+
 
 ### E0 — Storage-location decision (gate)
 
@@ -575,6 +581,19 @@ Before implementation, sign off the documented merge precedence:
 Acceptance: a populated export restores onto a fresh install, a second restore creates
 no duplicates, cached parses rebuild the index without source re-parsing, and unknown
 archive versions fail before any partial merge.
+
+**Complete (2026-09-02, decisions #111):** `core-persistence` gained the
+`BackupStore` snapshot/merge (one transactional consistent read; FK-ordered
+merge with the signed-off precedence, history natural-key idempotent before
+the ring-cap prune), `core-ebook` captures book bytes at import (one read
+reused for cover + sidecar), `feature-settings` gained the SAF edge +
+"Backup & restore" section, and after a merge the settings mirror reloads
+and the index resyncs under `IndexLock` (searchable without relaunch).
+Host: `BackupStoreTest` (8) + all suites + assemble + ktlint baseline green.
+Device (S22, 2026-09-02): export zip with all six sections + book files
+(md5-equal); `pm clear` → restore "6 books, 2 bookmarks, 3 resume points";
+share flow matched a restored passage at 100% in-process; second restore
+"0 books, 0 bookmarks, 0 resume points" — zero duplicate rows.
 
 ## Phase F — library completion
 

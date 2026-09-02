@@ -55,19 +55,39 @@ class BookImporter(
         }
 
         val segmented = BookSegmentation.segment(book) // index/segmentation contract (C4)
-        val cover = try {
-            source.open().use { parser.coverOf(it.readBytes()) } // fresh stream per call
-        } catch (e: Exception) {
-            null
-        }
-        return ImportOutcome.Added(LibraryEntry(segmented, now()), cover)
+        // E1: ONE read reused for the cover and the opt-in source-bytes capture
+        // (never an extra stream vs the pre-E1 path). A source that cannot be
+        // re-read simply has no sidecar — the export skips it, never fails.
+        val raw =
+            try {
+                source.open().use { it.readBytes() }
+            } catch (e: Exception) {
+                null
+            }
+        val cover =
+            raw?.let { bytes ->
+                try {
+                    parser.coverOf(bytes)
+                } catch (e: Exception) {
+                    null
+                }
+            }
+        return ImportOutcome.Added(LibraryEntry(segmented, now()), cover, raw, source.fileName)
     }
 }
 
 /** One import's verdict. Durable membership decided by the store; the index
  * is only ever mutated by the coordinator AFTER the durable write. */
 sealed interface ImportOutcome {
-    data class Added(val entry: LibraryEntry, val coverBytes: ByteArray? = null) : ImportOutcome
+    data class Added(
+        val entry: LibraryEntry,
+        val coverBytes: ByteArray? = null,
+        /** E1: the original file bytes captured at import — opt-in include-books
+         * export source; null when the source could not be re-opened. */
+        val sourceBytes: ByteArray? = null,
+        val sourceFileName: String? = null,
+    ) : ImportOutcome
+
     data class Unchanged(val bookId: String) : ImportOutcome
     data class Failed(val fileName: String, val reason: ImportFailureReason) : ImportOutcome
 }

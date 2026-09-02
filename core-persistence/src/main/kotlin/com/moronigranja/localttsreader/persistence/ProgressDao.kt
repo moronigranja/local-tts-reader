@@ -22,4 +22,8 @@ interface ProgressDao {
     /** Inserts or replaces the book's resume point. */
     @Upsert
     suspend fun upsert(progress: ProgressEntity)
+
+    /** One-shot read of every resume row, book-sorted — the backup snapshot source (E1). */
+    @Query("SELECT * FROM progress ORDER BY bookId")
+    suspend fun all(): List<ProgressEntity>
 }

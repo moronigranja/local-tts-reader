@@ -187,9 +187,6 @@ class SetupViewModel
 
         fun chooseVoice(name: String) = viewModelScope.launch { settings.setVoice(name) }
 
-        /** C2: the star toggles favorite state only — selection is the row tap. */
-        fun toggleFavorite(name: String) = viewModelScope.launch { settings.toggleFavorite(name) }
-
         /** decisions #102: opt into the zero-download degraded device voice. */
         fun optInSystemTts() = viewModelScope.launch { settings.setTtsEngine(SettingsStore.SYSTEM_TTS_ENGINE) }
 

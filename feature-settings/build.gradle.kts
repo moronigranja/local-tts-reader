@@ -62,6 +62,9 @@ dependencies {
     // A6: EspeakStager/OfflineStorage/formatBytes contracts come from core-player.
     implementation(project(":core-player"))
     implementation(project(":core-ui"))
+    // E1: the backup codec + the post-restore index resync.
+    implementation(project(":core-backup"))
+    implementation(project(":core-locate"))
 
     testImplementation(libs.junit.jupiter)
     testRuntimeOnly(libs.junit.platform.launcher)

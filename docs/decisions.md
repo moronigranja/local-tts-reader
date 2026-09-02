@@ -1,5 +1,89 @@
 # Decision log
 
+## 112. First-run setup voice step compacted to a dropdown (2026-09-02)
+
+Owner request after walking the C2 setup card on-device: the tall inline
+54-voice selector list made the Choose-a-voice step scroll forever. First-run
+setup now renders a compact `ExposedDropdownMenuBox` picker instead — one
+read-only anchor showing `af_heart · English (US)` with a chevron; tapping it
+opens the whole catalog grouped by language, each row with a radio
+indicator, language/gender subtitle, and a muted "needs download" cue while
+the Kokoro packs are missing. Selecting a voice persists immediately
+(the existing `chooseVoice → AppSettings` path) and dismisses the menu. The
+selected voice's action row sits beneath the anchor with the shared row's
+exact semantics — `Download this voice's pack` when not ready,
+Preview/Stop/Generating…/Retry when ready.
+
+**One shared data source, one override surface.** The dropdown consumes the
+SAME `VoiceSelectorUiState`/`buildVoiceSelectorState` builder as Settings and
+the reader sheet (decisions #102.4) — no second state convention. The
+favorites star is dropped from first-run setup (a picker, not a management
+surface); favorites remain a Settings affordance and still flow through the
+shared builder. `SetupViewModel.toggleFavorite` became dead and was removed.
+The app module gained `material-icons-core` for the chevron (it was the one
+Compose host without the icons dependency).
+
+**Evidence:** `:app:assembleDebug` + `:app:testDebugUnitTest` green;
+`:ktlintCheck` green (baseline regenerated — SetupScreen carries the repo's
+baselined `function-naming` class like every other `@Composable`). Device
+(S22, SM-S908U1, 2026-09-02): fresh `pm clear` setup shows the compact card;
+the dropdown opens grouped with "needs download" cues; picking `af_bella`
+updates the anchor, dismisses the menu and persisted
+(`settings: voice = af_bella` in the live Room DB). Settings keeps the full
+shared C2 selector untouched.
+
+## 111. E1 — backup & restore phases 2+3 shipped, device-verified (2026-09-02)
+
+Phase 1 (#89) delivered the pure-JVM codec; this entry closes the slice with
+the signed-off shape (#109). Snapshot/merge lives in `core-persistence`
+(`BackupStore` — one `withTransaction` consistent read of all six tables +
+optional book files; merge applies in FK order: books → passages (only for
+books whose local cache is missing — never clobber, never re-parse) →
+progress (local wins) → bookmarks (idempotent natural-key insert, `""` label
+sentinel ↔ null) → history → settings (restored keys overwrite, absent keys
+keep local) → book files). The SAF edge + "Backup & restore" settings section
+(`BackupViewModel`/`BackupSection`) export via `CreateDocument("application/zip")`
+and restore via `OpenDocument` with the shared `ConfirmDialog`; after a merge
+the settings mirror reloads and the search index resyncs under `IndexLock`
+(mirroring `LocalTtsReaderApp.onCreate`) so restored books are searchable
+without a relaunch. Book bytes are captured at import — ONE read reused
+for the cover and the sidecar (`files/books/<bookId>.<ext>` via
+the new `BookFileStore`, deleteForBook on remove) — the opt-in include-books
+source; a re-unreadable source simply yields no sidecar, never a failed
+export.
+
+**Design correction vs the plan:** the plan's history rule was "append, then
+prune to the ring cap". That alone duplicates rows when a restored ring sits
+UNDER the cap (a double restore would grow it) — history now uses the same
+idempotent natural-key dedup as bookmarks before pruning, so a second restore
+adds zero rows at every size. The shared ring cap moved to
+`RoomPlayerStore.RING_CAPACITY` (no magic-number drift).
+
+**Evidence:** `BackupStoreTest` (8, Robolectric + in-memory Room): lossless
+fresh-install restore through the codec (re-snapshot DTO-equal), double-merge
+zero-duplicates, ring capped under 30-entry archives, progress local-wins,
+settings restore-wins + absent-keys-kept, existing cache not rewritten,
+book-file round-trip + deleteForBook. Full gates green: `:core-backup:test`,
+`:core-persistence:testDebugUnitTest`, `:feature-library` (Added shape
+defaults keep call sites source-compatible, no regression),
+`:feature-settings`, `:app:testDebugUnitTest`, `:app:assembleDebug`,
+`checkFeatureBoundaries`, `:ktlintCheck` (baseline regenerated).
+
+**Device leg (S22, SM-S908U1, 2026-09-02):** imported 3 books (sidecars
+byte-captured), played/seeked two (progress + ring rows), bookmarked two
+passages, set theme dark, exported `backup.zip` to Downloads with include
+book files checked — `manifest.json` (v1, appVersion 0.1.0) + all six
+sections + `books/<id>.txt` md5-equal to originals. `pm clear` → fresh
+setup → restore: **"Restored 6 books, 2 bookmarks, 3 resume points"** (6 = 7
+archive books − art-of-war already local from the setup import); live DB
+held all rows, `theme_mode=dark` restored, and the setup-chosen
+`tts_engine=system-tts` survived (absent from the archive → absent keys keep
+local, exercised live). Share flow immediately after restore, no relaunch:
+"SEND You have power over your mind…" → **"Found in your library —
+meditations · Passage 3 — Match 100%"** (the post-restore index resync).
+A second restore of the same zip: **"Restored 0 books, 0 bookmarks,
+0 resume points"** — every table count unchanged, sidecars byte-identical.
+
 ## 110. D4 — Piper "unintelligible" was a probe bug: missing inter-phoneme `_` tokens (2026-09-02)
 
 D4's blind quality gate failed on the first listen (owner: "both piper audio files

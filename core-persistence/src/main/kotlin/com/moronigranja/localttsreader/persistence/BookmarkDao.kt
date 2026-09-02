@@ -19,4 +19,8 @@ interface BookmarkDao {
 
     @Query("SELECT * FROM bookmarks WHERE bookId = :bookId ORDER BY createdAtEpochMillis DESC, id DESC")
     suspend fun all(bookId: String): List<BookmarkEntity>
+
+    /** One-shot read of every row — the backup snapshot source (E1). */
+    @Query("SELECT * FROM bookmarks ORDER BY bookId, createdAtEpochMillis, id")
+    suspend fun all(): List<BookmarkEntity>
 }

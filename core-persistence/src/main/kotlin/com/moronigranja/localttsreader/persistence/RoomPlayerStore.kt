@@ -15,7 +15,7 @@ import com.moronigranja.localttsreader.player.PlayerStore
  */
 class RoomPlayerStore(
     private val database: LibraryDatabase,
-    private val ringCapacity: Int = 10,
+    private val ringCapacity: Int = RING_CAPACITY,
 ) : PlayerStore {
 
     override suspend fun readProgress(bookId: String): PlayerProgress? =
@@ -102,4 +102,10 @@ class RoomPlayerStore(
         label = label,
         createdAtEpochMillis = createdAtEpochMillis,
     )
+
+    companion object {
+        /** The per-book undo-ring cap (decisions #29) — shared with the backup
+         * merge's prune step so the two can never drift (E1). */
+        const val RING_CAPACITY = 10
+    }
 }

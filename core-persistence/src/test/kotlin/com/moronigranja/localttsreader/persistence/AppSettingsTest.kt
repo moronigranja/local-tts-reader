@@ -15,6 +15,12 @@ class AppSettingsTest {
         override suspend fun put(setting: SettingEntity) {
             rows[setting.key] = setting.value
         }
+
+        override suspend fun all(): List<SettingEntity> = rows.map { (key, value) -> SettingEntity(key, value) }
+
+        override suspend fun putAll(settings: List<SettingEntity>) {
+            settings.forEach { rows[it.key] = it.value }
+        }
     }
 
     @Test

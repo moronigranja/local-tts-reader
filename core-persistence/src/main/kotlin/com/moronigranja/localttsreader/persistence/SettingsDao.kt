@@ -13,4 +13,12 @@ interface SettingsDao {
     /** Inserts or replaces the setting row. */
     @Upsert
     suspend fun put(setting: SettingEntity)
+
+    /** One-shot read of every row, key-sorted — the backup snapshot source (E1). */
+    @Query("SELECT * FROM settings ORDER BY key")
+    suspend fun all(): List<SettingEntity>
+
+    /** Bulk upsert — the backup restore apply (E1); absent keys keep their local rows. */
+    @Upsert
+    suspend fun putAll(settings: List<SettingEntity>)
 }

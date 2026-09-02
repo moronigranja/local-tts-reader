@@ -168,6 +168,13 @@ floor.
 
 ## Slice B — App export/backup + restore
 
+> **Complete (2026-09-02, decisions #111):** all three phases shipped and
+> device-verified on the S22 — export/restore round-trip, double-restore
+> zero-duplicates, book-sidecar round-trip, post-restore index resync
+> without relaunch. Merge precedence signed off in #109 (progress local-wins,
+> settings restore-wins-with-absent-kept, bookmarks/history natural-key
+> idempotent, include-books opt-in off).
+
 ### Goal
 
 Export a versioned zip (settings + library metadata + cached parses + progress

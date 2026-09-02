@@ -272,6 +272,8 @@ fun SettingsScreen(
                         }
                     }
                 }
+
+                item { BackupSection() }
             }
         } else {
             LazyColumn(

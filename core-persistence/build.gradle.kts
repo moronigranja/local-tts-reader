@@ -47,6 +47,7 @@ dependencies {
 
     implementation(project(":core-model"))
     implementation(project(":core-player")) // PlayerStore contract + player types (T4-1)
+    implementation(project(":core-backup")) // BackupSnapshot/BackupCodec (E1)
 
     testImplementation(libs.junit4)
     testImplementation(libs.vintage.engine)
