@@ -27,8 +27,8 @@ core-tts        (live) TTSEngine interface + pack registry; model/language-pack 
 core-player     (live) v1 player state machine: transport, transactional writes, ring, sleep timer, bookmarks; PlayerStore contract; A5 single-writer command model (generations); PregenQueue + PregenPlanner + PregenKey, PcmPassageCache (A4 LRU), PregenStorage façade
 core-persistence (live) Room v2: books, cached passages, progress (offset+speed), settings, bookmarks, position_history; LibraryStore + PlayerStore impls; ImportCoordinator/IndexLock boundary (A3)
 core-ui         (live) AyvuTheme design tokens (B1, #68): brand light/dark color roles, typography, shapes, spacing, motion, elevation; shared components (PlayerCard, BookCover, PillButton, ConfirmDialog, EmptyState, LoadingState, SectionHeader, LabeledProgress, SegmentedProgress, formatPercent); no business logic/ViewModels; depends on core-player only
-core-backup     (live, partial) versioned v1 backup archive codec + DTOs — BackupSnapshot/BackupCodec (E1 phase 1, #89); snapshot/merge (phase 2) and SAF edge (phase 3) pending E0
-feature-library (live) SAF import + library list + F2 search (#90) (Compose, Hilt); row pre-gen action + usage/estimate/delete
+core-backup     (live, partial) versioned v1 backup archive codec + DTOs — BackupSnapshot/BackupCodec (E1 phase 1, #89); snapshot/merge (phase 2) + SAF edge (phase 3) unblocked (E0 resolved 2026-09-02, #109: one-shot SAF export/import, opt-in book copy off, generated audio excluded)
+feature-library (live) SAF import + library list UI (Compose, Hilt) — C5/C6, F2 search (#90), F3 folder import via SAF tree (root + one level, 200-file cap, #108); row pre-gen action + usage/estimate/delete
 feature-player (live, T4-2) PlaybackService (MediaSession, focus, foreground) + docked read-along ReaderScreen; PregenWorker/PregenManager single-mode manual pre-gen
 feature-ocr     (live) TessTwoOcrEngine (tess-two 9.1.0) + TessDataStager + Hilt; legacy-traineddata packs (#36)
 feature-settings (live) settings screen, packs download UI, voice picker + favorites, offline-audio section
