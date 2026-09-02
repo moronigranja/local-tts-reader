@@ -536,6 +536,50 @@ the quality gate is strong from day one.
   zh/ja/he do); 24 kHz output against `lastSampleRateHz`; watermark off by
   default.
 
+### D6 — Cross-runtime inference spike: ORT vs GGUF/llama.cpp (TFLite gated)
+
+A measurement spike, not an assumed adoption. The evidence gap it closes: ORT was
+chosen by path-of-least-resistance — Kokoro's working Kotlin reference
+(`thewh1teagle/kokoro-onnx`) plus the on-device speech ecosystem — then ratified by
+convention (decisions #97: "one inference convention (ORT); no candidate may
+introduce a second runtime"). It has never been benchmarked against an alternative
+runtime. The only runtime-level measurements on record do not answer the question:
+D2/#67 compared ORT *execution providers* (CPU vs XNNPACK vs NNAPI — CPU won), a
+within-ORT result; #92 rejected GGUF candidates on the convention rule, not a
+number; and #93's sherpa-onnx spot check is confounded (sherpa bundles its own
+`libonnxruntime` with a Kokoro **v0.19** graph — the ~2.6× delta vs our v1.0 port
+is graph/frontend/runtime together, not a runtime isolate).
+
+This spike answers the question on its own terms: the same (or matched) graph run
+through ORT and through an independent native runtime, judged on RTF, first-audio,
+peak/resident memory and PCM-oracle fidelity on both reference devices. It runs in
+the `spike-tts` harness only — no second in-app inference convention is created,
+and decisions #97 stands unchanged until a measured decision overturns it.
+
+Legs (one harness, one corpus set, one oracle gate):
+
+| Leg | Graph | Role |
+|---|---|---|
+| ORT-android 1.29.0 | shipped Kokoro-82M fp32 (`model-files-v1.1`) | Known-good baseline |
+| ORT-android 1.29.0 | CosyVoice3-0.5B int4 (jiangzhuo9357, #49) | ORT reference on a quantized DiT backbone |
+| llama.cpp / GGUF | `cstr/cosyvoice3-0.5b-2512-GGUF` | The only tracked dual-export model (ONNX + GGUF) — isolates runtime on one backbone |
+| TFLite / ExecuTorch | gated | No tracked TTS model ships a TFLite/ExecuTorch export; recorded as untestable, never assumed slower |
+
+Required evidence, identical per leg: cold engine-open time-to-first-audio,
+steady-state RTF, peak/resident PSS and VmHWM, and the #67 PCM oracle
+(`max_abs_diff`) against the fp32 Kokoro baseline — S22 and HiBreak, same
+corpus/voice as D2/D3.
+
+Method caveat: GGUF vs ORT-int4 confounds runtime with quantization (llama.cpp's
+integer kernels vs ORT's), so most legs prove "best available runtime for a
+quantized graph", not "bare ORT vs bare GGUF at fp32" — each number states which
+axis it actually isolates.
+
+Acceptance: a single comparison table in decisions.md (all legs, both devices,
+same metrics) plus a typed keep/drop per non-ORT runtime, and an explicit
+statement of whether #97's one-convention rule is now evidence-backed or still
+rests on ecosystem/licensing grounds alone.
+
 ## Phase E — data safety
 
 **Status (2026-09-02, decisions #111):** complete. Phase 1 shipped the
@@ -604,9 +648,15 @@ One cohesive library/import slice rather than separate UI patches.
 | ~~F1~~ | ~~**Import progress and cancellation**~~ | ~~Large and multi-file imports show current/total progress; cancellation settles cleanly; per-file failures remain isolated and typed.~~ **Complete (2026-08-27, decisions #64):** `BookImporter.importAll` is now suspend with a per-file pre-parse progress event (a single large file shows "Importing 0/1 — …" immediately) and a 1 ms cooperative boundary so a cancelled batch stops between files without mutating the index for untouched files; `LibraryViewModel` publishes `Importing(0,total)` on `import()`, tracks the batch in `importJob`, exposes `cancelImport()` (Idle, never a partial `Done` — guarded by `ensureActive` before the final publish), and the library row/progress bar gains a Cancel control. Per-file failures stay typed via `ImportOutcome.Failed`. Host evidence: `BookImporterTest` (13, incl. pre/post progress sequence + mid-batch cancel skips later files) and `LibraryViewModelTest` (8, incl. start-state `Importing(0,2)`, mid-batch cancel settles Idle, later import unaffected). |
 | ~~F2~~ | ~~**Library search**~~ | ~~Filter by title and author locally with deterministic empty/no-result states; content identification remains the separate `TextIndex` capability.~~ **Complete (2026-08-29, decisions #90):** UI-level filter over the Room `books` rows — case-insensitive title/any-author match, blank query shows all, `EmptyState` on zero matches; the continue-list stays unfiltered by design. Host: `LibraryViewModelTest` +4 (13/13 green). Runtime device verification done (2026-09-01, decisions #105): a non-matching query renders the "No books match" empty-state, the continue-list stays unfiltered, clearing restores. |
 | ~~F3~~ | ~~**Folder import via SAF tree — promoted from ideas**~~ | ~~A persisted tree grant feeds supported files through the existing batch importer; recursion policy and a defensive per-batch cap are decided before build.~~ **Complete (2026-09-02, decisions #108):** a persisted `ACTION_OPEN_DOCUMENT_TREE` grant scans root + one nested level (`FolderScanPolicy.MAX_DEPTH = 1`) capped at 200 files (`MAX_FILES`) — the hostile-input audit's first concrete resource controls — feeding the shared `BookImporter.importAll` batch with the F1 per-file progress. Pure `FolderScanPolicy` (host-testable) + thin `FolderScanner` DocumentFile adapter; extension gate reuses `EBookFormats.parserFor` (no second list). Empty folder → typed "no supported book files found"; truncation surfaced in snackbar/dialog. Host: `FolderScanPolicyTest` 6/6, `:feature-library:testDebugUnitTest` 19/19, `:app:assembleDebug` + `ktlintCheck` green. Device-verified on the S22 (root + one-level scan, `.pdf` filtered, two-level `.txt` pruned; `docs/prints/f3/folder-import-s22.png`). |
+| F4 | **External file intake — open from file manager + share a book** | Tap a supported ebook in a file manager (`ACTION_VIEW`) or share a book file to Ayvu (`ACTION_SEND` with `EXTRA_STREAM`) and land it in the library through the existing `BookImporter.importAll` batch — **no second import path**. Both entry points accept `.epub`, `.azw3`/`.kf8`, `.mobi`/`.azw`, `.txt`, `.md`; the shared `EBookFormats.parserFor` extension gate is the backstop (file managers type these MIME-inconsistently — no second extension list, F3), and `.kfx`/DRM/unsupported types get typed guidance, never a silent no-op. Duplicate content-hash re-import is a no-op via the existing `LibraryStore.contains` gate; per-file failure stays isolated and typed (F1); a persistable URI permission is taken where the provider offers it. A book-file share is distinguished from the existing text/image identify-resolve path (S2/S3) — text and image shares keep their current behavior. |
 
 F1 is the shared prerequisite for F3: scanning a folder without visible progress would
 amplify the existing import UX defect.
+
+F4 rides the F1/F3 machinery (shared `BookImporter.importAll`, `EBookFormats.parserFor`
+gate, per-file isolation, content-hash dedupe); the new work is the intent contracts —
+manifest `ACTION_VIEW`/`ACTION_SEND` filters plus URI → import routing — not the
+parse/import path itself.
 
 ## Phase G — narration and reader controls
 
@@ -739,7 +789,6 @@ shipped together in the same commit. Covered by the existing `BookSegmentationTe
 | Item | Gate / reason for position |
 |---|---|
 | Pitch-preserving speed | WSOLA/phase-vocoder DSP and cache-key compatibility; measure CPU/battery before replacing hardware rate conversion. |
-| Translation to any advertised target language (it→es, en→pt, …) | New offline NMT stage behind the pre-gen queue + model/license/quality gate; output-side only so matching/indexing stays original-language. One NMT pack (OPUS-MT-class int8, permissive license) + quality gate per language pair; single-multilingual-model choice stays a design-time gate. (Scope widened from pt-BR, 2026-08-31, decisions #101) |
 | CosyVoice pre-generation + voice cloning | DiT-gated (decisions #21/#23) and D3-quality-flagged (duplicated honorific probes; RTF 12.5–31.1); disk-only playback. Exact model pins and the S22 research gate unchanged; A1/A4 long satisfied. |
 | Kindle official export/API sync | External API/export contract and account UX; manual share/resume already covers the core use case. |
 | Word-level highlighting | Requires a stable word/phoneme timing contract beyond current sentence anchors. |
@@ -748,6 +797,28 @@ shipped together in the same commit. Covered by the existing `BookSegmentationTe
 | Auto-delete listened audio | Eviction design first: must preserve the current playhead and every position reachable by undo — a design that does not yet exist (A4's LRU repair is done and is not the eviction policy). |
 | Habit-driven pre-generation | Stats/session evidence first; prediction may rank work but never override storage, charging or playback-yield limits. |
 | Profiles, collections and book-map navigation | Valuable reader/library expansion after search, folder import and basic controls are complete. |
+
+## Phase J — Offline translation (NMT spike)
+
+A measurement spike, not an assumed adoption. Answers one question on the S22: is
+ONE many-to-many NMT model (all languages, one pack) worth its extra
+memory/speed/disk over the per-pair direction (decisions #101), once quality is
+held equal?
+
+Legs (one `spike-tts` harness, four source→target pairs — it→es, en→pt-br, en→it,
+es→en — host-prepared tokens, ORT-android 1.29.0):
+
+| Leg | Model(s) (license) | Role |
+|---|---|---|
+| OPUS-MT per-pair (4 models) | it→es `Helsinki-NLP/opus-mt-it-es` (Apache-2.0); en→pt-br `Helsinki-NLP/opus-mt-tc-big-en-pt` (CC-BY-4.0 — attribute); en→it `Helsinki-NLP/opus-mt-en-it` (Apache-2.0); es→en `Helsinki-NLP/opus-mt-es-en` (Apache-2.0) | Per-pair baseline; the decisions-#101 direction |
+| M2M-100 418M | `facebook/m2m100_418M` (MIT) | Single many-to-many model — 100 langs, 9,900 pairs; run on all 4 pairs |
+| SMaLL-100 | `alirezamsh/small100` (MIT) | Reduced-cost many-to-many fallback (run only if M2M-100 fails the memory/RTF gate) |
+
+`NLLB-200-distilled-600M` stays blocked (CC-BY-NC — decisions #101). Required
+evidence per leg: cold session open, encoder ms, per-token decoder ms, per-passage
+wall time, PSS/VmHWM, output finiteness, and a per-pair quality sample (chr-F vs the
+fixed FLORES-101 dev-set slices). Acceptance: a single comparison table in
+decisions.md + a typed per-model keep/defer.
 
 ## Idea pool — not scheduled
 
