@@ -250,7 +250,7 @@ class PlaybackService : Service() {
         createNotificationChannel()
         audioManager = getSystemService(Context.AUDIO_SERVICE) as AudioManager
         session =
-            MediaSessionCompat(this, "local-tts-reader").apply {
+            MediaSessionCompat(this, "Ayvu").apply {
                 setCallback(mediaCallback)
                 isActive = true
             }
@@ -1020,7 +1020,9 @@ class PlaybackService : Service() {
                 MediaMetadataCompat
                     .Builder()
                     .putString(MediaMetadataCompat.METADATA_KEY_TITLE, book?.title ?: "")
-                    .putString(MediaMetadataCompat.METADATA_KEY_ARTIST, "local-tts-reader")
+                    // The now-playing/notification "artist" line — brand it Ayvu
+                    // (was the stale module/package name, decisions #113).
+                    .putString(MediaMetadataCompat.METADATA_KEY_ARTIST, "Ayvu")
                     .build(),
             )
             session.setPlaybackState(

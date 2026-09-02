@@ -1,5 +1,30 @@
 # Decision log
 
+## 113. Player notification artist + library title branded "Ayvu" (2026-09-02)
+
+Reported on-device (Z Fold 6): the player notification's now-playing line
+still read **local-tts-reader** while the app, channel, and pre-gen
+notification already said "Ayvu". Root cause was two stale legacy strings in
+`PlaybackService` — the `MediaSessionCompat` session tag ("local-tts-reader")
+and `METADATA_KEY_ARTIST` ("local-tts-reader"), which is what the system's
+notification/lock-screen now-playing row renders as the "artist" beneath the
+book title. The notification's own content title (`book?.title ?: "Ayvu"`),
+the `"Ayvu playback"` channel, and the pre-gen `"Ayvu — pre-generating"`
+title were already correct.
+
+**Fix:** `METADATA_KEY_ARTIST` → `"Ayvu"` and the MediaSession tag →
+`"Ayvu"` (owner-visible branding; the session tag appears in media-controller
+records). Library top bar `"Library"` → **"Ayvu library"** (owner request —
+"it would be nice to show the name in the library view"); the in-list
+`SectionHeader("Library")` under Continue listening is untouched (it labels
+the books section, not the screen).
+
+**Evidence:** `:app:assembleDebug` + `:feature-player`/`:feature-library`
+test suites green; `:ktlintCheck` clean. Device (Z Fold 6, SM-F971B,
+2026-09-02): library top bar reads "Ayvu library"; live media session is
+`com.moronigranja.localttsreader/Ayvu/217` state=PLAYING with metadata
+`description=A Deepness in the Sky, Ayvu` (was `…, local-tts-reader`).
+
 ## 112. First-run setup voice step compacted to a dropdown (2026-09-02)
 
 Owner request after walking the C2 setup card on-device: the tall inline
