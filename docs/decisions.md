@@ -1,5 +1,48 @@
 # Decision log
 
+## 109. Owner decisions — E0/E1 gate, Phase H capture, G4 speed (2026-09-02)
+
+Resolves the owner-gated roadmap items in one pass (owner request).
+
+**E0 — backup archive location (gate for E1 phases 2/3):**
+
+- **Reach: one-shot SAF export/import.** The user picks a destination on export
+  and a source on import — no persistent folder grant, no grant-re-acquisition
+  flow. The archive survives reinstall by being a user-held file, not a stable
+  app-side grant.
+- **Book bytes: opt-in copy, OFF by default.** Restore re-imports from the
+  original file unless the user opted to embed bytes in the archive.
+- **Generated audio (PCM): excluded.** Derived/recoverable via pre-gen (voice +
+  speed + passage key); keeps the archive small and the SAF-throughput concern
+  off the hot path.
+- Remaining E0 item is a measurement, not a decision — SAF write throughput for
+  the export zip (metadata + optional book bytes) — folded into E1 phase 3.
+
+**E1 merge precedence — signed off as documented** (roadmap / post-v1-plan Slice B):
+local progress wins over restored; restored settings overwrite matching keys;
+bookmarks/history merge idempotently; include-books default off.
+
+**Phase H — reading and listening capture:**
+
+- **Listening ("playing") time:** wall-clock while `PlayerPhase == PLAYING`,
+  flushed on every exit (pause/sleep/seek/advance/stop/kill) — unchanged from the
+  slice A design (`TimeSpanAccumulator` at the `PlaybackService` edge).
+- **Reading time: page-flip-active dwell.** Reader foreground + screen-on
+  wall-clock, accumulated only while the user is actively turning pages (a flip
+  marks the active window) — NOT raw dwell, so a book left open stops accruing.
+  Spans under 10 s are dropped. Whole seconds stored; rounded only for display.
+- This resolves the roadmap Phase H "open product decision"; the reader-dwell
+  capture is gated behind the flip-activity signal, not foreground dwell alone.
+
+**G4 — speed selector: close #71 permanently.** Playback stays pinned 1.0×;
+stored per-book speeds remain ignored; the retained `setPlaybackRate`/pregen
+plumbing is kept but the revisit is closed. Pitch-preserving speed stays the only
+Later speed item.
+
+**Still open (owner ears, not a click):** D4 Piper blind quality gate — the four
+WAVs in `docs/prints/d4/` (host + HiBreak, Piper vs Supertonic 3 vs the Kokoro
+baseline) await the owner's listening verdict (keep/defer/drop).
+
 ## 108. F3 — folder import via SAF tree (2026-09-02)
 
 F3 (roadmap) promotes the "folder import via SAF tree" idea (ideas.md): a

@@ -549,6 +549,11 @@ This promotes the "Data survival and user-owned storage" review (Further
 reviews, below) from recorded-not-scheduled to the gate E1 implementation
 waits on.
 
+**Resolved (2026-09-02, decisions #109):** one-shot SAF export/import (no
+persistent grant, no re-acquisition after reinstall); book bytes are an opt-in
+copy, OFF by default; generated audio is excluded; SAF write throughput gets
+measured for the export zip during E1 phase 3 (the PCM cache never enters it).
+
 ### E1 — App backup and restore
 
 Build the versioned SAF zip described in [post-v1-plan.md](post-v1-plan.md): settings,
@@ -635,13 +640,10 @@ have device evidence and an accessibility review.
 
 ### G4 — Speed-selector revisit (decisions #71)
 
-A bounded decision item, not a commitment to restore. Playback is pinned 1.0×
-and stored per-book speeds are ignored (decisions #71) while the
-`setPlaybackRate`/speed-command plumbing is retained unchanged. Produce one
-decision record naming why the selector was removed; if the blocker is
-resolved, restore the selector and verify read-along alignment at 1.5×/2.0× on
-the S22; otherwise close #71's "revisit planned" permanently, leaving the
-Later pitch-preserving row as the only speed work. (2026-08-31, decisions #96)
+A bounded decision item, now **closed (2026-09-02, decisions #109):** playback
+stays pinned 1.0× and stored per-book speeds remain ignored; the retained
+`setPlaybackRate`/speed-command plumbing is kept but #71's "revisit planned" is
+closed permanently. Pitch-preserving speed stays the only Later speed work.
 
 ## Phase H — TODAY reading and listening stats
 
@@ -649,9 +651,10 @@ Use the capture, aggregation and UI design in
 [post-v1-plan.md](post-v1-plan.md#slice-a-today-stats-dashboard). Store whole seconds
 and round only for display so short valid sessions are not discarded.
 
-Open product decision: reading time capture. Recommended default remains reader-foreground
-dwell with screen-on gating and a 10-second accidental-open floor. Listening time is
-wall-clock duration while the player is actually `PLAYING`.
+Reading/listening capture is decided (2026-09-02, decisions #109): listening =
+wall-clock while `PLAYING`; reading = **page-flip-active** reader dwell (screen-on
+foreground, accrued only while the user is actively turning pages) with
+sub-10-second spans dropped — not raw foreground dwell.
 
 A full event/session timeline is not a prerequisite for the dashboard. Add it later only
 if a user-visible history view needs event-level data.
