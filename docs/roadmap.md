@@ -483,11 +483,16 @@ verdicts recorded.** Real end-to-end pipelines on the HiBreak (spike-tts
 Piper's #30b audit: the stock export exposes a single audio output — no
 alignment, no word timestamps — so the small tier ships **passage-level
 read-along only** (recorded degradation) unless a custom re-export surfaces
-the alignments. Piper's flat prosody → **blind quality gate PENDING owner
-listening pass** on `docs/prints/d4/` (HiBreak + host WAVs, same corpus as
-the Kokoro baseline). Remaining for adoption: the TtsPack integration engine
-(`PiperEngine : TTSEngine` behind the existing seam) after the owner's blind
-gate, per-language voice pins + hashes, and the es-IT/de/ko coverage check.
+the alignments. Piper's flat prosody → **blind quality gate RESOLVED
+(2026-09-02, decisions #110):** the first listen reported both Piper WAVs
+unintelligible, but the cause was a probe-harness bug — the hand-rolled
+`espeak-ng --ipa` char-map omitted Piper's inter-phoneme `_` tokens (715 vs 1465
+ids). Corrected re-measure: RTF **0.57** (PSS ~236 MB / VmHWM ~873 MB), and the
+owner's listening pass on the corrected reference WAV is fine (minor caveat:
+inter-sentence pauses a little short). Piper stays the **KEEP** candidate.
+Remaining for adoption: the TtsPack integration engine
+(`PiperEngine : TTSEngine` behind the existing seam), per-language voice pins
++ hashes, and the es-IT/de/ko coverage check.
 
 **2026-08-31 (landscape.md closer look):** the q4 weak-device variant
 (`BricksDisplay/chatterbox-multilingual-ONNX-q4`, 790 MB) was probed on the

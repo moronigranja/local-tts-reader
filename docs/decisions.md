@@ -1,5 +1,41 @@
 # Decision log
 
+## 110. D4 — Piper "unintelligible" was a probe bug: missing inter-phoneme `_` tokens (2026-09-02)
+
+D4's blind quality gate failed on the first listen (owner: "both piper audio files
+are unintelligible; did the voice and text use the same language?"). Language was
+NOT the cause — text (Pride & Prejudice en), voice (`en_US-lessac-medium`), and
+phonemization (`espeak-ng -v en-us`) are all English.
+
+**Root cause:** the D4 inputs were built by an uncommitted host script
+(`build_inputs.py`/`host_probe.py`) that mapped `espeak-ng -q --ipa` output
+**character-by-character** (`ids=[1]; for ch in phonemes: ids+=id_map[ch][0];
+ids+=[2]`). That raw CLI stream is NOT what Piper was trained on. Canonical
+`piper` 1.7.0 `phonemes_to_ids` inserts the `_` (id 0) token **between every
+phoneme** (plus `^`/`$`), i.e. `^ _ ɪ _ ɾ _ … _ θ _ $` — the hand-rolled map omitted
+these inter-phoneme boundaries entirely. Result: 715 ids → 18.46 s of unintelligible
+audio; canonical 1465 ids → ~36 s of intelligible speech; cross-correlation ≈ 0.
+The "0 unmapped chars" + "intelligible" claim in #99 passed to the gate without any
+listening check, so the defect reached the owner's ears.
+
+**Corrected re-measure (HiBreak, 2026-09-02):** rebuilt `d4_inputs.json` with
+`EspeakPhonemizer` + `phonemes_to_ids` (1465 ids, 0 missing), re-ran
+`D4ProbeBenchmarkTest`: Piper **RTF 0.57** (20.0–20.5 s synth for 35.2–35.8 s
+audio), open 8.9 s, PSS ~236 MB / VmHWM ~873 MB, finite — still clearly realtime
+against Kokoro's 3.01 (PSS ~834 MB). Reference WAVs: `docs/prints/d4/
+d4-host-piper-reference.wav` (host) + `d4-hibreak-piper-reference.wav` (device).
+Supertonic 3 unchanged (RTF 3.91) — DEFER stands; its "too fast" HiBreak pace
+was the already-documented harness artifact (#99: `latent_len × 3072` ≈ 1.7×
+shorter than the reference SDK).
+
+**Owner quality verdict:** reference WAV is fine; inter-sentence pauses are a
+little short (minor caveat, tunable via silence insertion later).
+
+**D4 outcome:** Piper's quality gate PASSES the blind listen; it stays the KEEP
+candidate for the small tier. Remaining adoption gates are unchanged from #99:
+the `PiperEngine : TTSEngine` integration behind the existing seam, per-language
+voice pins + hashes, and the es/de/ko coverage check.
+
 ## 109. Owner decisions — E0/E1 gate, Phase H capture, G4 speed (2026-09-02)
 
 Resolves the owner-gated roadmap items in one pass (owner request).
