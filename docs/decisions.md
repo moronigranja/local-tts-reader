@@ -28,8 +28,9 @@ Supertonic 3 unchanged (RTF 3.91) — DEFER stands; its "too fast" HiBreak pace
 was the already-documented harness artifact (#99: `latent_len × 3072` ≈ 1.7×
 shorter than the reference SDK).
 
-**Owner quality verdict:** reference WAV is fine; inter-sentence pauses are a
-little short (minor caveat, tunable via silence insertion later).
+**Owner quality verdict:** both corrected reference WAVs (host + HiBreak) sound
+fine; inter-sentence pauses are a little short (minor caveat, tunable via
+silence insertion later).
 
 **D4 outcome:** Piper's quality gate PASSES the blind listen; it stays the KEEP
 candidate for the small tier. Remaining adoption gates are unchanged from #99:
