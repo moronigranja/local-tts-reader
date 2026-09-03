@@ -33,7 +33,7 @@ playback (with read-along sentence highlighting) → share-and-resume, plus sett
 | Module | What it does |
 |---|---|
 | `core-persistence` | Room schema v2 (books, cached passages, progress + offset/speed, settings, bookmarks, position_history); stores + launch-time rebuild; `BackupStore` snapshot/merge + book-file sidecars (E1) |
-| `feature-library` | SAF multi-file + folder import (F3 tree grant, arbitrary-file intake via the F4 ACTION_VIEW gateway — progress, typed failures, idempotent) + library list UI |
+| `feature-library` | SAF multi-file + folder import (F3 tree grant), external-file intake (F4: ACTION_VIEW / shared book files land on MainActivity), one import overlay with progress + stage (reading/parsing/saving/indexing) + typed failures, idempotent; library list UI |
 | `core-backup` | Versioned v1 SAF backup archive: codec + DTOs (pure JVM) — consumed by persistence + settings (E1) |
 | `feature-player` | Foreground playback service (MediaSession, focus/ducking, notification), pre-generation wiring, reader surface with sentence highlight + S3 gestures |
 | `feature-settings` | Settings screen: engine/voice/OCR pack downloads, voice picker + favorites, match threshold, OCR languages, theme, backup & restore (SAF export/import); Android HTTP transport |
@@ -100,7 +100,7 @@ core-tts/     engine seam + Kokoro impl + pack descriptors
 core-player/  playback state machine + pre-generation
 core-ocr/     OCR seam + downscaler + traineddata packs
 core-persistence/  Room stores (library, player, settings)
-feature-library/   SAF import + library UI
+feature-library/   SAF + external-file import with in-library overlay, library UI
 feature-player/    playback service + reader UI
 feature-settings/  settings UI + pack downloads
 feature-share/     ACTION_SEND gateway + resolver

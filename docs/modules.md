@@ -14,7 +14,7 @@ core-ocr/         LIVE — S1: OcrEngine seam, OcrImage/OcrResult, screenshot do
 feature-ocr/     LIVE — S1: TessTwoOcrEngine (tess-two 9.1.0) + TessDataStager + Hilt; LSTM models unusable on this binding (see #36)
 feature-settings/ LIVE — V1: settings screen, packs download UI, voice picker + favorites, threshold, OCR langs, theme; AndroidHttpTransport; Offline-audio section (per-book usage + delete, #44); "Backup & restore" SAF export/import (E1, #111)
 feature-share/    LIVE — S2/S3: ACTION_SEND gateway (text+image), typed resolver, found/not-found UX, OpenTarget contract + Listen-here entry (#37/#38)
-feature-library/  SAF import + library list UI (Compose, Hilt) — C5/C6; F2 title/author search + empty state (#90); F3 folder import via SAF tree grant (root + one level, 200-file cap, #108); library-row pre-gen action + usage/estimate/delete over PregenStorage (#42/#44)
+feature-library/  SAF + external-file import (F4: ACTION_VIEW / shared book files → MainActivity singleTop, one in-library IntakeOverlay with progress + stage, #117/#118) + library list UI (Compose, Hilt) — C5/C6; F2 title/author search + empty state (#90); F3 folder import via SAF tree grant (root + one level, 200-file cap, #108); library-row pre-gen action + usage/estimate/delete over PregenStorage (#42/#44)
 feature-player/   LIVE — playback service, MediaSession, pregen wiring (queue + disk tier, #35/#42); reader surface + S3 gestures (#38); PregenWorker/PregenManager single-mode manual offline pre-gen — overnight arm removed (S1b, #76; QW5d startup cancel kept); PregenStorage storage-transparency façade (#44)
 app/              Hilt composition root: Library/Settings/Reader routes, S3 open-target intent handling, AppShareModule (Listen-here handler) — F1/C5/C6/#36/#38
 ```

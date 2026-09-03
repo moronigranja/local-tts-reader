@@ -1,6 +1,47 @@
 # Decision log
 
-## 117. F4 — external file intake shipped: ACTION_VIEW gateway + book-file share routing through the one importer, device-verified on the S22 (2026-09-03)
+## 118. F4 — import overlay inside the library: one surface for every entry point, progress + stage; ExternalFileActivity removed (2026-09-03)
+
+Follow-up to #117 (same day): the standalone `ExternalFileActivity` gateway is
+deleted. The import surface is now an **overlay rendered on the library
+screen**, shared by EVERY entry point — the in-app SAF picker, folder import,
+a file-manager "Open with Ayvu" (ACTION_VIEW), and forwarded book-file shares.
+
+**Why:** a separate launcher-less activity felt detached from the library the
+import lands in; its "Open library" button also hit the system resolver (an
+app-chooser bug on some launchers) because bare MAIN+LAUNCHER intents can
+resolve to the gateway itself. Folding the intake into the library removes
+both the UX split and the navigation bug.
+
+**Changes:**
+- `feature-library/ExternalFileActivity` deleted. MainActivity (launchMode
+  singleTop) now carries the ACTION_VIEW + `ACTION_IMPORT_BOOK` filters and
+  dispatches the file via the shared activity-scoped `LibraryViewModel`
+  (`intakeUri` — extension gate + batch importer, same as the picker).
+- `feature-library/IntakeOverlay` — ONE composable for every import:
+  determinate per-file progress bar, a **stage status** (reading → parsing →
+  saving → indexing) surfaced from a new `ImportCoordinator.ImportStage`
+  enum threaded through `import`/`importAll`, the typed batch summary, and
+  kfx/DRM/unsupported guidance. No "Open library" button (the library is the
+  surface; the standalone activity that needed it is gone).
+- LibraryScreen renders the overlay; the old inline progress rows, the
+  separate result AlertDialog and the completion snackbar were removed (one
+  import surface, one code path).
+- `Importing` carries the stage; call sites updated (SetupViewModel,
+  ImportCoordinatorTest, LibraryViewModelTest).
+
+**Host:** `:core-ebook:test` + `:feature-library:test` + `:feature-share:test`
++ app unit tests green; `checkFeatureBoundaries` green; baseline-gated
+`ktlintCheck` green (baseline refreshed to the edited tree).
+
+**Device (S22, 2026-09-03):**
+- `ExternalIntakeInstrumentedTest` 2/2 OK (VIEW import lands a row in the real
+  `local-tts-reader.db`, re-import dedupes to one row; kfx imports nothing).
+- Manual: VIEW import shows the overlay in-place over the library — "Import
+  complete / Added 1", dedupe re-import "Added 0 · Unchanged 1", a fresh second
+  book "Added 1"; stays on the library, no resolver/app chooser.
+
+## 117. F4 — external file intake shipped: ACTION_VIEW gateway + book-file share routing through the one importer, device-verified on the S22 (2026-09-03) F4 — external file intake shipped: ACTION_VIEW gateway + book-file share routing through the one importer, device-verified on the S22 (2026-09-03)
 
 F4 ("open from file manager + share a book") is complete. Both entry points
 land the file in the library through the ONE existing `BookImporter` batch
