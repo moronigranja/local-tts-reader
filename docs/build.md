@@ -189,6 +189,40 @@ Supertonic 3 RTF **3.92** — see `docs/prints/d4/` and decisions #99. The
 supertonic run takes ~8 min (warmup + 3 timed full pipelines at RTF ~3.9);
 piper ~1 min.
 
+## NMT spike staging (2026-09-02, `spike-tts`)
+
+Stages the Phase J translation candidates for `TranslateProbeBenchmarkTest`
+(roadmap Phase J): the four per-pair OPUS-MT models + M2M-100-418M, fp32 and
+dynamic-int8, across it→es, en→pt-br, en→it, es→en. Inputs are host-prepared by
+`tools/gen_nmt_inputs.py` (FLORES-101 dev = 20 quality sentences per pair,
+devtest = 10 ~120–250-token passages for RTF; per-family decoder_start folded
+in host-side). Models are exported + parity-gated by `tools/export_nmt_onnx.py`
+(PyTorch greedy == ONNX greedy, token-identical, host ORT 1.29.0); pinned
+revisions/hashes/sizes live in `m/nmt/manifest.json`. No models are committed
+(decision #7).
+
+```bash
+# 1. export + parity + int8 (host; needs optimum-onnx, torch, onnxruntime==1.29.0)
+python3 tools/export_nmt_onnx.py                  # -> m/nmt/<model>/{onnx,onnx-int8}, m/nmt/manifest.json
+# 2. tokenize the FLORES corpus (host)
+python3 tools/gen_nmt_inputs.py                   # -> translate_inputs.json
+# 3. stage onto the S22
+adb push m/nmt /data/local/tmp/nmt
+adb push translate_inputs.json /data/local/tmp/translate_inputs.json
+adb shell "run-as com.moronigranja.localttsreader.spiketts sh -c \
+  'mkdir -p files/models && \
+   cp -r /data/local/tmp/nmt/* files/models/ && \
+   cp /data/local/tmp/translate_inputs.json files/translate_inputs.json'"
+adb shell svc power stayon true   # #93: no doze mid-benchmark
+adb shell am instrument -w -e class com.moronigranja.localttsreader.spiketts.TranslateProbeBenchmarkTest \
+  com.moronigranja.localttsreader.spiketts.test/androidx.test.runner.AndroidJUnitRunner
+adb pull /sdcard/Android/data/com.moronigranja.localttsreader.spiketts/files/translate_results.json
+adb logcat -d -s TranslateProbe:V
+```
+
+chr-F per `pair × model` is computed host-side from the recorded `output_ids`
+(sacréBLEU, `--remove_whitespace`) against the FLORES refs.
+
 ## espeak-ng Android bundle (decision #32)
 
 Cross-compiles `libespeak-ng.so` (arm64-v8a) at the pinned espeak-ng release tag

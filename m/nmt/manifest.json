@@ -1,0 +1,206 @@
+{
+  "m2m100-418M": {
+    "fp32": {
+      "decoder_model.onnx": {
+        "bytes": 1860178415,
+        "sha256": "d59bd6e8426bf63747c690a13cc95c28d96ccd84048839d4b55bc89ce24d64f0"
+      },
+      "decoder_with_past_model.onnx": {
+        "bytes": 1759373139,
+        "sha256": "567b43c0358881892cf1b1968e5f7a38e851a8f96c52cc4ff1a88abd5a2f55b2"
+      },
+      "encoder_model.onnx": {
+        "bytes": 1133625317,
+        "sha256": "b6909f3bb4a18df749db5cdb27a3d2e36cb48d85546d4967d7bbdd10a8c38c2e"
+      }
+    },
+    "int8": {
+      "decoder_model.onnx": {
+        "bytes": 469378876,
+        "sha256": "a5dd3632add86cc0f7a09bcf79187e0c1fb7bbf2ac8f8d94f31395b59de0bbee"
+      },
+      "decoder_with_past_model.onnx": {
+        "bytes": 444032452,
+        "sha256": "c0d5efa28180ee743de4f314e9358223d54a511e5e87ddc8c44d97bc6c5b83e5"
+      },
+      "encoder_model.onnx": {
+        "bytes": 287221665,
+        "sha256": "ef836c970c2801d8cf961b4df8864e41ddf67e1e39211113be4e6e2a47c6c3e7"
+      }
+    },
+    "int8_matches_fp32_greedy": true,
+    "repo": "facebook/m2m100_418M",
+    "revision": "55c2e61bbf05dfb8d7abccdc3fae6fc8512fd636",
+    "tokenizer": "M2M100Tokenizer"
+  },
+  "opus-mt-en-it": {
+    "fp32": {
+      "decoder_model.onnx": {
+        "bytes": 266378537,
+        "sha256": "31f1dc9924b0b9e7ebda683404913a3f7563821d11027005345bf493d6864103"
+      },
+      "decoder_with_past_model.onnx": {
+        "bytes": 253748929,
+        "sha256": "2619d7fda6114ac79a32df4e6ce1c1e871b84787cebfb84059b008c76e645dbf"
+      },
+      "encoder_model.onnx": {
+        "bytes": 240691830,
+        "sha256": "cf68b0bd8019140b1f143f035f1173186a7643522a0fd5df43e6a9d149f8a2ed"
+      }
+    },
+    "int8": {
+      "decoder_model.onnx": {
+        "bytes": 67314985,
+        "sha256": "6b57b4ba7a30291052d454b3479168ff2f7ecb632a6f7472e840ceb5777257a2"
+      },
+      "decoder_with_past_model.onnx": {
+        "bytes": 64103035,
+        "sha256": "12f788b5eeac822c1b1ddf0c0e1ca91cdf91fcaee73fa959b5fc146c7a0efcfa"
+      },
+      "encoder_model.onnx": {
+        "bytes": 60418821,
+        "sha256": "d5e19082fc8eab866cf5e1f20350aef617af07c46d0903ff738e96dd46744bed"
+      }
+    },
+    "int8_matches_fp32_greedy": true,
+    "repo": "Helsinki-NLP/opus-mt-en-it",
+    "revision": "be5a254d936f1a8c8da080406ca582a6615e6658",
+    "tokenizer": "MarianTokenizer"
+  },
+  "opus-mt-es-en": {
+    "fp32": {
+      "decoder_model.onnx": {
+        "bytes": 235528769,
+        "sha256": "170e51a74afc181a6a4990ca42deceedb66788ae97357cccc9155f3f29815651"
+      },
+      "decoder_with_past_model.onnx": {
+        "bytes": 222899161,
+        "sha256": "75444e9434f0e3cb9839647f4626a595e73da5dd89cf0c47f5b6e72a001fdaac"
+      },
+      "encoder_model.onnx": {
+        "bytes": 209902198,
+        "sha256": "714afc95a9ba9c24784401de72cda36001b27909c4227d2a98f9a2b4e578041b"
+      }
+    },
+    "int8": {
+      "decoder_model.onnx": {
+        "bytes": 59557443,
+        "sha256": "93cf7fcb42a7a17577574206f21069b67402701a0ea7456545d6136eeab36fb7"
+      },
+      "decoder_with_past_model.onnx": {
+        "bytes": 56345493,
+        "sha256": "0a6b9f7f98723394c5fcc4f97eb21d6e3c17a34872fefb39fff913cda99c632c"
+      },
+      "encoder_model.onnx": {
+        "bytes": 52721414,
+        "sha256": "968a70f55d0249ac40c0e09861b556bc875ba0fe42f08aca7e2fcb3b5f960454"
+      }
+    },
+    "int8_matches_fp32_greedy": false,
+    "repo": "Helsinki-NLP/opus-mt-es-en",
+    "revision": "c96e2c5399ebfae4fc43d9669556b9afa74bb69d",
+    "tokenizer": "MarianTokenizer"
+  },
+  "opus-mt-it-es": {
+    "fp32": {
+      "decoder_model.onnx": {
+        "bytes": 223278329,
+        "sha256": "64c4c3484d2803ccaa6a0f50c5d1081b5cb1e23fef218992102001e4100f6291"
+      },
+      "decoder_with_past_model.onnx": {
+        "bytes": 210648721,
+        "sha256": "23910237b948b75f61eeb493ddf410f3532c07762804fbf0561dd2830b754ee2"
+      },
+      "encoder_model.onnx": {
+        "bytes": 197675638,
+        "sha256": "66009d1ce0cceb714c30c433e7fbf517b35f00da1ca95a36e5e791fcc305b2e9"
+      }
+    },
+    "int8": {
+      "decoder_model.onnx": {
+        "bytes": 56476925,
+        "sha256": "fbbb2d6463537e08a1b6dc411364ffcf445d8ff41713ee35a4ac3aa979af4801"
+      },
+      "decoder_with_past_model.onnx": {
+        "bytes": 53264974,
+        "sha256": "291e14e84955405e2805d2eaa1bac235eb4c0b54f91277dbcb3ad2d8294a1575"
+      },
+      "encoder_model.onnx": {
+        "bytes": 49664775,
+        "sha256": "1fece0ef9e28168d32c7e177f29c128fd1505d70bb6e216faf532d2fd0eec5ac"
+      }
+    },
+    "int8_matches_fp32_greedy": false,
+    "repo": "Helsinki-NLP/opus-mt-it-es",
+    "revision": "bf60834fa2d3999a6bedf4f3ea27bd9e4daa6407",
+    "tokenizer": "MarianTokenizer"
+  },
+  "opus-mt-tc-big-en-pt": {
+    "fp32": {
+      "decoder_model.onnx": {
+        "bytes": 632096262,
+        "sha256": "75fe901482ea45bc35cbd3c262168b1ec9ce40c0b3d861d7349fc572ec10e342"
+      },
+      "decoder_with_past_model.onnx": {
+        "bytes": 581693318,
+        "sha256": "bbdd762dc6720a2f838ac67b8cafc4c37b8bf9099cecf1e4c00c9f41b662d98a"
+      },
+      "encoder_model.onnx": {
+        "bytes": 530939679,
+        "sha256": "ff6ee1d76ee8ceed356e53aa94430953295ae76ef35dcf49497630c65f00fb62"
+      }
+    },
+    "int8": {
+      "decoder_model.onnx": {
+        "bytes": 158842291,
+        "sha256": "8e40a966536225dbe4eb8e9766d078586ae40b62a35d68e39349afbe32f03ade"
+      },
+      "decoder_with_past_model.onnx": {
+        "bytes": 146168579,
+        "sha256": "3d1c72d213dec4bf3a4a068027e5497d10c1f9c266447e1a1b502ff7cce9b787"
+      },
+      "encoder_model.onnx": {
+        "bytes": 133099492,
+        "sha256": "1f3731f79dad17d12b1034f3a98daa1a62f9569a2e2bcc6c928007ed50ba2a91"
+      }
+    },
+    "int8_matches_fp32_greedy": false,
+    "repo": "Helsinki-NLP/opus-mt-tc-big-en-pt",
+    "revision": "9f2863d807ecf91a374bdbecb8d01e402e90622e",
+    "tokenizer": "MarianTokenizer"
+  },
+  "small100": {
+    "fp32": {
+      "decoder_model.onnx": {
+        "bytes": 1255383176,
+        "sha256": "6ad9869d509a51dd640ef4c5a4f918a9f0ce3533e19e46647b7d3e0973c04c35"
+      },
+      "decoder_with_past_model.onnx": {
+        "bytes": 1230181851,
+        "sha256": "1ff43ce3d4f0ddbcb3916ddd095b68b35a81fd3f3ef631353aa65d7cb1a31f27"
+      },
+      "encoder_model.onnx": {
+        "bytes": 1133722347,
+        "sha256": "e3851e3ee350264a207b82ff51027a1d360425193b28962925148ab9b31d1867"
+      }
+    },
+    "int8": {
+      "decoder_model.onnx": {
+        "bytes": 317354048,
+        "sha256": "7e713802144e681d6fdd595efb89a2cd2e62b0766d91068089d31a8f9ce2e808"
+      },
+      "decoder_with_past_model.onnx": {
+        "bytes": 311017319,
+        "sha256": "4e44b128f62c333e581bf5172a31e26347ac4c807ca949fd46c45f9bc16473ca"
+      },
+      "encoder_model.onnx": {
+        "bytes": 287317539,
+        "sha256": "0bec839592c15b82abf062f531d9076689ef55d6f845a1bc7811abdbd922f46c"
+      }
+    },
+    "int8_matches_fp32_greedy": false,
+    "repo": "alirezamsh/small100",
+    "revision": "8ab680e26a596d2e3d2d2d17ae0f68df1037328c",
+    "tokenizer": "M2M100Tokenizer"
+  }
+}

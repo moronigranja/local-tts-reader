@@ -1,5 +1,183 @@
 # Decision log
 
+## 114. Phase J — offline NMT spike measured; small100 int8 adopted for translate-then-read (2026-09-02)
+
+Roadmap Phase J (promoted 2026-09-02 from the "Later" translation row, decisions
+#101) ran its measurement spike on the S22: the per-pair OPUS-MT direction A/B'd
+against the single many-to-many M2M-100-418M across four source→target pairs
+(it→es, en→pt-br, en→it, es→en), fp32 and dynamic-int8, through the `spike-tts`
+harness on ORT-android 1.29.0. Harness: `TranslateProbeRunner` +
+`TranslateProbeBenchmarkTest`; host tooling `tools/export_nmt_onnx.py` (export +
+parity + int8), `tools/gen_nmt_inputs.py` (FLORES-101: 20 dev sentences per pair
+for chr-F, 10 ~120–250-token devtest passages for wall time), `tools/nmt_chrf.py`
+(host-side sacréBLEU chr-F over the device's recorded token ids). All model
+graphs are runtime downloads (decision #7); the scripts + pins
+(`m/nmt/manifest.json`: HF revisions + sha256 + sizes) are reproducible.
+
+**Device cost table (S22, ORT-android 1.29.0; per-pair chr-F on the 20-sentence
+FLORES dev slice; passages are the wall-time leg):**
+
+| Leg | int8 disk (MB) | open ms (enc/dec/dec+p) | dec ms/token | leg PSS MB | chr-F |
+|---|---|---|---|---|---|
+| opus-mt-it-es fp32 | 632 | 1.0k/1.3k/1.2k | 10.7 | 1009 | 52.2 |
+| opus-mt-it-es int8 | 159 | | 68.2 | 380 | 52.6 |
+| opus-mt-tc-big-en-pt fp32 | 1745 | 2.6k/5.7k/5.7k | 26.9 | 2270 | 66.5 |
+| opus-mt-tc-big-en-pt int8 | 438 | | 146.4 | 689 | 67.4 |
+| opus-mt-en-it fp32 | 761 | 2.6k/1.8k/1.8k | 13.8 | 1204 | 57.5 |
+| opus-mt-en-it int8 | 192 | | 110.1 | 434 | 57.7 |
+| opus-mt-es-en fp32 | 668 | 1.1k/1.3k/1.2k | 14.0 | 1037 | 63.2 |
+| opus-mt-es-en int8 | 169 | | 95.3 | 380 | 63.1 |
+| m2m100-418M fp32 | 4753 | **not stageable — lmkd kill** | | | |
+| m2m100-418M int8 | 1201 | 2.6k/1.8k/1.8k | 23.7–30.6 | ~1400 | 52.3–62.2 |
+
+chr-F details (sacréBLEU `--remove_whitespace`): opus fp32→int8 is a wash
+(it-es 52.2→52.6, en-pt-br 66.5→67.4, en-it 57.5→57.7, es-en 63.2→63.1);
+M2M-100 int8 trails the per-pair baselines on three of four pairs
+(en-pt-br 62.2 vs 67.4, en-it 53.3 vs 57.7, es-en 58.3 vs 63.1; it-es 52.3 vs
+52.6 roughly tied). Every leg finite, every sentence item reached EOS.
+en→pt-br FLORES ref is European pt; the owner's blind read stays the
+authoritative pt-BR gate (decisions #101) — the ~5-chr-F gap against the
+pt-specialist tc-big model is consistent with that caveat, not a verdict.
+
+**Findings:**
+
+- **M2M-100 fp32 fails the memory gate outright**: 4.75 GB of graphs; lmkd
+  killed the probe process mid-leg (the per-leg flush preserved partial
+  results — the #93 lesson paying off). It is not a device candidate at fp32.
+- **M2M-100 int8 runs** (1.2 GB, ~24–31 ms/token — FASTER per token than the
+  int8 Marian graphs, 68–146 ms/token, but with ~3.7× the Marian-base PSS
+  at ~1.4 GB) but its chr-F trails the per-pair baselines on 3/4 pairs.
+- **Pack-count cost is the decisive asymmetry**: 4 per-pair int8 packs ≈ 958 MB
+  now vs 1201 MB for the one many-to-many pack — comparable today, but the
+  per-pair cost grows with every future direction (each +~170–440 MB and a new
+  quality gate) while the single model stays fixed. Against that, M2M-100's
+  memory (≈1.4 GB PSS leg peak, 3.7× a Marian-base leg) and its 3/4-pair chr-F
+  deficit are paid on EVERY translation, not amortized.
+
+**Owner answer (measured, 2026-09-02): the single all-language model costs too
+much — DEFER M2M-100.** The preference "one model for all languages if it does
+not cost too much extra" (owner, in-session) does not survive contact with the
+device: fp32 cannot load, int8 costs ~3.7× the memory of a per-pair baseline
+leg on every run and loses chr-F on 3 of 4 measured pairs. The per-pair
+OPUS-MT direction (decisions #101) stands; the roadmap keeps translation as a
+per-pair pack design with a quality gate per direction. If a future model
+(NLLB-200 remains license-blocked, #101; SMaLL-100 untested — MIT) measurably
+holds per-pair chr-F at Marian-base memory, the spike's harness is reusable
+as-is.
+
+Contract note for any future port: M2M-100's HF generate() conditioning is
+decoder_start=eos + FORCED first bos = target lang id; feeding the lang id as
+the decoder start degenerates to single-token loops ("the the the"), and the
+model's own argmax after eos is pair-dependent (often `__fr__`) — the forced
+bos must be applied, not predicted. `TranslateProbeRunner` feeds
+`decoder_start` tokens sequentially and discards their argmaxes, which also
+matches Marian's `[pad]` start; device behavior was reproduced host-side
+before the fix (int8 ORT greedy == PyTorch generate, token-identical on 7/8
+samples with the eighth diverging only at the 128-token length cap).
+
+**Owner-requested extension (same session): SMaLL-100 legs added even though
+M2M-100 int8 passed, for a direct speed/quality comparison**
+(`alirezamsh/small100`, MIT). First measurement was INVALID and discarded:
+inputs had been tokenized with `AutoTokenizer`/`M2M100Tokenizer`, but small100
+requires its repo-local `SMALL100Tokenizer` (MBART-style: the TARGET lang id is
+PREPENDED to the source, `[tgt_lang, X, eos]`; AutoTokenizer silently falls
+back to `M2M100Tokenizer`, which prepends the SRC lang). The mis-conditioned
+outputs produced literal artifacts (translations opening "adget", "adgeting" —
+owner-caught) and chr-F 15.6–31.0; that was our harness bug, not the model.
+
+**Corrected measurement** (`SMALL100Tokenizer(tgt_lang=...)`, decoder_start=eos
+with no forced bos — the model's own argmax after eos is the first real token;
+host parity PyTorch == ONNX int8 greedy, token-identical 8/8 samples across the
+four pairs; fp32 3.6 GB / int8 915 MB graphs):
+
+| SMaLL-100 leg | dec ms/token (fp32 → int8) | leg PSS (fp32 → int8) | chr-F (fp32 → int8) |
+|---|---|---|---|
+| it→es | 25.5 / **8.9** | 3641 / 1082 MB | 52.6 → 52.6 |
+| en→pt-br | 26.4 / 9.8 | 3643 / 1061 MB | 63.2 → 62.1 |
+| en→it | 28.2 / 9.9 | 3637 / 1072 MB | 52.0 → 51.9 |
+| es→en | 27.7 / 9.8 | 3617 / 1059 MB | 58.3 → **59.1** |
+
+With conditioning fixed, SMaLL-100 is a different model than the invalid run
+suggested: chr-F 51.9–63.2 (was 15.6–31.0), statistically the same class as
+M2M-100-418M (52.3–62.2) — and it **dominates M2M-100 on every axis**: ~2.5×
+faster decode (9.8 vs 24–27 ms/token), smaller pack (915 vs 1201 MB), lighter
+legs (~1.06 vs ~1.4 GB PSS), equal-or-better quality on every pair. It is also
+the fastest decoder measured in the entire spike, beating even Marian-base
+fp32. Quality still trails the per-pair Marian baselines on en→pt-br (62.1 vs
+67.4) and en→it (51.9 vs 57.7) and ties on it→es (52.6 ≈ 52.6) and es→en
+(59.1 ≈ 63.1 with opus ahead; the FLORES en-por reference is European pt, so
+the en→pt-br gap vs the pt-specialist is partly ref bias — the owner's blind
+read is the authoritative gate there, decisions #101).
+
+**Typed verdict: M2M-100-418M DEFER — strictly dominated by SMaLL-100 (equal
+quality class at 2.5× the decode cost, +32% pack, +30% memory). SMaLL-100 is
+the single many-to-many candidate worth carrying forward**, but adoption is a
+product decision, not a spike outcome: the per-pair OPUS-MT direction still
+wins quality on 2/4 pairs at 3× lower leg memory (~0.4 vs ~1.06 GB) and the
+pack-count asymmetry flips only if the language count grows well past 4
+(per-pair int8 ≈ 958 MB and growing vs one 915 MB pack). The en→pt-br blind
+read decides whether SMaLL-100's pt-BR clears the #101 quality bar.
+
+**Solo-run correction (same session, owner request):** the opus-tc-big int8
+leg re-measured with ONLY its int8 graphs staged (no fp32 co-residency) gives
+**120.2 ms/token** (was 172 co-resident — the probe's multi-session design
+inflated ~30%, so per-leg numbers for opus int8 carry that caveat). The
+conclusion strengthens, not weakens: opus-tc-big int8 is the slowest decoder
+measured — slower than its own fp32 (33 ms/tok), a real ORT-android
+MatMulInteger cost on the big Marian architecture. int8 therefore DISQUALIFIES
+opus-tc-big on speed (a ~200-token passage takes ~24 s to translate, slower
+than the TTS leg it feeds), leaving the pt-BR choice between **opus fp32**
+(67.4 chr-F, 1745 MB pack, ~2.3 GB PSS, translation ≈ TTS cost) and **small100
+int8** (62.1 chr-F, 916 MB one-pack-all-languages, 1.06 GB PSS, ~2 s per
+passage). int8 remains the right precision for Marian-base (faster on-device
+than fp32 for those graphs) — the inversion is tc-big-specific.
+
+**GPU test (same session, owner question): NNAPI EP does not change the
+picture.** opus-tc-big int8 re-run with `addNnapi()` (flag file `files/ep_nnapi`
+staged; graphs partition to NNAPI without error, open times actually shorter):
+**167.8 ms/token vs 120.2 solo-CPU** — NNAPI is *slower* for this workload, and
+the fp32/int8 op set (`MatMulInteger`, dynamic decode shapes) is a poor fit for
+the driver path as expected. Encoder time unchanged (1.5 s vs 1.3 s). No GPU
+win at any precision for autoregressive seq2seq decode on ORT-android; the
+NPU-class path (QNN/Hexagon HTP) would need shape bucketing + QNN runtime
+integration and is out of spike scope — recorded as a possible follow-up if
+decode cost ever becomes the binding constraint again.
+
+**QNN EP (owner follow-up: "supported by Qualcomm, wouldn't have to be
+built?"): the hardware is covered, but the stock ORT-android binary is not.**
+The 1.29.0 AAR bundles the full QNN stack — `libQnnHtp.so`, `libQnnGpu.so`,
+`libonnxruntime_providers_qnn.so`, and HTP skels v68→v81 (v69 = SD 8 Gen 1's
+Hexagon, so the S22 IS hardware-covered, not just Elite chips). But
+`SessionOptions.addQnn()` fails at session creation with
+`ORT_INVALID_ARGUMENT: QNN execution provider is not supported in this build`:
+the Maven `onnxruntime-android` artifact is compiled WITHOUT `--use_qnn`
+(and the required `libonnxruntime_providers_shared.so` registration bridge is
+absent from the AAR). Enabling QNN would require a custom ORT build
+(`--use_qnn`) — and even then, dynamic-shape autoregressive decode on HTP
+needs fixed-shape bucketing; realistic ceiling is encoder-only acceleration.
+Recorded as the gate on the NPU path; the flag-file EP selector
+(`files/ep_qnn`, `ep_qnn_gpu`) stays in `TranslateProbeRunner` for when a
+custom build exists.
+
+**OWNER DECISION (2026-09-02, closing the spike): ADOPT small100 int8 for the
+translate-then-read direction.** Explicit trade: quality for simplicity — one
+model for ALL languages (one 916 MB pack, fixed cost as languages grow) and the
+smallest footprint in the field (int8 915 MB, ~1.06 GB leg PSS, 8.9–9.9
+ms/token decode — the fastest decoder measured). The quality compromise is
+accepted: chr-F 62.1 vs opus-tc-big's 67.4 on en→pt-br (blind-read texts in
+`docs/prints/phase-j/blind-read/`; the European-pt ref bias means the real gap
+may be smaller). Per-pair OPUS-MT stays the measured record and remains the
+alternative for any pair where a specialist model is later wanted (its tc-big
+int8 is speed-disqualified; fp32 is the quality-heavy fallback). M2M-100
+remains deferred/dominated. The `core-translate` production slice (SMaLL-100
+tokenizer port + SentencePiece on-device + pack integration behind the pre-gen
+queue, decisions #101 output-side-only) is the follow-up implementation work;
+the spike's host-side export/parity/chr-F tooling and manifest pins are the
+reproduction path.
+
+Device evidence: `docs/prints/phase-j/` (translate_results.json, chr-F table);
+staging recipe: build.md "NMT spike staging".
+
 ## 113. Player notification artist + library title branded "Ayvu" (2026-09-02)
 
 Reported on-device (Z Fold 6): the player notification's now-playing line

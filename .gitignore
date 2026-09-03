@@ -49,6 +49,15 @@ adb.log
 Thumbs.db
 *.swp
 
+# Phase J NMT models + corpora — runtime downloads, never committed (decisions
+# #7/#114); the pinned manifest IS committed (m/nmt/manifest.json)
+m/nmt/*/*
+m/nmt_stage/
+m/flores/
+
+# Python bytecode
+__pycache__/
+
 
 # Third-party app screenshots (reference material for the idea pool — not to be committed)
 docs/prints/

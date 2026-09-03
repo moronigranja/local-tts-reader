@@ -812,13 +812,48 @@ es→en — host-prepared tokens, ORT-android 1.29.0):
 |---|---|---|
 | OPUS-MT per-pair (4 models) | it→es `Helsinki-NLP/opus-mt-it-es` (Apache-2.0); en→pt-br `Helsinki-NLP/opus-mt-tc-big-en-pt` (CC-BY-4.0 — attribute); en→it `Helsinki-NLP/opus-mt-en-it` (Apache-2.0); es→en `Helsinki-NLP/opus-mt-es-en` (Apache-2.0) | Per-pair baseline; the decisions-#101 direction |
 | M2M-100 418M | `facebook/m2m100_418M` (MIT) | Single many-to-many model — 100 langs, 9,900 pairs; run on all 4 pairs |
-| SMaLL-100 | `alirezamsh/small100` (MIT) | Reduced-cost many-to-many fallback (run only if M2M-100 fails the memory/RTF gate) |
+| SMaLL-100 | `alirezamsh/small100` (MIT) | Reduced-cost many-to-many fallback (measured 2026-09-02 at the owner's request; after a tokenizer-contract fix it dominates M2M-100 — **ADOPTED by owner decision for translate-then-read**, decisions #114) |
 
 `NLLB-200-distilled-600M` stays blocked (CC-BY-NC — decisions #101). Required
 evidence per leg: cold session open, encoder ms, per-token decoder ms, per-passage
 wall time, PSS/VmHWM, output finiteness, and a per-pair quality sample (chr-F vs the
 fixed FLORES-101 dev-set slices). Acceptance: a single comparison table in
 decisions.md + a typed per-model keep/defer.
+
+**Measured (2026-09-02, decisions #114).** M2M-100-418M: fp32 (4.75 GB of
+graphs) fails the memory gate outright on the S22 — lmkd kills the probe; int8
+(1.2 GB) runs at 24–31 ms/token and ~1.4 GB PSS with chr-F below the per-pair
+baselines on 3 of 4 pairs. **M2M-100 DEFER — strictly dominated by SMaLL-100**
+(equal quality class at ~2.5× the decode cost, +32% pack, +30% memory).
+
+**SMaLL-100** (owner-requested add; first run invalidated — inputs must be
+tokenized with small100's repo-local `SMALL100Tokenizer`, which prepends the
+TARGET lang to the source; AutoTokenizer's M2M100Tokenizer fallback produced
+"adget…" artifacts and chr-F 15.6–31.0 that were harness bugs, not the model):
+corrected measurement makes it the **fastest decoder in the spike** (int8
+8.9–9.9 ms/token, beating even Marian-base fp32) at ~1.06 GB PSS and a single
+915 MB pack, with chr-F 51.9–63.2 across the four pairs — the same quality
+class as M2M-100-418M. It trails the per-pair Marian baselines on en→pt-br
+(62.1 vs 67.4 — partly European-pt ref bias; the owner's blind read is the
+gate) and en→it (51.9 vs 57.7), and ties on it→es (52.6) and es→en (59.1).
+**SMaLL-100 is the single many-to-many candidate carried forward**; per-pair
+OPUS-MT (decisions #101) still wins quality on 2/4 pairs at 3× lower leg
+memory, so adoption is a product decision gated on the en→pt-br blind read and
+the language-count trajectory (per-pair int8 ≈ 958 MB grows per direction vs
+one 915 MB pack). Harness (`TranslateProbeRunner`, `tools/export_nmt_onnx.py`,
+`tools/gen_nmt_inputs.py`, `tools/nmt_chrf.py`) reusable for any future
+candidate (NLLB-200 license-blocked, #101). Full tables: decisions #114.
+
+**ADOPTED (owner decision, 2026-09-02, decisions #114): small100 int8 is the
+translate-then-read direction** — one pack for all languages (916 MB), ~1.06 GB
+leg PSS, 8.9–9.9 ms/token decode, quality compromise accepted (chr-F 62.1 vs
+opus-tc-big 67.4 on en→pt-br). Implementation follow-up: the `core-translate`
+slice (SMaLL-100 tokenizer port + pack integration behind the pre-gen queue,
+output-side only, #101). Per-pair OPUS-MT stays the measured record and the
+alternative for any future pair needing specialist quality (tc-big int8 is
+speed-disqualified at 120 ms/token solo; fp32 is the quality-heavy fallback;
+GPU/NPU paths measured and closed — NNAPI slower, QNN needs a custom ORT
+build).
 
 ## Idea pool — not scheduled
 
