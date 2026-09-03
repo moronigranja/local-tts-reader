@@ -1,5 +1,84 @@
 # Decision log
 
+## 115. D2 — Hexagon NPU (QNN EP) spike measured: runtime wiring works, the fp32
+Kokoro graph is the blocker; Gen-5 CPU already >2× realtime (2026-09-03)
+
+Roadmap D2's accelerator leg (ideas row "Accelerator delegates for TTS"; the
+"one runtime" rule stands) got a real device datapoint on the actual target
+flagship: **SM-F971B on SM8850 "canoe" (Snapdragon 8 Elite Gen 5, Hexagon v81
+— not v79)**, with the S22 (SM8450) re-run as the baseline control. The
+on-device NPU path was built end-to-end in `spike-tts` and exercised to the
+silicon; the conclusion is a measured negative on speed with a precise,
+model-side remaining blocker.
+
+**Harness changes (`spike-tts`, measurement-only; default deployment stays CPU):**
+
+- New D2 provider candidate `qnn-htp` in `KokoroBenchmarkRunner`: stock
+  ORT-android 1.29 + Qualcomm's plugin EP
+  `com.qualcomm.qti:onnxruntime-android-qnn:2.5.0` +
+  `com.qualcomm.qti:qnn-runtime:2.49.0` (both Maven Central — no QAIRT SDK
+  login, no custom ORT build; plugin EP registered via
+  `registerExecutionProviderLibrary` + `addExecutionProvider`).
+- `spike-tts` minSdk 26 → **27** (the plugin AAR requires it; harness-only).
+- `useLegacyPackaging = true` — the DSP loader and dlopen-by-path need the
+  `libQnnHtp*`/skel `.so` files extracted to the app lib dir, not FUSE-in-APK.
+- Manifest `<uses-native-library>` for `libcdsprpc.so`/`libadsprpc.so` —
+  without it the HTP stub cannot link in the app's linker namespace and
+  `QnnDevice_Create` fails `QNN_DEVICE_ERROR_INVALID_CONFIG` (same symptom as
+  onnxruntime-qnn#715 → qualcomm/fastrpc#379).
+- Absolute `backend_path` to `libQnnHtp.so` (the EP derives
+  `ADSP_LIBRARY_PATH` from it; a relative name yields an empty path).
+  `htp_arch` is not set — EP 2.5.0's parser rejects v79/v81 values; the
+  backend auto-detects (v81 skel loads on the CDSP, domain 3, confirmed in
+  logcat). `soc_model=87` (SM8850 per `soc_utils.cc`) is optional on real
+  hardware ("ignoring on real target").
+
+**Measured (fp32 Kokoro, 2-passage corpus, screen-off instrumented, ORT 1.29.0;
+JSONs in `docs/prints/qnn/`):**
+
+| Provider | SM-F971B (SM8850) RTF | S22 (SM8450) RTF | Verdict |
+|---|---|---|---|
+| CPU (intra-op 6) | **0.43–0.66** | 1.17–1.19 | baseline |
+| XNNPACK | 0.72–0.74, oracle-rejected | 1.24–1.29, rejected | slower than CPU |
+| NNAPI | 0.61–0.63, oracle-rejected | 0.60–0.70 | no win |
+| qnn-htp | 0.60–0.63, oracle diff **0** (pure CPU fallback) | same INVALID_CONFIG → CPU | **no NPU offload** |
+
+1. **The 8 Elite Gen 5 CPU alone retires the S22's live-synthesis pain point:**
+   RTF 0.43–0.66 vs the S22's 1.17–1.19 — comfortably realtime with ~2×
+   headroom before any accelerator. XNNPACK/NNAPI remain slower than plain CPU
+   on every device measured; NNAPI keeps the silent-fallback smell.
+2. **The QNN stack is proven working to the silicon** (backend loads, skel
+   loads on the DSP, per-op validation runs) — the blocker is the model:
+   the fp32 export's `StridedSlice` ops (text encoder + iSTFT generator) fail
+   `backendValidateOpConfig` (error 3110) and the fusion-constraint check
+   rejects the graph, so ORT assigns 100% of nodes to CPU. The qnn-htp RTF is
+   exactly CPU + partitioning overhead; oracle diff 0 proves identical output.
+3. **Remaining path to a real NPU number is model-side, not runtime-side:**
+   a static-shape Kokoro re-export (fixed 512-token windows, Slices folded
+   into host-side preprocessing), oracle-gated as usual. Until then the
+   accelerator question stays "no measured win", and its only credible payoff
+   (battery/thermal on long sessions) remains unmeasured and unblocked-by-us.
+4. Translation models stay out of scope for delegation (per #114's cost table:
+   small, launch-overhead-bound graphs gain nothing from HTP).
+
+Re-run: `tools/docker-build.sh :spike-tts:assembleDebug :spike-tts:assembleDebugAndroidTest`,
+install both APKs, stage packs (build.md §"Kokoro on-device benchmark"),
+`am instrument -e class …KokoroDeviceBenchmarkTest`, read
+`kokoro_results_qnn-htp.json`. Result archiving: `docs/prints/qnn/`.
+
+**Precision × NPU cross measured same day** (fp16/int8/q8 graphs through the
+qnn-htp EP, oracle-gated vs fp32-CPU; `runQnnPrecision` in the runner, JSONs in
+`docs/prints/qnn/`): quantization does NOT unblock the NPU. int8 and q8 fail
+the identical `StridedSlice` backendValidateOpConfig (error 3110) — the
+dynamic-shape Slices survive Q/DQ quantization — and measure as pure CPU
+fallback (qnn-htp-int8 RTF 1.11/1.41 ≈ its own int8-CPU leg; oracle diffs
+0.60/0.82 are the known quantization divergence, not HTP output). The fp16
+graph produced a 0.25 s stub in 30 s on ANY EP (the known broken-upstream fp16
+export, #86) — no NPU signal. Side finding: on the SM8850 CPU, int8/q8 are
+SLOWER than fp32 (RTF 1.07–1.41 vs 0.43–0.66) — QDQ overhead loses on this
+SoC, closing the quantization angle for Kokoro on strong devices entirely.
+The single remaining NPU path stays the static-shape re-export.
+
 ## 114. Phase J — offline NMT spike measured; small100 int8 adopted for translate-then-read (2026-09-02)
 
 Roadmap Phase J (promoted 2026-09-02 from the "Later" translation row, decisions
@@ -159,14 +238,23 @@ Recorded as the gate on the NPU path; the flag-file EP selector
 (`files/ep_qnn`, `ep_qnn_gpu`) stays in `TranslateProbeRunner` for when a
 custom build exists.
 
-Possible gate-softener, uncommitted at record time: a Qualcomm-maintained
-QNN **plugin** AAR (`com.qualcomm.qti:onnxruntime-android-qnn`) plugs into the
-STOCK ORT 1.29 without a custom build (working-tree experiment in
-`spike-tts`' Kokoro D2 benchmark adds `minSdk 27`, legacy packaging for the
-Htp skel dlopen, and a `QnnEp` helper). If that plugin proves out, the
-"custom ORT build required" caveat above softens to "add the plugin AAR" —
-the dynamic-shape bucketing requirement for autoregressive decode remains
-either way. Revisit via the D2 harness before any translate-on-NPU work.
+Post-#115 update (D2 measured the plugin on silicon, 2026-09-03): the plugin
+AAR works as claimed — stock ORT 1.29 + Maven artifacts only, runtime wiring
+to the Hexagon proven (backend/skel load on SM8850 v81). But the measured
+outcome hardens this record's caveats into conclusions: the fp32 graph's
+dynamic ops fail HTP validation (100% CPU fallback, RTF worse than plain CPU),
+and the S22/SM8450 fails `QnnDevice_Create` outright — the primary
+translate-then-read device cannot use the NPU path at all. Costs for a
+small100 NPU attempt: fixed-shape BUCKETED re-exports (AR decode grows the
+past cache per step — strictly harder than Kokoro's one static re-export),
+bucket-aware parity gates, +minSdk 27, legacy packaging (+~100 MB installed),
+dual CPU/NPU ship paths with per-device behavior. Benefits: only
+battery/thermal on pre-gen — and translate is ~2 s/passage against a TTS leg
+that dominates the job's energy (and on 8-Elite-class CPU, RTF 0.43–0.66
+retires synthesis headroom entirely). **Verdict: not worth pursuing for
+translate. Reopen only if pre-gen energy data shows translate is a measurable
+battery line, or a static/bucketed small100 export exists for other reasons**
+(cross-ref #115: translation stays out of scope for accelerator delegation).
 
 **OWNER DECISION (2026-09-02, closing the spike): ADOPT small100 int8 for the
 translate-then-read direction.** Explicit trade: quality for simplicity — one

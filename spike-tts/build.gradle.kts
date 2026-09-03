@@ -9,7 +9,9 @@ android {
 
     defaultConfig {
         applicationId = "com.moronigranja.localttsreader.spiketts"
-        minSdk = 26
+        // 27: the QNN plugin AAR (com.qualcomm.qti:onnxruntime-android-qnn)
+        // declares minSdk 27; this is a measurement-only harness.
+        minSdk = 27
         targetSdk = 36
         versionCode = 1
         versionName = "0.1.0"
@@ -54,14 +56,21 @@ android {
 
     packaging {
         // onnxruntime-android bundles libonnxruntime.so; strip debug symbols like the app module does.
+        // Legacy packaging ON: QNN's DSP loader (and dlopen-by-path) needs the
+        // libQnnHtp*/skel .so files extracted to the app lib dir — FUSE-in-APK
+        // storage leaves them absent, and HTP device create fails.
         jniLibs {
-            useLegacyPackaging = false
+            useLegacyPackaging = true
         }
     }
 }
 
 dependencies {
     implementation(libs.onnxruntime.android)
+    // QNN plugin EP (Qualcomm-maintained) plugs into stock ORT 1.29; qnn-runtime
+    // ships the QAIRT stack (libQnnHtp.so + per-arch stubs/skels, incl. v69 and v79).
+    implementation("com.qualcomm.qti:onnxruntime-android-qnn:2.5.0")
+    implementation("com.qualcomm.qti:qnn-runtime:2.49.0")
     implementation(libs.kotlinx.coroutines.core) // exposed to consumers by core-tts only at runtime
     // core-tts's jar JNA has no Android natives (5.17 central jar ships none);
     // the AAR carries jni/<abi>/libjnidispatch.so, resolved via System.loadLibrary.

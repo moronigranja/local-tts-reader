@@ -1,10 +1,15 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
+    <!-- QNN HTP: the FastRPC transport lives in libcdsprpc.so; without this
+         declaration it sits outside the app's linker namespace and libQnnHtp*'s
+         stub fails to link → QnnDevice_Create fails (qualcomm/fastrpc#379). -->
     <application
         android:label="T3 Spike"
         android:largeHeap="true"
         android:theme="@android:style/Theme.Material.Light.NoActionBar">
+        <uses-native-library android:name="libcdsprpc.so" android:required="false" />
+        <uses-native-library android:name="libadsprpc.so" android:required="false" />
         <activity
             android:name=".KokoroActivity"
             android:exported="true"

@@ -1,5 +1,6 @@
 package com.moronigranja.localttsreader.spiketts
 
+import ai.onnxruntime.OrtEnvironment
 import ai.onnxruntime.OrtSession
 import android.content.Context
 import android.os.Build
@@ -31,7 +32,7 @@ import org.json.JSONObject
  * insertion — runs verbatim in the engine.
  *
  * D2 — execution-provider comparison (measurement only; no production change):
- * each provider (CPU / XNNPACK / NNAPI) runs its own pass and writes
+ * each provider (CPU / XNNPACK / NNAPI / qnn-htp) runs its own pass and writes
  * `kokoro_results_<label>.json`. Every non-CPU candidate is ORACLE-gated: the
  * same corpus is synthesized with a CPU oracle and peak/mean absolute PCM
  * amplitude deltas across the corpus are reported; a candidate whose max
@@ -46,11 +47,14 @@ import org.json.JSONObject
  */
 class KokoroBenchmarkRunner(private val context: Context) {
 
+    init { QnnEp.libDir = context.applicationInfo.nativeLibraryDir }
+
     /** Execution providers compared on-device (D2). */
     enum class OrtProvider(val label: String, val options: (OrtSession.SessionOptions) -> Unit) {
         CPU("cpu", {}),
         XNNPACK("xnnpack", { it.addXnnpack(mapOf("intra_op_num_threads" to "6")) }),
         NNAPI("nnapi", { it.addNnapi() }),
+        QNN_HTP("qnn-htp", { so -> QnnEp.install(so) }),
     }
     /** Model precisions for the D3 spike (all run on CPU EP). */
     enum class ModelPrecision(val label: String, val fileName: String) {
@@ -65,6 +69,39 @@ class KokoroBenchmarkRunner(private val context: Context) {
         private val VOICES = mapOf("en-us" to "af_heart", "pt-br" to "pf_dora")
     }
 
+    /**
+     * Registers the QNN plugin EP once (stock ORT needs no custom build) and
+     * enables the HTP (NPU) backend. Unsupported ops fall back to CPU per
+     * subgraph; a failed graph build surfaces as candidate-unavailable.
+     */
+    private object QnnEp {
+        private var registered = false
+        /** App native lib dir; parent of libQnnHtp.so → drives ADSP_LIBRARY_PATH. */
+        var libDir: String? = null
+
+        fun install(options: OrtSession.SessionOptions) {
+            val env = OrtEnvironment.getEnvironment()
+            if (!registered) {
+                // Trivial constants from the plugin AAR (ai.onnxruntime.qnnpluginep).
+                env.registerExecutionProviderLibrary("QNNExecutionProvider", "libonnxruntime_providers_qnn.so")
+                registered = true
+            }
+            val devices = env.epDevices.filter { it.epName == "QNNExecutionProvider" }
+            // Absolute backend_path so the EP sets ADSP_LIBRARY_PATH to the lib
+            // dir (empty otherwise → HTP device create fails). EP 2.5.0 rejects
+            // v79 arch values, so pin the SoC numerically instead: SM8850 = 87
+            // (QAIRT Qnn_SocModel_t, per soc_utils.cc in onnxruntime-qnn main).
+            val nativeLibDir = checkNotNull(libDir) { "native lib dir not initialized" }
+            options.addExecutionProvider(
+                devices,
+                mapOf(
+                    "backend_path" to "$nativeLibDir/libQnnHtp.so",
+                    "soc_model" to "87",
+                ),
+            )
+        }
+    }
+
     private val models = File(context.filesDir, "models")
     private val corpusFile = File(context.filesDir, "corpus.tsv")
 
@@ -77,6 +114,7 @@ class KokoroBenchmarkRunner(private val context: Context) {
         }
         for (precision in ModelPrecision.entries) {
             runPrecision(precision, log)
+            runQnnPrecision(precision, log)
         }
         return cpuOk
     }
@@ -339,6 +377,24 @@ class KokoroBenchmarkRunner(private val context: Context) {
             runs = 1,
             capstone = false,
             resultFileName = "kokoro_precision_${precision.label}.json",
+            log = log,
+        )
+
+    /**
+     * The same precision candidates through the QNN HTP EP (D3 × D2 cross):
+     * quantization is the NPU's native regime, so a QDQ/fp16 graph may
+     * partition where the fp32 graph fell back. Oracle-gated against the
+     * pinned fp32 on the CPU EP, like every other candidate.
+     */
+    fun runQnnPrecision(precision: ModelPrecision, log: (String) -> Unit): Boolean =
+        measure(
+            label = "qnn-htp-${precision.label}",
+            modelFileName = precision.fileName,
+            options = { so -> QnnEp.install(so) },
+            oracleModelFileName = "kokoro-model",
+            runs = 1,
+            capstone = false,
+            resultFileName = "kokoro_qnn_${precision.label}.json",
             log = log,
         )
 

@@ -83,6 +83,17 @@ adb exec-out run-as com.moronigranja.localttsreader.spiketts cat \
   /sdcard/Android/data/com.moronigranja.localttsreader.spiketts/files/kokoro_precision_fp16.json
 ```
 
+The provider sweep includes the `qnn-htp` candidate (decisions #115): Qualcomm's
+plugin QNN EP + `qnn-runtime` (Maven, no SDK login) attempt Hexagon NPU offload
+before silently falling back to CPU. Requirements baked into the module:
+minSdk 27, `useLegacyPackaging = true` (skel `.so` files must be extracted to
+the app lib dir), and `<uses-native-library libcdsprpc.so/libadsprpc.so>` in
+the manifest — omit any of these and `QnnDevice_Create` fails
+`QNN_DEVICE_ERROR_INVALID_CONFIG` and the candidate measures as pure CPU
+(oracle diff 0 gives it away). Current status: the fp32 Kokoro graph does not
+offload (`StridedSlice` op validation fails; static-shape re-export required),
+so its RTF ≈ CPU + overhead — see `docs/prints/qnn/` and decision #115.
+
 ## D3 engine comparison staging (decisions #92/#93, `spike-tts`)
 
 Stages the Kitten Nano + MOSS-TTS-Nano packs and the shared `d3_corpus.tsv`

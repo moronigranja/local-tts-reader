@@ -345,6 +345,17 @@ Choreographer-skip counts are recorded (#67/#86/bugs.md). Still open from the
 required-evidence list: retained PSS/RSS 60 s after pause, thermal behavior and
 power draw.
 
+**NPU/QNN leg measured on the actual flagship (2026-09-03, decisions #115):**
+the Hexagon NPU path (ORT 1.29 + Qualcomm plugin QNN EP + `qnn-runtime` from
+Maven) was built in `spike-tts` and exercised to the silicon on the real
+target — SM-F971B on SM8850 "canoe" (8 Elite Gen 5, Hexagon v81), S22
+(SM8450) as control. The fp32 Kokoro graph does not offload (StridedSlice
+ops fail HTP op validation, graph fusion rejected → 100% CPU, oracle diff 0),
+and the SM8850 CPU baseline is already RTF 0.43–0.66 vs the S22's 1.17–1.19 —
+the Gen-5 CPU alone retires live-synthesis lag with ~2× headroom. Result
+JSONs: `docs/prints/qnn/`. Re-open only as a battery/thermal play, and only
+with a static-shape Kokoro re-export (Slices folded, fixed windows).
+
 **Candela-derived additions (2026-08-31, owner review):**
 
 - **Baseline profiles** — a `:baselineprofile`-style producer walk (UI Automator
