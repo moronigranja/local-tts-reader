@@ -1,5 +1,52 @@
 # Decision log
 
+## 116. D2 — 2-engine parallel pre-generation measured on the S22: serial wins; ORT-android is run-to-run nondeterministic at the PCM level (2026-09-03)
+
+The D2 additions' 2-engine parallel pregen leg (roadmap D2, candela-derived;
+"two Kokoro ORT sessions with separate thread pools synthesizing independent
+passages vs the serial baseline") ran on the S22 (SM-S908U1, ORT-android
+1.29.0, 6 intra-op threads/session, screen-off instrumented). **Verdict: the
+adoption bar — ≥1.5× pregen throughput without breaching the memory envelope
+or the oracle gate — is NOT met; serial is FASTER and the two-session memory
+cost is real.** The parallel-pregen idea is closed as measured.
+
+**Harness** (`spike-tts` only, measurement-only; default deployment unchanged):
+`PregenParallelRunner` + `PregenParallelBenchmarkTest`. Corpus
+`corpus_pregen.tsv` is host-precomputed (D3 pattern): 16 passages
+(8 en-us, 8 pt-br) ≈ 370 s audio from Gutenberg Pride & Prejudice #1342 +
+Dom Casmurro #55752, phonemized with the pip `phonemizer` espeak backend
+(validated byte-for-byte against the staged 2-passage corpus before scaling).
+Host tool: `tools/gen_pregen_corpus.py`.
+
+**Results (S22, wall = min of 2 runs per leg):**
+
+| Leg | audio | wall | RTF | thp (audio-s/s) | VmHWM | PSS |
+|---|---|---|---|---|---|---|
+| serial vs | 369.9 s | 255 014 ms | 0.689/0.748 | 1.43 | 1.59 GB | 1.50 GB |
+| parallel | 369.9 s | 305 732 ms | 0.841/0.826 | 1.21 | 2.86 GB | 2.79 GB |
+
+Speedup serial/parallel: **1.18× (parallel slower)**. Parallel costs +76 %
+VmHWM and +84% PSS for the second session — the S22's 8 cores are already
+saturated by one 6-thread session; two oversubscribe and contend.
+
+**Determinism finding (surprising, harness-critical):** the serial leg
+re-synthesized the corpus twice on the SAME engine; run1-vs-run2 PCM diff was
+mean 0.011, **max 0.791** across all 16 passages. ORT-android CPU (mlas
+multi-thread) is run-to-run nondeterministic at the sample level: ~2/3 of
+passages drift ~0.0025 mean / 0.1–0.23 peak, and a few flip AudioTrim's
+silence threshold — shifting those passages by 240–1200 samples (0.46–0.65
+peak when compared misaligned). Consequence: the #67 0.001 PCM-oracle gate
+cannot be applied at intra-run granularity on this stack — it remains valid
+for execution-provider/model-precision comparisons only when the oracle is FRESH
+(D2/D3 did exactly that: a fresh CPU oracle per candidate, so those verdicts
+stand). This leg's "rejected" oracle was one divergent run vs another, not a
+parallel-path bug.
+
+Evidence: `docs/prints/parallel-pregen/` (kokoro_pregen_parallel.json +
+worst-passage WAVs serial/parallel + corpus_pregen.tsv). Re-run: generate the
+corpus, stage per build.md, `am instrument -e class
+…PregenParallelBenchmarkTest`.
+
 ## 115. D2 — Hexagon NPU (QNN EP) spike measured: runtime wiring works, the fp32
 Kokoro graph is the blocker; Gen-5 CPU already >2× realtime (2026-09-03)
 

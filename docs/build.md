@@ -94,6 +94,38 @@ the manifest — omit any of these and `QnnDevice_Create` fails
 offload (`StridedSlice` op validation fails; static-shape re-export required),
 so its RTF ≈ CPU + overhead — see `docs/prints/qnn/` and decision #115.
 
+## 2-engine parallel pre-generation leg (decisions #116, `spike-tts`)
+
+Runs `PregenParallelRunner` + `PregenParallelBenchmarkTest` on the S22 only
+(two 325 MB sessions cannot share the HiBreak, #93): one-engine serial
+baseline vs two engines with separate thread pools round-robining the corpus,
+measured on pregen wall-time, peak VmHWM/PSS, and a serial run1-vs-run2
+determinism check against the parallel path.
+
+```bash
+# corpus is host-precomputed (phonemizer pip espeak backend — validated
+# byte-for-byte against the staged 2-passage corpus before scaling):
+python3 tools/gen_pregen_corpus.py --pp /tmp/pp.txt --dc /tmp/dc.txt \
+  --out corpus_pregen.tsv --per-lang 8 --sentences 3
+adb push corpus_pregen.tsv /data/local/tmp/corpus_pregen.tsv
+adb shell "run-as com.moronigranja.localttsreader.spiketts sh -c \
+  'mkdir -p files && cp /data/local/tmp/corpus_pregen.tsv files/'"
+# build/install/run as the Kokoro benchmark above, but class-scoped:
+adb shell am instrument -w -e class \
+  com.moronigranja.localttsreader.spiketts.PregenParallelBenchmarkTest \
+  com.moronigranja.localttsreader.spiketts.test/androidx.test.runner.AndroidJUnitRunner
+adb logcat -d -s KokoroSpike   # serial/parallel RTF, determinism check, gate
+# pull results + worst-passage A/B WAVs:
+adb exec-out run-as com.moronigranja.localttsreader.spiketts cat \
+  /sdcard/Android/data/com.moronigranja.localttsreader.spiketts/files/kokoro_pregen_parallel.json
+```
+
+Measured verdict (2026-09-03): parallel is slower (1.18× serial/parallel
+throughput) at +84% PSS — the ≥1.5× bar fails; the leg is closed as measured.
+ORT-android CPU is run-to-run nondeterministic (serial run1-vs-run2
+max_abs_diff 0.79) — the 0.001 oracle gate only holds against a FRESH oracle.
+Evidence: `docs/prints/parallel-pregen/`, decision #116.
+
 ## D3 engine comparison staging (decisions #92/#93, `spike-tts`)
 
 Stages the Kitten Nano + MOSS-TTS-Nano packs and the shared `d3_corpus.tsv`

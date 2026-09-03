@@ -377,6 +377,16 @@ battery/thermal case ever justifies the work.
   memory envelope or the 0.001 oracle gate. HiBreak excluded by arithmetic
   (~834 MB × 2 sessions vs the ~2.5 GB lmkd wall measured with MOSS, #93).
 
+  **Measured (2026-09-03, decisions #116): CLOSED as measured — parallel is
+  slower.** Serial 1.43 audio-s/s (RTF 0.689/0.748) vs parallel 1.21
+  (RTF 0.841/0.826) → 1.18× serial/parallel throughput; two resident 325 MB
+  sessions cost +76% VmHWM (1.59→2.86 GB) and +84% PSS (1.50→2.79 GB). The
+  ≥1.5× bar fails on both axes; the S22's 8 cores are saturated by one
+  6-thread session. The leg also measured ORT-android CPU run-to-run
+  nondeterminism (serial run1-vs-run2 max_abs_diff 0.79 on the same engine) —
+  the 0.001 oracle gate is only meaningful against a FRESH oracle (the D2/D3
+  methodology), not across runs. Evidence: `docs/prints/parallel-pregen/`.
+
 
 ### D3 — Engine comparison spike: Nano, MOSS-TTS-Nano, CosyVoice3 vs Kokoro baseline
 
