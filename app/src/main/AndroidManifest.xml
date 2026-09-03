@@ -35,10 +35,34 @@
             tools:node="merge" />
         <activity
             android:name=".MainActivity"
-            android:exported="true">
+            android:exported="true"
+            android:launchMode="singleTop">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+            <!-- F4: file-manager "Open with Ayvu" land on the library itself
+                 (launchMode singleTop keeps a running instance; onNewIntent
+                 dispatches the file into the shared importer). octet-stream is
+                 included — file managers type books inconsistently; the
+                 extension gate is the backstop. -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:mimeType="application/epub+zip" />
+                <data android:mimeType="application/x-mobipocket-ebook" />
+                <data android:mimeType="application/vnd.amazon.ebook" />
+                <data android:mimeType="text/plain" />
+                <data android:mimeType="text/markdown" />
+                <data android:mimeType="text/x-markdown" />
+                <data android:mimeType="application/octet-stream" />
+            </intent-filter>
+            <!-- Forwarded book-file shares from feature-share (package-qualified
+                 custom action — no feature-to-feature edge, A6). -->
+            <intent-filter>
+                <action android:name="com.moronigranja.localttsreader.action.IMPORT_BOOK" />
+                <category android:name="android.intent.category.DEFAULT" />
             </intent-filter>
         </activity>
         </application>

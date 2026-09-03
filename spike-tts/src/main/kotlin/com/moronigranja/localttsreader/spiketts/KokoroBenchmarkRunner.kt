@@ -2,6 +2,7 @@ package com.moronigranja.localttsreader.spiketts
 
 import ai.onnxruntime.OrtEnvironment
 import ai.onnxruntime.OrtSession
+import android.util.Log
 import android.content.Context
 import android.os.Build
 import android.os.Debug
@@ -90,6 +91,27 @@ class KokoroBenchmarkRunner(
         /** App native lib dir; parent of libQnnHtp.so → drives ADSP_LIBRARY_PATH. */
         var libDir: String? = null
 
+        /**
+         * QAIRT Qnn_SocModel_t per SoC (soc_utils.cc in onnxruntime-qnn main):
+         * SM8750=69, SM8650=73, SM8450=43, SM8850=87. Keyed by the platform
+         * codename (ro.board.platform); EP 2.5.0's parser rejects arch-name
+         * strings ≥79, so pin the SoC numerically. Unknown platforms omit the
+         * option — the HTP stub auto-detects the arch.
+         */
+        private val SOC_MODELS = mapOf("sun" to "69", "pineapple" to "73", "taro" to "43", "canoe" to "87")
+
+        private fun socModel(): String? =
+            SOC_MODELS[systemProperty("ro.board.platform")]
+                ?: SOC_MODELS[Build.HARDWARE]
+
+        private fun systemProperty(key: String): String? =
+            try {
+                val get = Class.forName("android.os.SystemProperties").getMethod("get", String::class.java)
+                get.invoke(null, key) as? String
+            } catch (_: Throwable) {
+                null
+            }
+
         fun install(options: OrtSession.SessionOptions) {
             val env = OrtEnvironment.getEnvironment()
             if (!registered) {
@@ -99,17 +121,15 @@ class KokoroBenchmarkRunner(
             }
             val devices = env.epDevices.filter { it.epName == "QNNExecutionProvider" }
             // Absolute backend_path so the EP sets ADSP_LIBRARY_PATH to the lib
-            // dir (empty otherwise → HTP device create fails). EP 2.5.0 rejects
-            // v79 arch values, so pin the SoC numerically instead: SM8850 = 87
-            // (QAIRT Qnn_SocModel_t, per soc_utils.cc in onnxruntime-qnn main).
+            // dir (empty otherwise → HTP device create fails; onnxruntime-qnn#715,
+            // qualcomm/fastrpc#379).
             val nativeLibDir = checkNotNull(libDir) { "native lib dir not initialized" }
-            options.addExecutionProvider(
-                devices,
-                mapOf(
+            val providerOptions =
+                mutableMapOf(
                     "backend_path" to "$nativeLibDir/libQnnHtp.so",
-                    "soc_model" to "87",
-                ),
-            )
+                )
+            socModel()?.let { providerOptions["soc_model"] = it }
+            options.addExecutionProvider(devices, providerOptions)
         }
     }
 
@@ -127,6 +147,9 @@ class KokoroBenchmarkRunner(
             runPrecision(precision, log)
             runQnnPrecision(precision, log)
         }
+        // kokoro-hexagon P3: static-shape re-export, CPU control + QNN HTP probe.
+        runStatic(OrtProvider.CPU, log)
+        runStatic(OrtProvider.QNN_HTP, log)
         return cpuOk
     }
 
@@ -144,6 +167,7 @@ class KokoroBenchmarkRunner(
         capstone: Boolean, // true only for CPU EP baseline (espeak full-pipeline block)
         resultFileName: String,
         log: (String) -> Unit,
+        pinnedWindowLength: Int? = null, // static-graph window width (kokoro-hexagon P3)
     ): Boolean {
         val outDir = context.getExternalFilesDir(null) ?: context.filesDir
         return try {
@@ -177,6 +201,7 @@ class KokoroBenchmarkRunner(
                     phonemizer = CorpusPhonemizer(lookup, languages),
                     progress = { log("open stage: $it (${System.currentTimeMillis() - tOpen} ms)") },
                     sessionFactory = options,
+                    pinnedWindowLength = pinnedWindowLength,
                 )
             val engineOpenMs = System.currentTimeMillis() - tOpen
             log("engine open: $engineOpenMs ms (candidate=$label)")
@@ -418,6 +443,30 @@ class KokoroBenchmarkRunner(
         )
 
     /**
+     * kokoro-hexagon P3: the static-shape re-export (input_ids pinned [1,512])
+     * as a drop-in model file, on CPU and on the QNN HTP EP. Oracle-gated
+     * against the pinned fp32 dynamic reference on CPU. The QNN leg is the
+     * HTP-offload probe: a real partition shows up as a nonzero oracle diff
+     * (HTP fp32 != CPU fp32 accumulation) plus an RTF drop; diff 0 at
+     * CPU-like RTF means the fusion check rejected the graph again.
+     */
+    fun runStatic(
+        provider: OrtProvider,
+        log: (String) -> Unit,
+    ): Boolean =
+        measure(
+            label = "static-${provider.label}",
+            modelFileName = "kokoro-model-static",
+            options = provider.options,
+            oracleModelFileName = "kokoro-model",
+            runs = 1,
+            capstone = false,
+            resultFileName = "kokoro_static_${provider.label}.json",
+            log = log,
+            pinnedWindowLength = 512,
+        )
+
+    /**
      * Runs a single precision candidate (D3 spike) on CPU EP, oracle-gated
      * against the pinned fp32. All precisions use the default session factory —
      * precision is a model-file axis, not an execution provider.
@@ -463,6 +512,30 @@ class KokoroBenchmarkRunner(
         return line.split(Regex("\\s+"))[1].toLongOrNull() ?: -1
     }
 
+    /**
+     * Peak + mean absolute amplitude delta between two PCM float arrays.
+     * Same-length arrays compare 1:1; length mismatches (the static leg renders
+     * extra right-pad silence) compare only the shared prefix and log it — the
+     * production trim makes tail samples irrelevant to playback.
+     */
+    private fun pcmDiff(
+        a: FloatArray,
+        b: FloatArray,
+    ): Pair<Float, Float> {
+        val n = minOf(a.size, b.size)
+        if (a.size != b.size) {
+            Log.d("KokoroSpike", "pcmDiff: length mismatch a=${a.size} b=${b.size} — comparing first $n samples")
+        }
+        var peak = 0.0f
+        var total = 0.0
+        for (i in 0 until n) {
+            val d = abs(a[i] - b[i])
+            if (d > peak) peak = d
+            total += d
+        }
+        return peak to (if (n > 0) (total / n).toFloat() else 0f)
+    }
+
     private fun pcmToFloats(pcm: ByteArray): FloatArray {
         val out = FloatArray(pcm.size / 2)
         val buffer =
@@ -472,22 +545,6 @@ class KokoroBenchmarkRunner(
                 .asShortBuffer()
         for (i in out.indices) out[i] = buffer.get() / 32768.0f
         return out
-    }
-
-    /** Peak + mean absolute amplitude delta between two PCM float arrays. */
-    private fun pcmDiff(
-        a: FloatArray,
-        b: FloatArray,
-    ): Pair<Float, Float> {
-        val n = minOf(a.size, b.size)
-        var peak = 0.0f
-        var total = 0.0
-        for (i in 0 until n) {
-            val d = abs(a[i] - b[i])
-            if (d > peak) peak = d
-            total += d
-        }
-        return peak to (if (n > 0) (total / n).toFloat() else 0f)
     }
 
     /** Answers phonemization from the precomputed corpus (host espeak-ng). */

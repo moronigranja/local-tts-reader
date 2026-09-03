@@ -1,9 +1,11 @@
 package com.moronigranja.localttsreader
 
 import android.content.Intent
+import android.net.Uri
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.activity.viewModels
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -11,7 +13,9 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import com.moronigranja.localttsreader.ebook.IntakeRouting
 import com.moronigranja.localttsreader.featurelibrary.LibraryScreen
+import com.moronigranja.localttsreader.featurelibrary.LibraryViewModel
 import com.moronigranja.localttsreader.featureplayer.ui.ReaderScreen
 import com.moronigranja.localttsreader.featuresettings.SettingsScreen
 import com.moronigranja.localttsreader.featureshare.OpenTarget
@@ -22,17 +26,23 @@ import com.moronigranja.localttsreader.setup.SetupGate
 import com.moronigranja.localttsreader.setup.SetupScreen
 import com.moronigranja.localttsreader.ui.AyvuTheme
 import dagger.hilt.android.AndroidEntryPoint
-import javax.inject.Inject
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
+import javax.inject.Inject
 
 @AndroidEntryPoint
 class MainActivity : ComponentActivity() {
-
     @Inject lateinit var appSettings: AppSettings
+
     @Inject lateinit var setupGate: SetupGate
+
     /** Process-lifetime scope (app.di) for the gate re-derivation. */
     @Inject lateinit var appScope: CoroutineScope
+
+    /** The library's one import surface (activity-scoped: LibraryScreen gets
+     * the same instance via its own viewModels()). External VIEW / forwarded
+     * book-file intents funnel in here so the overlay shows on the library. */
+    private val libraryViewModel: LibraryViewModel by viewModels()
 
     /** S3 "Listen here" → { book, passage } consumed once by composition. */
     private var pendingTarget by mutableStateOf<OpenTarget?>(null)
@@ -40,17 +50,19 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         pendingTarget = consumeTarget(intent)
+        dispatchExternalIntake(intent)
         // C1.4: the gate derives from durable facts (packs/books/engine) on
         // every cold start — never an onboarding flag (C3). Non-blocking:
         // composition starts on the library, then flips once `active` lands.
         appScope.launch { setupGate.evaluate() }
         setContent {
             val settingsState by appSettings.state.collectAsState()
-            val dark = when (settingsState.theme) {
-                ThemeMode.SYSTEM -> isSystemInDarkTheme()
-                ThemeMode.LIGHT -> false
-                ThemeMode.DARK -> true
-            }
+            val dark =
+                when (settingsState.theme) {
+                    ThemeMode.SYSTEM -> isSystemInDarkTheme()
+                    ThemeMode.LIGHT -> false
+                    ThemeMode.DARK -> true
+                }
             AyvuTheme(darkTheme = dark) {
                 var openBookId by rememberSaveable { mutableStateOf<String?>(null) }
                 var targetChapter by rememberSaveable { mutableStateOf(-1) }
@@ -68,30 +80,34 @@ class MainActivity : ComponentActivity() {
                 val bookId = openBookId
                 when {
                     // C1.4: FIRST branch — the guided setup owns the empty tree.
-                    setupGate.active -> SetupScreen(
-                        onFinished = {
-                            setupGate.dismiss()
-                            appScope.launch { setupGate.evaluate() }
-                        },
-                    )
+                    setupGate.active ->
+                        SetupScreen(
+                            onFinished = {
+                                setupGate.dismiss()
+                                appScope.launch { setupGate.evaluate() }
+                            },
+                        )
                     openSettings -> SettingsScreen(onBack = { openSettings = false })
-                    bookId != null -> ReaderScreen(
-                        bookId = bookId,
-                        startAt = if (targetChapter >= 0) {
-                            PlayerPosition(bookId, targetChapter, targetPassage)
-                        } else {
-                            null
-                        },
-                        onClose = {
-                            openBookId = null
-                            targetChapter = -1
-                            targetPassage = -1
-                        },
-                    )
-                    else -> LibraryScreen(
-                        onOpenBook = { openBookId = it },
-                        onOpenSettings = { openSettings = true },
-                    )
+                    bookId != null ->
+                        ReaderScreen(
+                            bookId = bookId,
+                            startAt =
+                                if (targetChapter >= 0) {
+                                    PlayerPosition(bookId, targetChapter, targetPassage)
+                                } else {
+                                    null
+                                },
+                            onClose = {
+                                openBookId = null
+                                targetChapter = -1
+                                targetPassage = -1
+                            },
+                        )
+                    else ->
+                        LibraryScreen(
+                            onOpenBook = { openBookId = it },
+                            onOpenSettings = { openSettings = true },
+                        )
                 }
             }
         }
@@ -101,7 +117,31 @@ class MainActivity : ComponentActivity() {
         super.onNewIntent(intent)
         setIntent(intent)
         pendingTarget = consumeTarget(intent)
+        dispatchExternalIntake(intent)
     }
+
+    /** F4: file-manager ACTION_VIEW or forwarded book-file shares land in the
+     * shared library importer — the overlay shows progress/stage/result on the
+     * (already visible) library. Unsupported formats surface typed guidance
+     * there, never a silent no-op. */
+    private fun dispatchExternalIntake(intent: Intent?) {
+        if (intent == null) return
+        val uri =
+            when (intent.action) {
+                Intent.ACTION_VIEW -> intent.data
+                IntakeRouting.ACTION_IMPORT_BOOK -> intent.parcelableExtraUri()
+                else -> null
+            } ?: return
+        libraryViewModel.intakeUri(uri)
+    }
+
+    private fun Intent.parcelableExtraUri(): Uri? =
+        if (android.os.Build.VERSION.SDK_INT >= 33) {
+            getParcelableExtra(Intent.EXTRA_STREAM, Uri::class.java)
+        } else {
+            @Suppress("DEPRECATION")
+            getParcelableExtra<Uri>(Intent.EXTRA_STREAM)
+        }
 
     private fun consumeTarget(intent: Intent?): OpenTarget? =
         intent?.let {

@@ -31,35 +31,51 @@ class OrtKokoroSession private constructor(
     override val hasTimings: Boolean,
     private val tokenInputName: String,
     private val speedTensor: SpeedTensorKind,
+    /** Static-graph window width (kokoro-hexagon P1): input_ids pinned to [1, T], right-0-padded. */
+    private val pinnedWindowLength: Int?,
 ) : KokoroSession {
-
     private var closed = false
 
-    override fun infer(tokens: IntArray, styleRow: FloatArray, speed: Double): InferResult {
+    override fun infer(
+        tokens: IntArray,
+        styleRow: FloatArray,
+        speed: Double,
+    ): InferResult {
         check(!closed) { "session is closed" }
         val env = OrtEnvironment.getEnvironment()
 
         // The graph expects the BOS/EOS pads around the window (reference _infer).
-        val padded = IntArray(tokens.size + 2)
+        // A static export pins the window dim (input_ids [1, T]); trailing 0s are
+        // pad tokens whose rendered silence the engine's AudioTrim removes.
+        val width = pinnedWindowLength ?: (tokens.size + 2)
+        check(tokens.size + 2 <= width) { "window ${tokens.size + 2} exceeds pinned T=$width" }
+        val padded = IntArray(width)
         tokens.copyInto(padded, 1)
         val inputs = LinkedHashMap<String, OnnxTensor>(3)
-        inputs[tokenInputName] = OnnxTensor.createTensor(
-            env, LongBuffer.wrap(LongArray(padded.size) { padded[it].toLong() }), longArrayOf(1, padded.size.toLong())
-        )
-        inputs["style"] = OnnxTensor.createTensor(
-            env, FloatBuffer.wrap(styleRow), longArrayOf(1, styleRow.size.toLong())
-        )
+        inputs[tokenInputName] =
+            OnnxTensor.createTensor(
+                env,
+                LongBuffer.wrap(LongArray(width) { padded[it].toLong() }),
+                longArrayOf(1, width.toLong()),
+            )
+        inputs["style"] =
+            OnnxTensor.createTensor(
+                env,
+                FloatBuffer.wrap(styleRow),
+                longArrayOf(1, styleRow.size.toLong()),
+            )
         inputs["speed"] = speedTensor.build(env, speed)
         try {
             val outputs = if (hasTimings) setOf(WAVEFORM_OUTPUT, DURATION_OUTPUT) else setOf(WAVEFORM_OUTPUT)
             session.run(inputs, outputs).use { result ->
                 // ORT 1.23 returns Optional per output name.
                 val audio = readFloatArray(result.get(WAVEFORM_OUTPUT).orElseThrow() as OnnxTensor)
-                val duration = if (hasTimings) {
-                    readLongArray(result.get(DURATION_OUTPUT).orElseThrow() as OnnxTensor)
-                } else {
-                    null
-                }
+                val duration =
+                    if (hasTimings) {
+                        readLongArray(result.get(DURATION_OUTPUT).orElseThrow() as OnnxTensor)
+                    } else {
+                        null
+                    }
                 return InferResult(audio, duration)
             }
         } finally {
@@ -78,16 +94,24 @@ class OrtKokoroSession private constructor(
     }
 
     private sealed interface SpeedTensorKind {
-        fun build(env: OrtEnvironment, speed: Double): OnnxTensor
+        fun build(
+            env: OrtEnvironment,
+            speed: Double,
+        ): OnnxTensor
 
         data object Float32 : SpeedTensorKind {
-            override fun build(env: OrtEnvironment, speed: Double): OnnxTensor =
-                OnnxTensor.createTensor(env, FloatBuffer.wrap(floatArrayOf(speed.toFloat())), longArrayOf(1))
+            override fun build(
+                env: OrtEnvironment,
+                speed: Double,
+            ): OnnxTensor = OnnxTensor.createTensor(env, FloatBuffer.wrap(floatArrayOf(speed.toFloat())), longArrayOf(1))
         }
 
         /** Integer exports truncate fractional speeds; clamp to ≥ 1 (reference _speed_value). */
         data object Integer : SpeedTensorKind {
-            override fun build(env: OrtEnvironment, speed: Double): OnnxTensor =
+            override fun build(
+                env: OrtEnvironment,
+                speed: Double,
+            ): OnnxTensor =
                 OnnxTensor.createTensor(env, LongBuffer.wrap(longArrayOf(speed.roundToLong().coerceAtLeast(1L))), longArrayOf(1))
         }
     }
@@ -100,6 +124,7 @@ class OrtKokoroSession private constructor(
         fun open(
             modelFile: File,
             sessionFactory: (OrtSession.SessionOptions) -> Unit = {},
+            pinnedWindowLength: Int? = null,
         ): OrtKokoroSession {
             require(modelFile.isFile) { "model file not found: $modelFile" }
             // Explicit options mirror the device-verified T3 harness settings
@@ -107,34 +132,37 @@ class OrtKokoroSession private constructor(
             // threads. ORT's no-options overload was observed to stall session
             // creation of the 325 MB fp32 graph on the S22 Ultra (2026-08-26,
             // decisions #30) while the optioned path loads in seconds.
-            val sessionOptions = OrtSession.SessionOptions().apply {
-                setOptimizationLevel(OrtSession.SessionOptions.OptLevel.ALL_OPT)
-                setIntraOpNumThreads(6)
-            }
+            val sessionOptions =
+                OrtSession.SessionOptions().apply {
+                    setOptimizationLevel(OrtSession.SessionOptions.OptLevel.ALL_OPT)
+                    setIntraOpNumThreads(6)
+                }
             sessionFactory(sessionOptions)
             val session = OrtEnvironment.getEnvironment().createSession(modelFile.absolutePath, sessionOptions)
             try {
                 val inputs = session.inputInfo
-                val tokenInput = when {
-                    "input_ids" in inputs -> "input_ids"
-                    "tokens" in inputs -> "tokens"
-                    else -> error("unsupported Kokoro graph: no input_ids/tokens input in ${inputs.keys}")
-                }
+                val tokenInput =
+                    when {
+                        "input_ids" in inputs -> "input_ids"
+                        "tokens" in inputs -> "tokens"
+                        else -> error("unsupported Kokoro graph: no input_ids/tokens input in ${inputs.keys}")
+                    }
                 val speedInput = inputs["speed"] ?: error("unsupported Kokoro graph: no speed input")
-                val speedKind = if ((speedInput.info as TensorInfo).type == OnnxJavaType.INT32 ||
-                    (speedInput.info as TensorInfo).type == OnnxJavaType.INT64
-                ) {
-                    SpeedTensorKind.Integer
-                } else {
-                    SpeedTensorKind.Float32
-                }
+                val speedKind =
+                    if ((speedInput.info as TensorInfo).type == OnnxJavaType.INT32 ||
+                        (speedInput.info as TensorInfo).type == OnnxJavaType.INT64
+                    ) {
+                        SpeedTensorKind.Integer
+                    } else {
+                        SpeedTensorKind.Float32
+                    }
                 val outputs = session.outputInfo
                 require(WAVEFORM_OUTPUT in outputs || outputs.size == 1) {
                     "unsupported Kokoro graph outputs: ${outputs.keys}"
                 }
                 val hasTimings = DURATION_OUTPUT in outputs
                 val vocab = parseEmbeddedVocab(session)
-                return OrtKokoroSession(session, vocab, hasTimings, tokenInput, speedKind)
+                return OrtKokoroSession(session, vocab, hasTimings, tokenInput, speedKind, pinnedWindowLength)
             } catch (e: Throwable) {
                 session.close()
                 throw e

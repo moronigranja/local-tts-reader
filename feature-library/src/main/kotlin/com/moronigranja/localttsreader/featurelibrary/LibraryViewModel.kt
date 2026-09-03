@@ -255,12 +255,39 @@ class LibraryViewModel
         private val _intakeGuidance = MutableStateFlow<Pair<String, String>?>(null)
         val intakeGuidance: StateFlow<Pair<String, String>?> = _intakeGuidance.asStateFlow()
 
-        /** F4: surfaces typed guidance (friendly name, message) on the gateway. */
+        /** F4: surfaces typed guidance (friendly name, message) on the overlay. */
         fun showGuidance(
             displayName: String,
             message: String,
         ) {
             _intakeGuidance.value = displayName to message
+        }
+
+        /**
+         * F4: one file delivered by an external intent (file-manager VIEW or a
+         * forwarded book-file share) lands in the SAME batch importer as the
+         * in-app picker — the overlay shows progress, stage and the typed
+         * summary for every entry point.
+         */
+        fun intakeUri(uri: Uri) {
+            val ctx = context ?: return
+            ctx.takeReadPermission(uri)
+            val sources = ctx.toEBookSources(listOf(uri))
+            when (
+                val verdict =
+                    com.moronigranja.localttsreader.ebook.IntakeRouting
+                        .resolveFile(sources.firstOrNull()?.fileName)
+            ) {
+                is com.moronigranja.localttsreader.ebook.IntakeRouting.IntakeVerdict.Import -> import(sources)
+                is com.moronigranja.localttsreader.ebook.IntakeRouting.IntakeVerdict.Guidance ->
+                    showGuidance(verdict.displayName, verdict.message)
+            }
+        }
+
+        /** Dismisses the import overlay (guidance or finished summary). */
+        fun dismissIntake() {
+            _intakeGuidance.value = null
+            _importState.value = ImportUiState.Idle
         }
 
         /** Imports [sources] in order, reporting per-file progress; no-op for an empty list. */
@@ -334,9 +361,25 @@ class LibraryViewModel
         ) {
             val outcomes =
                 withContext(ioDispatcher) {
-                    coordinator.importAll(sources) { current, done, total ->
-                        _importState.value = ImportUiState.Importing(done, total, current.fileName)
-                    }
+                    coordinator.importAll(
+                        sources,
+                        onProgress = { current, done, total ->
+                            _importState.value = ImportUiState.Importing(done, total, current.fileName)
+                        },
+                        onStage = { stage ->
+                            // keep the latest per-file counts while the stage flips
+                            val cur = _importState.value
+                            if (cur is ImportUiState.Importing) {
+                                _importState.value =
+                                    ImportUiState.Importing(
+                                        done = cur.done,
+                                        total = cur.total,
+                                        currentFileName = cur.currentFileName,
+                                        stage = stage,
+                                    )
+                            }
+                        },
+                    )
                 }
             val summary = buildSummary(outcomes)
             currentCoroutineContext().ensureActive() // a racing cancel must never land Done

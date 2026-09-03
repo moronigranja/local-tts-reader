@@ -109,43 +109,46 @@ fun LibraryScreen(
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
 
-    // The last finished batch's summary; non-null while the result dialog is up.
-    var resultSummary by remember { mutableStateOf<ImportUiState.Summary?>(null) }
-
-    val fileLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.OpenMultipleDocuments(),
-    ) { uris ->
-        if (uris.isNotEmpty()) {
-            uris.forEach(context::takeReadPermission)
-            context.toEBookSources(uris).let(viewModel::import)
+    val fileLauncher =
+        rememberLauncherForActivityResult(
+            ActivityResultContracts.OpenMultipleDocuments(),
+        ) { uris ->
+            if (uris.isNotEmpty()) {
+                uris.forEach(context::takeReadPermission)
+                context.toEBookSources(uris).let(viewModel::import)
+            }
         }
-    }
 
     // F3: folder import over a persisted SAF tree grant (root + one nested
     // level, capped at FolderScanPolicy.MAX_FILES files by the hostile-input
     // policy — see FolderScanPolicy/FolderScanner).
-    val folderLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.OpenDocumentTree(),
-    ) { uri ->
-        uri?.let {
-            context.takeReadPermission(it)
-            viewModel.importFolder(it)
+    val folderLauncher =
+        rememberLauncherForActivityResult(
+            ActivityResultContracts.OpenDocumentTree(),
+        ) { uri ->
+            uri?.let {
+                context.takeReadPermission(it)
+                viewModel.importFolder(it)
+            }
         }
-    }
     var importMenuOpen by remember { mutableStateOf(false) }
 
     // The active session's book card (decisions #55/#56): it REPLACES the
     // top "Continue listening" row in place (no dock) and carries the row's
     // actions — overflow menu (pre-gen, delete offline, remove) + offline disk
     // usage — which the reader's docked card does not show.
-    val positioned = playerState.bookId != null &&
-        (playerState.phase != PlayerPhase.IDLE || playerState.canUndo || playerState.passageText.isNotBlank())
+    val positioned =
+        playerState.bookId != null &&
+            (playerState.phase != PlayerPhase.IDLE || playerState.canUndo || playerState.passageText.isNotBlank())
     val activeId = playerState.bookId
     val activeOffline = activeId?.let { offline[it] }
     val activeUsage = activeOffline?.usageBytes ?: 0L
     val activeEstimate = activeOffline?.estimateBytes ?: 0L
-    val activeTitle = ((if (activeId != null) library.firstOrNull { it.book.id == activeId } else null)
-        ?: (if (activeId != null) recent.firstOrNull { it.book.id == activeId } else null))?.book?.title.orEmpty()
+    val activeTitle =
+        (
+            (if (activeId != null) library.firstOrNull { it.book.id == activeId } else null)
+                ?: (if (activeId != null) recent.firstOrNull { it.book.id == activeId } else null)
+        )?.book?.title.orEmpty()
     var cardMenuOpen by remember { mutableStateOf(false) }
     var cardBudget by remember { mutableStateOf(false) }
     var cardConfirmRemove by remember { mutableStateOf(false) }
@@ -164,8 +167,9 @@ fun LibraryScreen(
     if (cardConfirmRemove) {
         ConfirmDialog(
             title = "Remove from library?",
-            text = "Removes \"$activeTitle\" with its progress, bookmarks and offline " +
-                "audio. You can re-import the file anytime.",
+            text =
+                "Removes \"$activeTitle\" with its progress, bookmarks and offline " +
+                    "audio. You can re-import the file anytime.",
             confirmLabel = "Remove",
             onConfirm = {
                 cardConfirmRemove = false
@@ -185,21 +189,6 @@ fun LibraryScreen(
             },
             onDismiss = { cardConfirmDeleteAudio = false },
         )
-    }
-
-    val doneState = importState as? ImportUiState.Done
-    LaunchedEffect(doneState) {
-        if (doneState != null) {
-            if (doneState.summary.failed.isNotEmpty()) {
-                resultSummary = doneState.summary
-            } else if (doneState.summary.added > 0) {
-                snackbarHostState.showSnackbar(
-                    "Added ${doneState.summary.added} · Unchanged ${doneState.summary.unchanged}" +
-                        if (doneState.summary.truncated) " · folder capped at ${FolderScanPolicy.MAX_FILES} files" else "",
-                )
-            }
-            viewModel.consumeImportResult()
-        }
     }
 
     Scaffold(
@@ -240,18 +229,20 @@ fun LibraryScreen(
         snackbarHost = { SnackbarHost(snackbarHostState) },
     ) { padding ->
         Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(padding),
+            modifier =
+                Modifier
+                    .fillMaxSize()
+                    .padding(padding),
         ) {
             // F2: local title/author search — always visible once the library
             // has anything; a blank query shows the full list.
             OutlinedTextField(
                 value = query,
                 onValueChange = { query = it },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = AyvuSpacing.LG, vertical = AyvuSpacing.SM),
+                modifier =
+                    Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = AyvuSpacing.LG, vertical = AyvuSpacing.SM),
                 placeholder = { Text("Search title or author") },
                 leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null) },
                 trailingIcon = {
@@ -263,56 +254,6 @@ fun LibraryScreen(
                 },
                 singleLine = true,
             )
-
-            // F3: folder scan in flight — no file count yet, so indeterminate
-            // progress with the same clean cancellation as the import batch.
-            (importState as? ImportUiState.Scanning)?.let { scanning ->
-                LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = AyvuSpacing.LG, vertical = AyvuSpacing.XS),
-                ) {
-                    Text(
-                        text = scanning.description,
-                        style = MaterialTheme.typography.bodyMedium,
-                        modifier = Modifier.weight(1f),
-                    )
-                    TextButton(
-                        onClick = {
-                            viewModel.cancelImport()
-                            scope.launch { snackbarHostState.showSnackbar("Import cancelled") }
-                        },
-                    ) { Text("Cancel") }
-                }
-            }
-            (importState as? ImportUiState.Importing)?.let { importing ->
-                LinearProgressIndicator(
-                    progress = { importing.done / importing.total.toFloat() },
-                    modifier = Modifier.fillMaxWidth(),
-                )
-                // F1: in-flight import feedback with clean cancellation — the
-                // batch stops at the next file boundary; committed books stay.
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = AyvuSpacing.LG, vertical = AyvuSpacing.XS),
-                ) {
-                    Text(
-                        text = "Importing ${importing.done}/${importing.total} — ${importing.currentFileName}",
-                        style = MaterialTheme.typography.bodyMedium,
-                        modifier = Modifier.weight(1f),
-                    )
-                    TextButton(
-                        onClick = {
-                            viewModel.cancelImport()
-                            scope.launch { snackbarHostState.showSnackbar("Import cancelled") }
-                        },
-                    ) { Text("Cancel") }
-                }
-            }
 
             if (library.isEmpty()) {
                 EmptyState("No books yet — import your first ebook")
@@ -332,12 +273,13 @@ fun LibraryScreen(
                         item(key = "player-$activeId") {
                             AnimatedVisibility(
                                 visible = true,
-                                enter = if (LocalReducedMotion.current) {
-                                    EnterTransition.None
-                                } else {
-                                    expandVertically(expandFrom = Alignment.Top, animationSpec = tween(AyvuMotion.STANDARD_MS)) +
-                                        fadeIn(tween(AyvuMotion.STANDARD_MS))
-                                },
+                                enter =
+                                    if (LocalReducedMotion.current) {
+                                        EnterTransition.None
+                                    } else {
+                                        expandVertically(expandFrom = Alignment.Top, animationSpec = tween(AyvuMotion.STANDARD_MS)) +
+                                            fadeIn(tween(AyvuMotion.STANDARD_MS))
+                                    },
                             ) {
                                 PlayerCard(
                                     state = playerState,
@@ -441,34 +383,14 @@ fun LibraryScreen(
         }
     }
 
-    resultSummary?.let { summary ->
-        AlertDialog(
-            onDismissRequest = { resultSummary = null },
-            title = { Text("Import finished") },
-            text = {
-                Column {
-                    Text("Added ${summary.added} · Unchanged ${summary.unchanged}")
-                    if (summary.truncated) {
-                        Text(
-                            text = "Folder import reached its ${FolderScanPolicy.MAX_FILES}-file cap; later files were not imported.",
-                            style = MaterialTheme.typography.bodyMedium,
-                            modifier = Modifier.padding(top = AyvuSpacing.XS),
-                        )
-                    }
-                    for ((fileName, message) in summary.failed) {
-                        Text(
-                            text = "$fileName: $message",
-                            style = MaterialTheme.typography.bodyMedium,
-                            modifier = Modifier.padding(top = AyvuSpacing.XS),
-                        )
-                    }
-                }
-            },
-            confirmButton = {
-                TextButton(onClick = { resultSummary = null }) { Text("OK") }
-            },
-        )
-    }
+    // F4: the ONE import overlay for every entry point (in-app picker, folder,
+    // external ACTION_VIEW gateway, forwarded book-file shares).
+    intakeOverlay(
+        importState = importState,
+        guidance = viewModel.intakeGuidance.collectAsState().value,
+        onCancel = viewModel::cancelImport,
+        onDismiss = viewModel::dismissIntake,
+    )
 }
 
 /**
@@ -504,7 +426,6 @@ private fun BookRow(
     // meltdown) instead of collapsing into a silent no-op success.
     val pregenError = job.error
 
-
     val cover = rememberCoverBitmap(viewModel, bookId)
     var menuOpen by remember { mutableStateOf(false) }
     var budgetDialog by remember { mutableStateOf(false) }
@@ -523,22 +444,25 @@ private fun BookRow(
     }
 
     Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable { onOpenBook(bookId) },
+        modifier =
+            Modifier
+                .fillMaxWidth()
+                .clickable { onOpenBook(bookId) },
         shape = MaterialTheme.shapes.large,
     ) {
         Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(AyvuSpacing.MD),
+            modifier =
+                Modifier
+                    .fillMaxWidth()
+                    .padding(AyvuSpacing.MD),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             BookCover(bitmap = cover, fallbackInitial = title, contentDescription = null)
             Column(
-                modifier = Modifier
-                    .weight(1f)
-                    .padding(start = AyvuSpacing.MD),
+                modifier =
+                    Modifier
+                        .weight(1f)
+                        .padding(start = AyvuSpacing.MD),
             ) {
                 Text(
                     text = title,
@@ -592,47 +516,48 @@ private fun BookRow(
                         Icon(Icons.Filled.MoreVert, contentDescription = "Book actions")
                     }
                     DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
-                    DropdownMenuItem(
-                        text = {
-                            Text(
-                                buildString {
-                                    append("Pre-generate")
-                                    if (estimate > 0L) append(" (≈${formatBytes(estimate)})")
-                                },
-                            )
-                        },
-                        onClick = {
-                            menuOpen = false
-                            budgetDialog = true
-                        },
-                    )
-                    if (usage > 0L) {
                         DropdownMenuItem(
-                            text = { Text("Delete offline audio") },
+                            text = {
+                                Text(
+                                    buildString {
+                                        append("Pre-generate")
+                                        if (estimate > 0L) append(" (≈${formatBytes(estimate)})")
+                                    },
+                                )
+                            },
                             onClick = {
                                 menuOpen = false
-                                confirmDeleteAudio = true
+                                budgetDialog = true
+                            },
+                        )
+                        if (usage > 0L) {
+                            DropdownMenuItem(
+                                text = { Text("Delete offline audio") },
+                                onClick = {
+                                    menuOpen = false
+                                    confirmDeleteAudio = true
+                                },
+                            )
+                        }
+                        DropdownMenuItem(
+                            text = { Text("Remove from library") },
+                            onClick = {
+                                menuOpen = false
+                                confirmRemove = true
                             },
                         )
                     }
-                    DropdownMenuItem(
-                        text = { Text("Remove from library") },
-                        onClick = {
-                            menuOpen = false
-                            confirmRemove = true
-                        },
-                    )
                 }
             }
         }
-    }
     }
 
     if (confirmRemove) {
         ConfirmDialog(
             title = "Remove from library?",
-            text = "Removes \"$title\" with its progress, bookmarks and offline " +
-                "audio. You can re-import the file anytime.",
+            text =
+                "Removes \"$title\" with its progress, bookmarks and offline " +
+                    "audio. You can re-import the file anytime.",
             confirmLabel = "Remove",
             onConfirm = {
                 confirmRemove = false
@@ -657,14 +582,18 @@ private fun BookRow(
 
 /** Decodes the book's extracted cover off the main thread; null while loading or absent. */
 @Composable
-private fun rememberCoverBitmap(viewModel: LibraryViewModel, bookId: String): ImageBitmap? {
+private fun rememberCoverBitmap(
+    viewModel: LibraryViewModel,
+    bookId: String,
+): ImageBitmap? {
     var bitmap by remember { mutableStateOf<ImageBitmap?>(null) }
     LaunchedEffect(bookId) {
-        bitmap = withContext(Dispatchers.IO) {
-            viewModel.cover(bookId)?.let { bytes ->
-                BitmapFactory.decodeByteArray(bytes, 0, bytes.size)?.asImageBitmap()
+        bitmap =
+            withContext(Dispatchers.IO) {
+                viewModel.cover(bookId)?.let { bytes ->
+                    BitmapFactory.decodeByteArray(bytes, 0, bytes.size)?.asImageBitmap()
+                }
             }
-        }
     }
     return bitmap
 }
@@ -699,7 +628,10 @@ private fun PregenBudgetDialog(
 }
 
 @Composable
-private fun PregenBudgetOption(label: String, onClick: () -> Unit) {
+private fun PregenBudgetOption(
+    label: String,
+    onClick: () -> Unit,
+) {
     TextButton(onClick = onClick, modifier = Modifier.fillMaxWidth()) {
         Text(label)
     }

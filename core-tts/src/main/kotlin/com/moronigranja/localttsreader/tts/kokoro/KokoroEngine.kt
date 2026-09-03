@@ -192,10 +192,11 @@ class KokoroEngine internal constructor(
             phonemizer: Phonemizer = NormalizingPhonemizer(EspeakPhonemizer.load()),
             progress: (String) -> Unit = {},
             sessionFactory: (OrtSession.SessionOptions) -> Unit = {},
+            pinnedWindowLength: Int? = null,
         ): KokoroEngine {
             require(modelFile.isFile) { "model pack file not ready: $modelFile" }
             require(voicesFile.isFile) { "voices pack file not ready: $voicesFile" }
-            val session = OrtKokoroSession.open(modelFile, sessionFactory)
+            val session = OrtKokoroSession.open(modelFile, sessionFactory, pinnedWindowLength)
             progress("session")
             return try {
                 val vocab = session.embeddedVocab.ifEmpty { KokoroVocabulary.resource() }

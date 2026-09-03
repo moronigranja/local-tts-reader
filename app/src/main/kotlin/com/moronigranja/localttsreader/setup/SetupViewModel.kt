@@ -226,7 +226,7 @@ class SetupViewModel
             viewModelScope.launch {
                 importTick.value += 1
                 try {
-                    val outcomes = withContext(ioDispatcher) { coordinator.importAll(sources) { _, _, _ -> } }
+                    val outcomes = withContext(ioDispatcher) { coordinator.importAll(sources, onProgress = { _, _, _ -> }) }
                     importSummaryValue = buildSummary(outcomes)
                 } catch (e: CancellationException) {
                     throw e

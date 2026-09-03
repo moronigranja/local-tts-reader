@@ -6,7 +6,6 @@ import android.net.Uri
 import androidx.room.Room
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
-import com.moronigranja.localttsreader.featurelibrary.ExternalFileActivity
 import com.moronigranja.localttsreader.persistence.LibraryDatabase
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
@@ -94,7 +93,7 @@ class ExternalIntakeInstrumentedTest {
                 setComponent(
                     ComponentName(
                         targetContext.packageName,
-                        ExternalFileActivity::class.java.name,
+                        "com.moronigranja.localttsreader.MainActivity",
                     ),
                 )
                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)

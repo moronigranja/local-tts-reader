@@ -30,25 +30,34 @@ class ImportCoordinator(
     private val index: TextIndex,
     private val indexLock: IndexLock,
 ) {
-
     /**
      * One source through the full pipeline. [ImportOutcome.Unchanged] means
      * the durable store already holds the content hash — no parse, no write.
+     * [onStage] reports the per-file pipeline stage (read → parse → commit →
+     * index) for UI progress; it fires before the corresponding step begins.
      */
-    suspend fun import(source: EBookSource): ImportOutcome {
+    suspend fun import(
+        source: EBookSource,
+        onStage: (ImportStage) -> Unit = {},
+    ): ImportOutcome {
         if (!importer.isSupported(source.fileName)) {
             return ImportOutcome.Failed(source.fileName, ImportFailureReason.UnsupportedFormat)
         }
-        val id = importer.sourceId(source)
-            ?: return ImportOutcome.Failed(source.fileName, ImportFailureReason.Unreadable)
+        onStage(ImportStage.READING)
+        val id =
+            importer.sourceId(source)
+                ?: return ImportOutcome.Failed(source.fileName, ImportFailureReason.Unreadable)
         if (store.contains(id)) return ImportOutcome.Unchanged(id)
+        onStage(ImportStage.PARSING)
         val outcome = importer.import(source)
         if (outcome !is ImportOutcome.Added) return outcome
+        onStage(ImportStage.COMMITTING)
         try {
             store.add(outcome.entry) // durable FIRST
         } catch (e: Exception) {
             return ImportOutcome.Failed(source.fileName, ImportFailureReason.Storage(e.message ?: "storage failure"))
         }
+        onStage(ImportStage.INDEXING)
         indexLock.withExclusiveIndex { index.add(outcome.entry.book) } // derived after durable
         return outcome
     }
@@ -68,14 +77,23 @@ class ImportCoordinator(
     suspend fun importAll(
         sources: List<EBookSource>,
         onProgress: (current: EBookSource, done: Int, total: Int) -> Unit = { _, _, _ -> },
+        onStage: (ImportStage) -> Unit = {},
     ): List<ImportOutcome> {
         val results = ArrayList<ImportOutcome>(sources.size)
         sources.forEachIndexed { i, source ->
             delay(1) // cancellation/cooperation boundary between files (F1)
             onProgress(source, i, sources.size)
-            results += import(source)
+            results += import(source, onStage)
             onProgress(source, i + 1, sources.size)
         }
         return results
     }
+}
+
+/** The per-file pipeline stages a batch import reports ([ImportCoordinator]). */
+enum class ImportStage {
+    READING,
+    PARSING,
+    COMMITTING,
+    INDEXING,
 }
