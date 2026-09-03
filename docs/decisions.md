@@ -159,6 +159,15 @@ Recorded as the gate on the NPU path; the flag-file EP selector
 (`files/ep_qnn`, `ep_qnn_gpu`) stays in `TranslateProbeRunner` for when a
 custom build exists.
 
+Possible gate-softener, uncommitted at record time: a Qualcomm-maintained
+QNN **plugin** AAR (`com.qualcomm.qti:onnxruntime-android-qnn`) plugs into the
+STOCK ORT 1.29 without a custom build (working-tree experiment in
+`spike-tts`' Kokoro D2 benchmark adds `minSdk 27`, legacy packaging for the
+Htp skel dlopen, and a `QnnEp` helper). If that plugin proves out, the
+"custom ORT build required" caveat above softens to "add the plugin AAR" —
+the dynamic-shape bucketing requirement for autoregressive decode remains
+either way. Revisit via the D2 harness before any translate-on-NPU work.
+
 **OWNER DECISION (2026-09-02, closing the spike): ADOPT small100 int8 for the
 translate-then-read direction.** Explicit trade: quality for simplicity — one
 model for ALL languages (one 916 MB pack, fixed cost as languages grow) and the
