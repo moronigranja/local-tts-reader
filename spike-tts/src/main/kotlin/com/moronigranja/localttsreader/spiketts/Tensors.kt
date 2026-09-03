@@ -9,22 +9,33 @@ import java.nio.LongBuffer
 
 /** Small helpers for exchanging flat arrays with ORT tensors. */
 internal object Tensors {
-
-    fun f32(env: OrtEnvironment, data: FloatArray, shape: LongArray): OnnxTensor {
+    fun f32(
+        env: OrtEnvironment,
+        data: FloatArray,
+        shape: LongArray,
+    ): OnnxTensor {
         val buf = ByteBuffer.allocateDirect(data.size * 4).order(ByteOrder.nativeOrder()).asFloatBuffer()
         buf.put(data)
         buf.rewind()
         return OnnxTensor.createTensor(env, buf, shape)
     }
 
-    fun i64(env: OrtEnvironment, data: LongArray, shape: LongArray): OnnxTensor {
+    fun i64(
+        env: OrtEnvironment,
+        data: LongArray,
+        shape: LongArray,
+    ): OnnxTensor {
         val buf = ByteBuffer.allocateDirect(data.size * 8).order(ByteOrder.nativeOrder()).asLongBuffer()
         buf.put(data)
         buf.rewind()
         return OnnxTensor.createTensor(env, buf, shape)
     }
 
-    fun i32(env: OrtEnvironment, data: IntArray, shape: LongArray): OnnxTensor {
+    fun i32(
+        env: OrtEnvironment,
+        data: IntArray,
+        shape: LongArray,
+    ): OnnxTensor {
         val buf = ByteBuffer.allocateDirect(data.size * 4).order(ByteOrder.nativeOrder()).asIntBuffer()
         buf.put(data)
         buf.rewind()
@@ -65,14 +76,14 @@ internal object Tensors {
 
     private fun flattenNested(value: Array<*>): LongArray {
         val out = ArrayList<Long>()
+
         fun walk(v: Any?) {
             when (v) {
                 is IntArray -> for (x in v) out.add(x.toLong())
                 is LongArray -> for (x in v) out.add(x)
                 is ShortArray -> for (x in v) out.add(x.toLong())
                 is Array<*> -> for (e in v) walk(e)
-                else -> throw IllegalStateException(
-                    "unsupported nested int tensor leaf: ${v?.javaClass}")
+                else -> throw IllegalStateException("unsupported nested int tensor leaf: ${v?.javaClass}")
             }
         }
         walk(value)
@@ -91,7 +102,10 @@ internal object Tensors {
      * numpy concat([t, zeros_like(t)], axis=0): doubles the batch dim, second
      * half zeroed. Returns the flat data + new shape.
      */
-    fun concatZeroAlongBatch(data: FloatArray, shape: LongArray): Pair<FloatArray, LongArray> {
+    fun concatZeroAlongBatch(
+        data: FloatArray,
+        shape: LongArray,
+    ): Pair<FloatArray, LongArray> {
         val newShape = shape.copyOf()
         newShape[0] *= 2
         val out = FloatArray(data.size * 2)
@@ -100,7 +114,10 @@ internal object Tensors {
     }
 
     /** Slice the last seq position of [B, L, D] (axis 1, -1:1): returns [B, 1, D]. */
-    fun lastPos(data: FloatArray, shape: LongArray): Pair<FloatArray, LongArray> {
+    fun lastPos(
+        data: FloatArray,
+        shape: LongArray,
+    ): Pair<FloatArray, LongArray> {
         val b = shape[0].toInt()
         val l = shape[1].toInt()
         val d = shape[2].toInt()
@@ -114,7 +131,10 @@ internal object Tensors {
     }
 
     /** Transpose [B, L, D] -> [B, D, L] (numpy x.transpose(0, 2, 1)). */
-    fun transposeBLDToBDL(data: FloatArray, shape: LongArray): Pair<FloatArray, LongArray> {
+    fun transposeBLDToBDL(
+        data: FloatArray,
+        shape: LongArray,
+    ): Pair<FloatArray, LongArray> {
         val b = shape[0].toInt()
         val l = shape[1].toInt()
         val d = shape[2].toInt()

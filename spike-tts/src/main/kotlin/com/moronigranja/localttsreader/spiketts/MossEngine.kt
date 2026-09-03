@@ -5,13 +5,13 @@ import ai.onnxruntime.OnnxTensorLike
 import ai.onnxruntime.OnnxValue
 import ai.onnxruntime.OrtEnvironment
 import ai.onnxruntime.OrtSession
+import org.json.JSONArray
+import org.json.JSONObject
 import java.io.Closeable
 import java.io.File
 import java.nio.FloatBuffer
 import java.nio.IntBuffer
 import kotlin.math.min
-import org.json.JSONArray
-import org.json.JSONObject
 
 /**
  * Port of OpenMOSS/MOSS-TTS-Nano `examples/android_onnx_runtime/.../
@@ -43,31 +43,39 @@ internal class MossEngine(
     private val codecMeta = CodecMeta.fromJson(readJson(codecMetaPath))
     private val ttsDir = ttsMetaPath.parentFile ?: manifestDir
     private val codecDir = codecMetaPath.parentFile ?: manifestDir
-    private val sessionOptions = OrtSession.SessionOptions().apply {
-        setOptimizationLevel(OrtSession.SessionOptions.OptLevel.ALL_OPT)
-        // The AR decode loop grows the KV cache by one frame per step; with
-        // memory-pattern planning ON, ORT retains one planned arena block per
-        // distinct sequence shape and RSS ballooned to 6.6 GB (lmkd kill on
-        // the S22). Planning off keeps the arena reused; recorded as a
-        // session-option deviation from the demo in decisions #93.
-        setMemoryPatternOptimization(false)
-        setCPUArenaAllocator(false)
-        setIntraOpNumThreads(cpuThreads.coerceAtLeast(1))
-        setInterOpNumThreads(1)
-    }
+    private val sessionOptions =
+        OrtSession.SessionOptions().apply {
+            setOptimizationLevel(OrtSession.SessionOptions.OptLevel.ALL_OPT)
+            // The AR decode loop grows the KV cache by one frame per step; with
+            // memory-pattern planning ON, ORT retains one planned arena block per
+            // distinct sequence shape and RSS ballooned to 6.6 GB (lmkd kill on
+            // the S22). Planning off keeps the arena reused; recorded as a
+            // session-option deviation from the demo in decisions #93.
+            setMemoryPatternOptimization(false)
+            setCPUArenaAllocator(false)
+            setIntraOpNumThreads(cpuThreads.coerceAtLeast(1))
+            setInterOpNumThreads(1)
+        }
+
     // Per-session memory log (MossSpike): the S22 lmkd killed the process at
     // 6.6 GB RSS during session creation — this pinpoints which session
     // balloons and feeds the #93 memory column.
     private val prefillSession = createSession(File(ttsDir, ttsMeta.files.prefill)).also { logSession("prefill") }
     private val decodeSession = createSession(File(ttsDir, ttsMeta.files.decodeStep)).also { logSession("decode_step") }
-    private val localFixedFrameSession = createSession(File(ttsDir, ttsMeta.files.localFixedSampledFrame)).also { logSession("local_fixed") }
+    private val localFixedFrameSession =
+        createSession(
+            File(ttsDir, ttsMeta.files.localFixedSampledFrame),
+        ).also { logSession("local_fixed") }
     private val codecDecodeSession = createSession(File(codecDir, codecMeta.files.decodeFull)).also { logSession("codec_decode") }
 
     private fun logSession(name: String) {
         val mem = android.os.Debug.MemoryInfo()
         android.os.Debug.getMemoryInfo(mem)
-        android.util.Log.d("MossSpike", "session $name open: totalPss=${mem.totalPss} kB, " +
-            "dalvikPss=${mem.dalvikPss}, nativePss=${mem.nativePss}")
+        android.util.Log.d(
+            "MossSpike",
+            "session $name open: totalPss=${mem.totalPss} kB, " +
+                "dalvikPss=${mem.dalvikPss}, nativePss=${mem.nativePss}",
+        )
     }
 
     val sampleRate: Int get() = codecMeta.codecConfig.sampleRate
@@ -82,11 +90,12 @@ internal class MossEngine(
      * first English entry, else the first builtin (limitation recorded by the
      * runner).
      */
-    private val selectedVoice: BuiltinVoice = manifest.builtinVoices
-        .firstOrNull { it.group?.contains("English") == true && it.group?.contains("Female") == true }
-        ?: manifest.builtinVoices.firstOrNull { it.group?.contains("English") == true }
-        ?: manifest.builtinVoices.firstOrNull { it.promptAudioCodes.isNotEmpty() }
-        ?: error("no builtin voices in ${manifestPath.name}")
+    private val selectedVoice: BuiltinVoice =
+        manifest.builtinVoices
+            .firstOrNull { it.group?.contains("English") == true && it.group?.contains("Female") == true }
+            ?: manifest.builtinVoices.firstOrNull { it.group?.contains("English") == true }
+            ?: manifest.builtinVoices.firstOrNull { it.promptAudioCodes.isNotEmpty() }
+            ?: error("no builtin voices in ${manifestPath.name}")
 
     class StageTimings(
         var prefillMs: Long = 0,
@@ -148,22 +157,27 @@ internal class MossEngine(
         if (direct.exists()) {
             return direct
         }
-        val alias = relativePath
-            .replace("MOSS-TTS-Nano-ONNX-CPU", "MOSS-TTS-Nano-100M-ONNX")
-            .replace("MOSS-Audio-Tokenizer-Nano-ONNX-CPU", "MOSS-Audio-Tokenizer-Nano-ONNX")
+        val alias =
+            relativePath
+                .replace("MOSS-TTS-Nano-ONNX-CPU", "MOSS-TTS-Nano-100M-ONNX")
+                .replace("MOSS-Audio-Tokenizer-Nano-ONNX-CPU", "MOSS-Audio-Tokenizer-Nano-ONNX")
         return File(manifestDir, alias).canonicalFile
     }
 
-    private fun buildInputRows(textTokenIds: IntArray, voice: String): InputRows {
+    private fun buildInputRows(
+        textTokenIds: IntArray,
+        voice: String,
+    ): InputRows {
         val cfg = manifest.ttsConfig
         val rowWidth = cfg.nVq + 1
         val promptAudioCodes = selectBuiltinVoicePromptAudioCodes(voice)
         val prefixTokens = manifest.promptTemplates.userPromptPrefixTokenIds + cfg.audioStartTokenId
-        val suffixTokens = intArrayOf(cfg.audioEndTokenId) +
-            manifest.promptTemplates.userPromptAfterReferenceTokenIds +
-            textTokenIds +
-            manifest.promptTemplates.assistantPromptPrefixTokenIds +
-            intArrayOf(cfg.audioStartTokenId)
+        val suffixTokens =
+            intArrayOf(cfg.audioEndTokenId) +
+                manifest.promptTemplates.userPromptAfterReferenceTokenIds +
+                textTokenIds +
+                manifest.promptTemplates.assistantPromptPrefixTokenIds +
+                intArrayOf(cfg.audioStartTokenId)
         val rows = ArrayList<IntArray>()
         rows += buildTextRows(prefixTokens, cfg, rowWidth)
         rows += buildAudioRows(promptAudioCodes, cfg, rowWidth)
@@ -171,14 +185,21 @@ internal class MossEngine(
         return InputRows(rows.toTypedArray(), IntArray(rows.size) { 1 })
     }
 
-    private fun buildTextRows(tokens: IntArray, cfg: TtsConfig, rowWidth: Int): List<IntArray> {
-        return tokens.map { token ->
+    private fun buildTextRows(
+        tokens: IntArray,
+        cfg: TtsConfig,
+        rowWidth: Int,
+    ): List<IntArray> =
+        tokens.map { token ->
             IntArray(rowWidth) { index -> if (index == 0) token else cfg.audioPadTokenId }
         }
-    }
 
-    private fun buildAudioRows(audioCodes: List<IntArray>, cfg: TtsConfig, rowWidth: Int): List<IntArray> {
-        return audioCodes.map { codeRow ->
+    private fun buildAudioRows(
+        audioCodes: List<IntArray>,
+        cfg: TtsConfig,
+        rowWidth: Int,
+    ): List<IntArray> =
+        audioCodes.map { codeRow ->
             IntArray(rowWidth) { index ->
                 when {
                     index == 0 -> cfg.audioUserSlotTokenId
@@ -187,12 +208,12 @@ internal class MossEngine(
                 }
             }
         }
-    }
 
     private fun selectBuiltinVoicePromptAudioCodes(voice: String): List<IntArray> {
-        val selected = manifest.builtinVoices.firstOrNull {
-            it.voice == voice && it.promptAudioCodes.isNotEmpty()
-        } ?: manifest.builtinVoices.firstOrNull { it.promptAudioCodes.isNotEmpty() }
+        val selected =
+            manifest.builtinVoices.firstOrNull {
+                it.voice == voice && it.promptAudioCodes.isNotEmpty()
+            } ?: manifest.builtinVoices.firstOrNull { it.promptAudioCodes.isNotEmpty() }
         return selected?.promptAudioCodes
             ?: error("No builtin voice prompt_audio_codes found in ${manifestPath.absolutePath}")
     }
@@ -207,32 +228,39 @@ internal class MossEngine(
                 inputIdsFlat[offset++] = value
             }
         }
-        OnnxTensor.createTensor(
-            env,
-            IntBuffer.wrap(inputIdsFlat),
-            longArrayOf(1, seqLen.toLong(), rowWidth.toLong()),
-        ).use { inputIdsTensor ->
-            OnnxTensor.createTensor(
+        OnnxTensor
+            .createTensor(
                 env,
-                IntBuffer.wrap(inputRows.attentionMask),
-                longArrayOf(1, seqLen.toLong()),
-            ).use { maskTensor ->
-                val outputs = prefillSession.run(
-                    mapOf(
-                        "input_ids" to inputIdsTensor,
-                        "attention_mask" to maskTensor,
-                    ),
-                )
-                return PrefillResult(
-                    globalHidden = extractLastHiddenTensor(outputs.requiredTensor("global_hidden")),
-                    pastValidLengths = seqLen,
-                    pastResult = outputs,
-                )
+                IntBuffer.wrap(inputIdsFlat),
+                longArrayOf(1, seqLen.toLong(), rowWidth.toLong()),
+            ).use { inputIdsTensor ->
+                OnnxTensor
+                    .createTensor(
+                        env,
+                        IntBuffer.wrap(inputRows.attentionMask),
+                        longArrayOf(1, seqLen.toLong()),
+                    ).use { maskTensor ->
+                        val outputs =
+                            prefillSession.run(
+                                mapOf(
+                                    "input_ids" to inputIdsTensor,
+                                    "attention_mask" to maskTensor,
+                                ),
+                            )
+                        return PrefillResult(
+                            globalHidden = extractLastHiddenTensor(outputs.requiredTensor("global_hidden")),
+                            pastValidLengths = seqLen,
+                            pastResult = outputs,
+                        )
+                    }
             }
-        }
     }
 
-    private fun runDecode(prefillResult: PrefillResult, maxFrames: Int, seed: Long): List<IntArray> {
+    private fun runDecode(
+        prefillResult: PrefillResult,
+        maxFrames: Int,
+        seed: Long,
+    ): List<IntArray> {
         val cfg = manifest.ttsConfig
         val audioTokens = ArrayList<IntArray>()
         val rowWidth = cfg.nVq + 1
@@ -251,9 +279,10 @@ internal class MossEngine(
                 if (!frameResult.shouldContinue) {
                     break
                 }
-                val audioRow = IntArray(rowWidth) { index ->
-                    if (index == 0) cfg.audioAssistantSlotTokenId else cfg.audioPadTokenId
-                }
+                val audioRow =
+                    IntArray(rowWidth) { index ->
+                        if (index == 0) cfg.audioAssistantSlotTokenId else cfg.audioPadTokenId
+                    }
                 for (quantizer in 0 until cfg.nVq) {
                     val token = frameResult.frame[quantizer]
                     audioRow[quantizer + 1] = token
@@ -263,37 +292,42 @@ internal class MossEngine(
                 if (step % 50 == 0) {
                     val mem = android.os.Debug.MemoryInfo()
                     android.os.Debug.getMemoryInfo(mem)
-                    android.util.Log.d("MossSpike",
-                        "decode step $step/$cappedMaxFrames: totalPss=${mem.totalPss} kB")
+                    android.util.Log.d(
+                        "MossSpike",
+                        "decode step $step/$cappedMaxFrames: totalPss=${mem.totalPss} kB",
+                    )
                 }
-                OnnxTensor.createTensor(
-                    env,
-                    IntBuffer.wrap(audioRow),
-                    longArrayOf(1, 1, rowWidth.toLong()),
-                ).use { inputTensor ->
-                    OnnxTensor.createTensor(
+                OnnxTensor
+                    .createTensor(
                         env,
-                        IntBuffer.wrap(intArrayOf(pastValidLengths)),
-                        longArrayOf(1),
-                    ).use { pastTensor ->
-                        val feeds = linkedMapOf<String, OnnxTensorLike>(
-                            "input_ids" to inputTensor,
-                            "past_valid_lengths" to pastTensor,
-                        )
-                        val previousPastResult = pastResult ?: error("Missing decode KV cache")
-                        for (index in decodePastInputNames.indices) {
-                            feeds[decodePastInputNames[index]] =
-                                previousPastResult.requiredTensor(decodePresentOutputNames[index])
-                        }
-                        val outputs = decodeSession.run(feeds)
-                        val nextGlobalHidden = extractLastHiddenTensor(outputs.requiredTensor("global_hidden"))
-                        globalHidden.close()
-                        previousPastResult.close()
-                        pastResult = outputs
-                        globalHidden = nextGlobalHidden
-                        pastValidLengths += 1
+                        IntBuffer.wrap(audioRow),
+                        longArrayOf(1, 1, rowWidth.toLong()),
+                    ).use { inputTensor ->
+                        OnnxTensor
+                            .createTensor(
+                                env,
+                                IntBuffer.wrap(intArrayOf(pastValidLengths)),
+                                longArrayOf(1),
+                            ).use { pastTensor ->
+                                val feeds =
+                                    linkedMapOf<String, OnnxTensorLike>(
+                                        "input_ids" to inputTensor,
+                                        "past_valid_lengths" to pastTensor,
+                                    )
+                                val previousPastResult = pastResult ?: error("Missing decode KV cache")
+                                for (index in decodePastInputNames.indices) {
+                                    feeds[decodePastInputNames[index]] =
+                                        previousPastResult.requiredTensor(decodePresentOutputNames[index])
+                                }
+                                val outputs = decodeSession.run(feeds)
+                                val nextGlobalHidden = extractLastHiddenTensor(outputs.requiredTensor("global_hidden"))
+                                globalHidden.close()
+                                previousPastResult.close()
+                                pastResult = outputs
+                                globalHidden = nextGlobalHidden
+                                pastValidLengths += 1
+                            }
                     }
-                }
             }
         } finally {
             globalHidden.close()
@@ -319,37 +353,41 @@ internal class MossEngine(
             }
         }
         val assistantRandom = floatArrayOf(random.nextDouble().coerceIn(1e-6, 1.0 - 1e-6).toFloat())
-        val audioRandom = FloatArray(cfg.nVq) {
-            random.nextDouble().coerceIn(1e-6, 1.0 - 1e-6).toFloat()
-        }
-        OnnxTensor.createTensor(
-            env,
-            IntBuffer.wrap(seenMask),
-            longArrayOf(1, cfg.nVq.toLong(), audioCodebookSize.toLong()),
-        ).use { seenTensor ->
-            OnnxTensor.createTensor(env, FloatBuffer.wrap(assistantRandom), longArrayOf(1)).use { assistantTensor ->
-                OnnxTensor.createTensor(
-                    env,
-                    FloatBuffer.wrap(audioRandom),
-                    longArrayOf(1, cfg.nVq.toLong()),
-                ).use { audioTensor ->
-                    val outputs = localFixedFrameSession.run(
-                        mapOf(
-                            "global_hidden" to globalHidden,
-                            "repetition_seen_mask" to seenTensor,
-                            "assistant_random_u" to assistantTensor,
-                            "audio_random_u" to audioTensor,
-                        ),
-                    )
-                    outputs.use {
-                        return LocalFrameResult(
-                            shouldContinue = it.requiredTensor("should_continue").scalarInt() > 0,
-                            frame = it.requiredTensor("frame_token_ids").intArrayValue(),
-                        )
-                    }
+        val audioRandom =
+            FloatArray(cfg.nVq) {
+                random.nextDouble().coerceIn(1e-6, 1.0 - 1e-6).toFloat()
+            }
+        OnnxTensor
+            .createTensor(
+                env,
+                IntBuffer.wrap(seenMask),
+                longArrayOf(1, cfg.nVq.toLong(), audioCodebookSize.toLong()),
+            ).use { seenTensor ->
+                OnnxTensor.createTensor(env, FloatBuffer.wrap(assistantRandom), longArrayOf(1)).use { assistantTensor ->
+                    OnnxTensor
+                        .createTensor(
+                            env,
+                            FloatBuffer.wrap(audioRandom),
+                            longArrayOf(1, cfg.nVq.toLong()),
+                        ).use { audioTensor ->
+                            val outputs =
+                                localFixedFrameSession.run(
+                                    mapOf(
+                                        "global_hidden" to globalHidden,
+                                        "repetition_seen_mask" to seenTensor,
+                                        "assistant_random_u" to assistantTensor,
+                                        "audio_random_u" to audioTensor,
+                                    ),
+                                )
+                            outputs.use {
+                                return LocalFrameResult(
+                                    shouldContinue = it.requiredTensor("should_continue").scalarInt() > 0,
+                                    frame = it.requiredTensor("frame_token_ids").intArrayValue(),
+                                )
+                            }
+                        }
                 }
             }
-        }
     }
 
     private fun decodeAudioTokens(audioTokens: List<IntArray>): FloatArray {
@@ -363,43 +401,55 @@ internal class MossEngine(
                 audioCodesFlat[offset++] = frame[quantizer]
             }
         }
-        OnnxTensor.createTensor(
-            env,
-            IntBuffer.wrap(audioCodesFlat),
-            longArrayOf(1, numFrames.toLong(), numQuantizers.toLong()),
-        ).use { codesTensor ->
-            OnnxTensor.createTensor(
+        OnnxTensor
+            .createTensor(
                 env,
-                IntBuffer.wrap(intArrayOf(numFrames)),
-                longArrayOf(1),
-            ).use { lengthsTensor ->
-                val outputs = codecDecodeSession.run(
-                    mapOf(
-                        "audio_codes" to codesTensor,
-                        "audio_code_lengths" to lengthsTensor,
-                    ),
-                )
-                outputs.use {
-                    val audio = it.requiredTensor("audio").value as Array<*>
-                    val batch = audio[0] as Array<*>
-                    val channels = batch.map { channel -> channel as FloatArray }
-                    val reportedLength = it.requiredTensor("audio_lengths").scalarInt()
-                    val length = min(reportedLength, channels.minOfOrNull { channel -> channel.size } ?: 0)
-                    return FloatArray(length) { sampleIndex ->
-                        channels.sumOf { channel -> channel[sampleIndex].toDouble() }.toFloat() / channels.size
+                IntBuffer.wrap(audioCodesFlat),
+                longArrayOf(1, numFrames.toLong(), numQuantizers.toLong()),
+            ).use { codesTensor ->
+                OnnxTensor
+                    .createTensor(
+                        env,
+                        IntBuffer.wrap(intArrayOf(numFrames)),
+                        longArrayOf(1),
+                    ).use { lengthsTensor ->
+                        val outputs =
+                            codecDecodeSession.run(
+                                mapOf(
+                                    "audio_codes" to codesTensor,
+                                    "audio_code_lengths" to lengthsTensor,
+                                ),
+                            )
+                        outputs.use {
+                            val audio = it.requiredTensor("audio").value as Array<*>
+                            val batch = audio[0] as Array<*>
+                            val channels = batch.map { channel -> channel as FloatArray }
+                            val reportedLength = it.requiredTensor("audio_lengths").scalarInt()
+                            val length = min(reportedLength, channels.minOfOrNull { channel -> channel.size } ?: 0)
+                            return FloatArray(length) { sampleIndex ->
+                                channels.sumOf { channel -> channel[sampleIndex].toDouble() }.toFloat() / channels.size
+                            }
+                        }
                     }
-                }
             }
-        }
     }
 
-    private class InputRows(val inputIds: Array<IntArray>, val attentionMask: IntArray)
+    private class InputRows(
+        val inputIds: Array<IntArray>,
+        val attentionMask: IntArray,
+    )
+
     private class PrefillResult(
         val globalHidden: OnnxTensor,
         val pastValidLengths: Int,
         val pastResult: OrtSession.Result,
     )
-    private class LocalFrameResult(val shouldContinue: Boolean, val frame: IntArray)
+
+    private class LocalFrameResult(
+        val shouldContinue: Boolean,
+        val frame: IntArray,
+    )
+
     private data class ModelManifest(
         val modelFiles: ModelFiles,
         val ttsConfig: TtsConfig,
@@ -408,17 +458,17 @@ internal class MossEngine(
         val builtinVoices: List<BuiltinVoice>,
     ) {
         companion object {
-            fun fromJson(json: JSONObject): ModelManifest {
-                return ModelManifest(
+            fun fromJson(json: JSONObject): ModelManifest =
+                ModelManifest(
                     modelFiles = ModelFiles.fromJson(json.getJSONObject("model_files")),
                     ttsConfig = TtsConfig.fromJson(json.getJSONObject("tts_config")),
                     promptTemplates = PromptTemplates.fromJson(json.getJSONObject("prompt_templates")),
                     generationDefaults = GenerationDefaults.fromJson(json.optJSONObject("generation_defaults")),
-                    builtinVoices = json.optJSONArray("builtin_voices")?.let { voices ->
-                        List(voices.length()) { index -> BuiltinVoice.fromJson(voices.getJSONObject(index)) }
-                    } ?: emptyList(),
+                    builtinVoices =
+                        json.optJSONArray("builtin_voices")?.let { voices ->
+                            List(voices.length()) { index -> BuiltinVoice.fromJson(voices.getJSONObject(index)) }
+                        } ?: emptyList(),
                 )
-            }
         }
     }
 
@@ -427,12 +477,11 @@ internal class MossEngine(
         val codecMeta: String,
     ) {
         companion object {
-            fun fromJson(json: JSONObject): ModelFiles {
-                return ModelFiles(
+            fun fromJson(json: JSONObject): ModelFiles =
+                ModelFiles(
                     ttsMeta = json.getString("tts_meta"),
                     codecMeta = json.getString("codec_meta"),
                 )
-            }
         }
     }
 
@@ -446,8 +495,8 @@ internal class MossEngine(
         val audioCodebookSizes: IntArray,
     ) {
         companion object {
-            fun fromJson(json: JSONObject): TtsConfig {
-                return TtsConfig(
+            fun fromJson(json: JSONObject): TtsConfig =
+                TtsConfig(
                     nVq = json.getInt("n_vq"),
                     audioPadTokenId = json.getInt("audio_pad_token_id"),
                     audioStartTokenId = json.getInt("audio_start_token_id"),
@@ -456,11 +505,8 @@ internal class MossEngine(
                     audioAssistantSlotTokenId = json.getInt("audio_assistant_slot_token_id"),
                     audioCodebookSizes = json.getJSONArray("audio_codebook_sizes").toIntArrayCompat(),
                 )
-            }
 
-            private fun JSONArray.toIntArrayCompat(): IntArray {
-                return IntArray(length()) { index -> getInt(index) }
-            }
+            private fun JSONArray.toIntArrayCompat(): IntArray = IntArray(length()) { index -> getInt(index) }
         }
     }
 
@@ -470,27 +516,25 @@ internal class MossEngine(
         val assistantPromptPrefixTokenIds: IntArray,
     ) {
         companion object {
-            fun fromJson(json: JSONObject): PromptTemplates {
-                return PromptTemplates(
+            fun fromJson(json: JSONObject): PromptTemplates =
+                PromptTemplates(
                     userPromptPrefixTokenIds = json.getJSONArray("user_prompt_prefix_token_ids").toIntArrayCompat(),
                     userPromptAfterReferenceTokenIds =
                         json.getJSONArray("user_prompt_after_reference_token_ids").toIntArrayCompat(),
                     assistantPromptPrefixTokenIds =
                         json.getJSONArray("assistant_prompt_prefix_token_ids").toIntArrayCompat(),
                 )
-            }
 
-            private fun JSONArray.toIntArrayCompat(): IntArray {
-                return IntArray(length()) { index -> getInt(index) }
-            }
+            private fun JSONArray.toIntArrayCompat(): IntArray = IntArray(length()) { index -> getInt(index) }
         }
     }
 
-    private data class GenerationDefaults(val maxNewFrames: Int = 375) {
+    private data class GenerationDefaults(
+        val maxNewFrames: Int = 375,
+    ) {
         companion object {
-            fun fromJson(json: JSONObject?): GenerationDefaults {
-                return GenerationDefaults(maxNewFrames = json?.optInt("max_new_frames", 375) ?: 375)
-            }
+            fun fromJson(json: JSONObject?): GenerationDefaults =
+                GenerationDefaults(maxNewFrames = json?.optInt("max_new_frames", 375) ?: 375)
         }
     }
 
@@ -500,18 +544,18 @@ internal class MossEngine(
         val promptAudioCodes: List<IntArray>,
     ) {
         companion object {
-            fun fromJson(json: JSONObject): BuiltinVoice {
-                return BuiltinVoice(
+            fun fromJson(json: JSONObject): BuiltinVoice =
+                BuiltinVoice(
                     voice = json.optString("voice", ""),
                     group = if (json.has("group")) json.getString("group") else null,
-                    promptAudioCodes = json.optJSONArray("prompt_audio_codes")?.let { outer ->
-                        List(outer.length()) { index ->
-                            val row = outer.getJSONArray(index)
-                            IntArray(row.length()) { itemIndex -> row.getInt(itemIndex) }
-                        }
-                    } ?: emptyList(),
+                    promptAudioCodes =
+                        json.optJSONArray("prompt_audio_codes")?.let { outer ->
+                            List(outer.length()) { index ->
+                                val row = outer.getJSONArray(index)
+                                IntArray(row.length()) { itemIndex -> row.getInt(itemIndex) }
+                            }
+                        } ?: emptyList(),
                 )
-            }
         }
     }
 
@@ -520,12 +564,11 @@ internal class MossEngine(
         val onnx: TtsOnnxNames,
     ) {
         companion object {
-            fun fromJson(json: JSONObject): TtsMeta {
-                return TtsMeta(
+            fun fromJson(json: JSONObject): TtsMeta =
+                TtsMeta(
                     files = TtsFiles.fromJson(json.getJSONObject("files")),
                     onnx = TtsOnnxNames.fromJson(json.getJSONObject("onnx")),
                 )
-            }
         }
     }
 
@@ -535,13 +578,12 @@ internal class MossEngine(
         val localFixedSampledFrame: String,
     ) {
         companion object {
-            fun fromJson(json: JSONObject): TtsFiles {
-                return TtsFiles(
+            fun fromJson(json: JSONObject): TtsFiles =
+                TtsFiles(
                     prefill = json.getString("prefill"),
                     decodeStep = json.getString("decode_step"),
                     localFixedSampledFrame = json.getString("local_fixed_sampled_frame"),
                 )
-            }
         }
     }
 
@@ -550,16 +592,13 @@ internal class MossEngine(
         val decodeOutputNames: List<String>,
     ) {
         companion object {
-            fun fromJson(json: JSONObject): TtsOnnxNames {
-                return TtsOnnxNames(
+            fun fromJson(json: JSONObject): TtsOnnxNames =
+                TtsOnnxNames(
                     decodeInputNames = json.getJSONArray("decode_input_names").toStringList(),
                     decodeOutputNames = json.getJSONArray("decode_output_names").toStringList(),
                 )
-            }
 
-            private fun JSONArray.toStringList(): List<String> {
-                return List(length()) { index -> getString(index) }
-            }
+            private fun JSONArray.toStringList(): List<String> = List(length()) { index -> getString(index) }
         }
     }
 
@@ -568,38 +607,38 @@ internal class MossEngine(
         val codecConfig: CodecConfig,
     ) {
         companion object {
-            fun fromJson(json: JSONObject): CodecMeta {
-                return CodecMeta(
+            fun fromJson(json: JSONObject): CodecMeta =
+                CodecMeta(
                     files = CodecFiles.fromJson(json.getJSONObject("files")),
                     codecConfig = CodecConfig.fromJson(json.getJSONObject("codec_config")),
                 )
-            }
         }
     }
 
-    private data class CodecFiles(val decodeFull: String) {
+    private data class CodecFiles(
+        val decodeFull: String,
+    ) {
         companion object {
-            fun fromJson(json: JSONObject): CodecFiles {
-                return CodecFiles(decodeFull = json.getString("decode_full"))
-            }
+            fun fromJson(json: JSONObject): CodecFiles = CodecFiles(decodeFull = json.getString("decode_full"))
         }
     }
 
-    private data class CodecConfig(val sampleRate: Int) {
+    private data class CodecConfig(
+        val sampleRate: Int,
+    ) {
         companion object {
-            fun fromJson(json: JSONObject): CodecConfig {
-                return CodecConfig(sampleRate = json.getInt("sample_rate"))
-            }
+            fun fromJson(json: JSONObject): CodecConfig = CodecConfig(sampleRate = json.getInt("sample_rate"))
         }
     }
 
     companion object {
         private fun resolveManifestPath(modelRoot: File): File {
-            val candidates = listOf(
-                File(modelRoot, "browser_poc_manifest.json"),
-                File(modelRoot, "MOSS-TTS-Nano-100M-ONNX/browser_poc_manifest.json"),
-                File(modelRoot, "MOSS-TTS-Nano-ONNX-CPU/browser_poc_manifest.json"),
-            )
+            val candidates =
+                listOf(
+                    File(modelRoot, "browser_poc_manifest.json"),
+                    File(modelRoot, "MOSS-TTS-Nano-100M-ONNX/browser_poc_manifest.json"),
+                    File(modelRoot, "MOSS-TTS-Nano-ONNX-CPU/browser_poc_manifest.json"),
+                )
             return candidates.firstOrNull { it.isFile }
                 ?: error("browser_poc_manifest.json not found. Tried: ${candidates.joinToString { it.absolutePath }}")
         }
@@ -611,6 +650,7 @@ internal class MossEngine(
 
         private fun flattenIntTensorValue(raw: Any?): IntArray {
             val values = ArrayList<Int>()
+
             fun append(value: Any?) {
                 when (value) {
                     is Int -> values += value
@@ -632,18 +672,19 @@ internal class MossEngine(
 
         private fun extractLastHiddenTensor(tensor: OnnxTensor): OnnxTensor {
             val shape = tensor.info.shape
-            val hidden = when (shape.size) {
-                2 -> {
-                    val value = tensor.value as Array<*>
-                    value[0] as FloatArray
+            val hidden =
+                when (shape.size) {
+                    2 -> {
+                        val value = tensor.value as Array<*>
+                        value[0] as FloatArray
+                    }
+                    3 -> {
+                        val value = tensor.value as Array<*>
+                        val batch = value[0] as Array<*>
+                        batch[batch.size - 1] as FloatArray
+                    }
+                    else -> error("Unexpected global_hidden rank: ${shape.size}")
                 }
-                3 -> {
-                    val value = tensor.value as Array<*>
-                    val batch = value[0] as Array<*>
-                    batch[batch.size - 1] as FloatArray
-                }
-                else -> error("Unexpected global_hidden rank: ${shape.size}")
-            }
             return OnnxTensor.createTensor(
                 OrtEnvironment.getEnvironment(),
                 FloatBuffer.wrap(hidden.copyOf()),
@@ -651,20 +692,15 @@ internal class MossEngine(
             )
         }
 
-        private fun OrtSession.Result.requiredValue(name: String): OnnxValue {
-            return get(name).orElseThrow { IllegalStateException("Missing ONNX output: $name") }
-        }
+        private fun OrtSession.Result.requiredValue(name: String): OnnxValue =
+            get(name).orElseThrow {
+                IllegalStateException("Missing ONNX output: $name")
+            }
 
-        private fun OrtSession.Result.requiredTensor(name: String): OnnxTensor {
-            return requiredValue(name) as OnnxTensor
-        }
+        private fun OrtSession.Result.requiredTensor(name: String): OnnxTensor = requiredValue(name) as OnnxTensor
 
-        private fun OnnxTensor.scalarInt(): Int {
-            return flattenIntTensorValue(value).firstOrNull() ?: error("Scalar int tensor is empty")
-        }
+        private fun OnnxTensor.scalarInt(): Int = flattenIntTensorValue(value).firstOrNull() ?: error("Scalar int tensor is empty")
 
-        private fun OnnxTensor.intArrayValue(): IntArray {
-            return flattenIntTensorValue(value)
-        }
+        private fun OnnxTensor.intArrayValue(): IntArray = flattenIntTensorValue(value)
     }
 }

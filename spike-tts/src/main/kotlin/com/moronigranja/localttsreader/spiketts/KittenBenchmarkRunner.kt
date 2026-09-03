@@ -6,6 +6,8 @@ import ai.onnxruntime.OrtSession
 import android.content.Context
 import android.os.Build
 import android.os.Debug
+import org.json.JSONArray
+import org.json.JSONObject
 import java.io.File
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
@@ -13,8 +15,6 @@ import java.nio.FloatBuffer
 import java.nio.LongBuffer
 import java.util.zip.ZipFile
 import kotlin.system.measureTimeMillis
-import org.json.JSONArray
-import org.json.JSONObject
 
 /**
  * D3 KittenTTS Nano v0.8 leg (decisions #92/#93): measures the pinned
@@ -35,8 +35,9 @@ import org.json.JSONObject
  * `kitten_tokens` (non-en or column left empty) are logged as SKIP and do not
  * abort the pass — lang coverage is itself a measured result.
  */
-class KittenBenchmarkRunner(private val context: Context) {
-
+class KittenBenchmarkRunner(
+    private val context: Context,
+) {
     companion object {
         const val TAG = "KittenSpike"
         const val SAMPLE_RATE = 24000
@@ -46,16 +47,18 @@ class KittenBenchmarkRunner(private val context: Context) {
         const val VOICE = "expr-voice-2-f"
 
         /** Alias map copied verbatim from upstream `all_voice_names` → `expr-voice-*`. */
-        val VOICE_ALIASES = mapOf(
-            "Bella" to "expr-voice-2-f",
-            "Jasper" to "expr-voice-2-m",
-            "Luna" to "expr-voice-3-f",
-            "Bruno" to "expr-voice-3-m",
-            "Rosie" to "expr-voice-4-f",
-            "Hugo" to "expr-voice-4-m",
-            "Kiki" to "expr-voice-5-f",
-            "Leo" to "expr-voice-5-m",
-        )
+        val VOICE_ALIASES =
+            mapOf(
+                "Bella" to "expr-voice-2-f",
+                "Jasper" to "expr-voice-2-m",
+                "Luna" to "expr-voice-3-f",
+                "Bruno" to "expr-voice-3-m",
+                "Rosie" to "expr-voice-4-f",
+                "Hugo" to "expr-voice-4-m",
+                "Kiki" to "expr-voice-5-f",
+                "Leo" to "expr-voice-5-m",
+            )
+
         /**
          * Graph hard cap measured host-side on the pinned fp32 pack: total
          * sequence ≤ 509 tokens (incl. `0` prefix and `10`,`0` suffix) —
@@ -102,22 +105,27 @@ class KittenBenchmarkRunner(private val context: Context) {
             log("voice: $VOICE; opt_profile=$optProfile threads=$threads")
 
             val tOpen = System.currentTimeMillis()
-            val options = OrtSession.SessionOptions().apply {
-                setOptimizationLevel(OrtSession.SessionOptions.OptLevel.ALL_OPT)
-                when (optProfile) {
-                    "basic" -> setOptimizationLevel(OrtSession.SessionOptions.OptLevel.BASIC_OPT)
-                    "memOff" -> setMemoryPatternOptimization(false)
-                    "arenaOff" -> setCPUArenaAllocator(false)
-                    "bothOff" -> { setMemoryPatternOptimization(false); setCPUArenaAllocator(false) }
+            val options =
+                OrtSession.SessionOptions().apply {
+                    setOptimizationLevel(OrtSession.SessionOptions.OptLevel.ALL_OPT)
+                    when (optProfile) {
+                        "basic" -> setOptimizationLevel(OrtSession.SessionOptions.OptLevel.BASIC_OPT)
+                        "memOff" -> setMemoryPatternOptimization(false)
+                        "arenaOff" -> setCPUArenaAllocator(false)
+                        "bothOff" -> {
+                            setMemoryPatternOptimization(false)
+                            setCPUArenaAllocator(false)
+                        }
+                    }
                 }
-            }
             val session = env.createSession(modelFile.absolutePath, options)
             sessionRef = session
             val engineOpenMs = System.currentTimeMillis() - tOpen
             log("engine open: $engineOpenMs ms (candidate=kitten)")
             val voices = NpzReader.load(voicesFile)
-            val styleTable = voices[VOICE]
-                ?: error("voice '$VOICE' not in voices.npz (${voices.keys.sorted()})")
+            val styleTable =
+                voices[VOICE]
+                    ?: error("voice '$VOICE' not in voices.npz (${voices.keys.sorted()})")
 
             val thermal = ThermalProbe(context, TAG)
             thermal.start()
@@ -129,11 +137,12 @@ class KittenBenchmarkRunner(private val context: Context) {
                 val style = styleTable.row(styleRow)
                 val chunks = chunkTokens(entry.tokens)
                 var result: FloatArray = FloatArray(0)
-                val millis = measureTimeMillis {
-                    for (chunk in chunks) {
-                        result += synthesize(session, chunk, style, entry.speed)
+                val millis =
+                    measureTimeMillis {
+                        for (chunk in chunks) {
+                            result += synthesize(session, chunk, style, entry.speed)
+                        }
                     }
-                }
                 val seconds = result.size / 2.0 / SAMPLE_RATE
                 var peak = 0.0f
                 var rms = 0.0
@@ -144,24 +153,30 @@ class KittenBenchmarkRunner(private val context: Context) {
                 rms = Math.sqrt(rms / result.size)
                 val finite = result.all { it.isFinite() }
                 val rtf = if (seconds > 0) millis / 1000.0 / seconds else Double.NaN
+
                 fun num(v: Double): Any = if (v.isFinite()) v else JSONObject.NULL
+
                 fun fnum(v: Float): Any = if (v.isFinite()) v else JSONObject.NULL
-                rowsJson.put(JSONObject()
-                    .put("id", entry.id)
-                    .put("language", entry.lang)
-                    .put("voice", VOICE)
-                    .put("style_row", styleRow)
-                    .put("chunks", chunks.size)
-                    .put("tokens", entry.tokens.size)
-                    .put("synth_ms", millis)
-                    .put("audio_seconds", seconds)
-                    .put("rtf", num(rtf))
-                    .put("samples", result.size)
-                    .put("peak_abs", fnum(peak))
-                    .put("rms", num(rms))
-                    .put("finite", finite))
-                log("run 1 [${entry.id}]: ${"%.2f".format(seconds)}s audio in $millis ms, " +
-                    "RTF=${"%.3f".format(rtf)}, rms=${"%.4f".format(rms)}")
+                rowsJson.put(
+                    JSONObject()
+                        .put("id", entry.id)
+                        .put("language", entry.lang)
+                        .put("voice", VOICE)
+                        .put("style_row", styleRow)
+                        .put("chunks", chunks.size)
+                        .put("tokens", entry.tokens.size)
+                        .put("synth_ms", millis)
+                        .put("audio_seconds", seconds)
+                        .put("rtf", num(rtf))
+                        .put("samples", result.size)
+                        .put("peak_abs", fnum(peak))
+                        .put("rms", num(rms))
+                        .put("finite", finite),
+                )
+                log(
+                    "run 1 [${entry.id}]: ${"%.2f".format(seconds)}s audio in $millis ms, " +
+                        "RTF=${"%.3f".format(rtf)}, rms=${"%.4f".format(rms)}",
+                )
                 Wav.write(File(outDir, "d3_kitten_run1_${entry.id}.wav"), result, SAMPLE_RATE)
             }
             runJson.put("passages", rowsJson)
@@ -206,8 +221,7 @@ class KittenBenchmarkRunner(private val context: Context) {
         val speed: Float,
     )
 
-    private fun countLines(corpusFile: File): Int =
-        corpusFile.readLines().count { it.isNotBlank() } - 1
+    private fun countLines(corpusFile: File): Int = corpusFile.readLines().count { it.isNotBlank() } - 1
 
     /**
      * Loads `d3_corpus.tsv` (`id \t lang \t raw_text \t kokoro_phonemes \t
@@ -221,7 +235,10 @@ class KittenBenchmarkRunner(private val context: Context) {
             if (index == 0 || line.isBlank()) continue
             val parts = line.split('\t')
             if (parts.size != 6) continue
-            val id = parts[0]; val lang = parts[1]; val text = parts[2]; val kitten = parts[4]
+            val id = parts[0]
+            val lang = parts[1]
+            val text = parts[2]
+            val kitten = parts[4]
             if (kitten.isBlank()) {
                 android.util.Log.d(TAG, "SKIP $id: no kitten_tokens (lang=$lang)")
                 continue
@@ -249,7 +266,10 @@ class KittenBenchmarkRunner(private val context: Context) {
             if (end < tokens.size) {
                 var cut = -1
                 for (i in end - 1 downTo start + 1) {
-                    if (tokens[i] in BOUNDARY_TOKENS) { cut = i + 1; break }
+                    if (tokens[i] in BOUNDARY_TOKENS) {
+                        cut = i + 1
+                        break
+                    }
                 }
                 if (cut > start) out += tokens.copyOfRange(start, cut) else out += tokens.copyOfRange(start, end)
                 start = if (cut > start) cut else end
@@ -261,34 +281,52 @@ class KittenBenchmarkRunner(private val context: Context) {
         return out
     }
 
-    private fun synthesize(session: OrtSession, tokens: LongArray, style: FloatArray, speed: Float): FloatArray {
-        OnnxTensor.createTensor(
-            env, LongBuffer.wrap(tokens), longArrayOf(1, tokens.size.toLong())
-        ).use { inputIds ->
-            OnnxTensor.createTensor(
-                env, FloatBuffer.wrap(style), longArrayOf(1, style.size.toLong())
-            ).use { styleTensor ->
-                OnnxTensor.createTensor(
-                    env, FloatBuffer.wrap(floatArrayOf(speed)), longArrayOf(1)
-                ).use { speedTensor ->
-                    session.run(mapOf(
-                        "input_ids" to inputIds,
-                        "style" to styleTensor,
-                        "speed" to speedTensor,
-                    )).use { outputs ->
-                        val name = session.outputNames.iterator().next()
-                        val raw = when (val v = (outputs.get(name).orElse(null) as? OnnxTensor)?.value) {
-                            is Array<*> -> (v[0] as FloatArray)
-                            is FloatArray -> v
-                            else -> error("unexpected output type: ${v?.javaClass}")
-                        }
-                        // Upstream trims `audio[..., :-5000]` (tail padding).
-                        if (raw.size <= 5000) return FloatArray(0)
-                        return raw.copyOfRange(0, raw.size - 5000)
+    private fun synthesize(
+        session: OrtSession,
+        tokens: LongArray,
+        style: FloatArray,
+        speed: Float,
+    ): FloatArray {
+        OnnxTensor
+            .createTensor(
+                env,
+                LongBuffer.wrap(tokens),
+                longArrayOf(1, tokens.size.toLong()),
+            ).use { inputIds ->
+                OnnxTensor
+                    .createTensor(
+                        env,
+                        FloatBuffer.wrap(style),
+                        longArrayOf(1, style.size.toLong()),
+                    ).use { styleTensor ->
+                        OnnxTensor
+                            .createTensor(
+                                env,
+                                FloatBuffer.wrap(floatArrayOf(speed)),
+                                longArrayOf(1),
+                            ).use { speedTensor ->
+                                session
+                                    .run(
+                                        mapOf(
+                                            "input_ids" to inputIds,
+                                            "style" to styleTensor,
+                                            "speed" to speedTensor,
+                                        ),
+                                    ).use { outputs ->
+                                        val name = session.outputNames.iterator().next()
+                                        val raw =
+                                            when (val v = (outputs.get(name).orElse(null) as? OnnxTensor)?.value) {
+                                                is Array<*> -> (v[0] as FloatArray)
+                                                is FloatArray -> v
+                                                else -> error("unexpected output type: ${v?.javaClass}")
+                                            }
+                                        // Upstream trims `audio[..., :-5000]` (tail padding).
+                                        if (raw.size <= 5000) return FloatArray(0)
+                                        return raw.copyOfRange(0, raw.size - 5000)
+                                    }
+                            }
                     }
-                }
             }
-        }
     }
 
     private fun readVmHwm(): Long {
@@ -304,10 +342,13 @@ class KittenBenchmarkRunner(private val context: Context) {
  * the repo.
  */
 internal object NpzReader {
-    class NpyArray(val rows: Int, val cols: Int, private val data: FloatArray) {
+    class NpyArray(
+        val rows: Int,
+        val cols: Int,
+        private val data: FloatArray,
+    ) {
         /** Row [index] copied out (the model consumes one style row per call). */
-        fun row(index: Int): FloatArray =
-            data.copyOfRange(index * cols, (index + 1) * cols)
+        fun row(index: Int): FloatArray = data.copyOfRange(index * cols, (index + 1) * cols)
     }
 
     fun load(file: File): Map<String, NpyArray> {
@@ -329,13 +370,22 @@ internal object NpzReader {
         buf.get() // minor
         val headerLen = if (major == 1) buf.short.toInt() and 0xFFFF else buf.int
         val header = String(bytes, buf.position(), headerLen, Charsets.UTF_8)
-        val descr = Regex("'descr':\\s*'([^']+)'").find(header)?.groupValues?.get(1)
-            ?: error("npy header missing descr")
+        val descr =
+            Regex("'descr':\\s*'([^']+)'").find(header)?.groupValues?.get(1)
+                ?: error("npy header missing descr")
         check(descr == "<f4" || descr == "|f4") { "unsupported npy dtype $descr (need fp32)" }
-        val shapeStr = Regex("'shape':\\s*\\(([^)]*)\\)").find(header)?.groupValues?.get(1)
-            ?.trim()?.trimEnd(',') ?: error("npy header missing shape")
-        val dims = shapeStr.split(',').map { part -> part.trim().filter { c -> c.isDigit() }.toLong() }
-            .map { if (it == 0L) 1L else it }
+        val shapeStr =
+            Regex("'shape':\\s*\\(([^)]*)\\)")
+                .find(header)
+                ?.groupValues
+                ?.get(1)
+                ?.trim()
+                ?.trimEnd(',') ?: error("npy header missing shape")
+        val dims =
+            shapeStr
+                .split(',')
+                .map { part -> part.trim().filter { c -> c.isDigit() }.toLong() }
+                .map { if (it == 0L) 1L else it }
         val rows = dims.getOrNull(0)?.toInt() ?: 1
         val cols = dims.getOrNull(1)?.toInt() ?: 1
         val count = rows * cols

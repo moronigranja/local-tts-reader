@@ -15,7 +15,6 @@ import android.widget.TextView
  * The measurement body lives in [KokoroBenchmarkRunner].
  */
 class KokoroActivity : Activity() {
-
     companion object {
         private const val TAG = "KokoroSpike"
     }
@@ -31,14 +30,17 @@ class KokoroActivity : Activity() {
         status = TextView(this)
         status.textSize = 13f
         status.text = "Kokoro spike starting…"
-        scroll.addView(status, LinearLayout.LayoutParams(
-            LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
+        scroll.addView(
+            status,
+            LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT),
+        )
         setContentView(scroll)
         Thread {
-            val ok = KokoroBenchmarkRunner(applicationContext).run { line ->
-                Log.d(TAG, line)
-                runOnUiThread { status.text = status.text.toString() + "\n" + line }
-            }
+            val ok =
+                KokoroBenchmarkRunner(applicationContext).run { line ->
+                    Log.d(TAG, line)
+                    runOnUiThread { status.text = status.text.toString() + "\n" + line }
+                }
             status.post { if (!ok) status.text = status.text.toString() + "\nFAILED" }
         }.start()
     }

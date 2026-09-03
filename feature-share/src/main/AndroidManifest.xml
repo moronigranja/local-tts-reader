@@ -2,9 +2,13 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
     <application>
-        <!-- S2: the share gateway. External SEND intents (text/plain + image/*)
-             land here; exported by design — it is invoked from OTHER apps'
-             sharesheets, and it never appears in recents. -->
+        <!-- S2 + F4: the share gateway. External SEND intents land here;
+             exported by design — it is invoked from OTHER apps' share
+             sheets, and it never appears in recents. text/plain + ebook
+             MIMEs are triaged by IntakeRouting.routeSend (book files
+             forward to feature-library's ACTION_IMPORT_BOOK gateway; text
+             shares resolve as today). image/* stays on the resolve path
+             (S2/OCR). -->
         <activity
             android:name=".ShareReceiverActivity"
             android:exported="true"
@@ -14,6 +18,15 @@
                 <action android:name="android.intent.action.SEND" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <data android:mimeType="text/plain" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="application/epub+zip" />
+                <data android:mimeType="application/x-mobipocket-ebook" />
+                <data android:mimeType="application/vnd.amazon.ebook" />
+                <data android:mimeType="text/markdown" />
+                <data android:mimeType="text/x-markdown" />
             </intent-filter>
             <intent-filter>
                 <action android:name="android.intent.action.SEND" />

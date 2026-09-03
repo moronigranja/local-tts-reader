@@ -6,7 +6,6 @@ import java.nio.ByteOrder
 
 /** Minimal RIFF/WAVE reader (PCM 16/32-bit, mono/stereo) and 16-bit writer. */
 internal object Wav {
-
     fun read(file: File): FloatArray {
         // WAVE chunks are little-endian; the ASCII magics appear reversed in LE ints.
         val buf = ByteBuffer.wrap(file.readBytes()).order(ByteOrder.LITTLE_ENDIAN)
@@ -60,7 +59,11 @@ internal object Wav {
         return out
     }
 
-    fun write(file: File, samples: FloatArray, sampleRate: Int) {
+    fun write(
+        file: File,
+        samples: FloatArray,
+        sampleRate: Int,
+    ) {
         val dataSize = samples.size * 2
         val alloc = ByteBuffer.allocate(44 + dataSize).order(ByteOrder.LITTLE_ENDIAN)
         alloc.putInt(0x46464952) // 'RIFF'

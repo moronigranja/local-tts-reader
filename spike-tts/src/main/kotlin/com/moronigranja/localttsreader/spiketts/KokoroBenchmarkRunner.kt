@@ -12,12 +12,12 @@ import com.moronigranja.localttsreader.tts.kokoro.KokoroEngine
 import com.moronigranja.localttsreader.tts.kokoro.KokoroPacks
 import com.moronigranja.localttsreader.tts.kokoro.PhonemizeException
 import com.moronigranja.localttsreader.tts.kokoro.Phonemizer
-import java.io.File
-import kotlin.math.abs
-import kotlin.system.measureTimeMillis
 import kotlinx.coroutines.runBlocking
 import org.json.JSONArray
 import org.json.JSONObject
+import java.io.File
+import kotlin.math.abs
+import kotlin.system.measureTimeMillis
 
 /**
  * The Kokoro on-device benchmark (decisions #30 device half), shared by the
@@ -45,19 +45,29 @@ import org.json.JSONObject
  * CPU EP, each oracle-gated against the pinned fp32, writing
  * `kokoro_precision_<label>.json`.
  */
-class KokoroBenchmarkRunner(private val context: Context) {
-
-    init { QnnEp.libDir = context.applicationInfo.nativeLibraryDir }
+class KokoroBenchmarkRunner(
+    private val context: Context,
+) {
+    init {
+        QnnEp.libDir = context.applicationInfo.nativeLibraryDir
+    }
 
     /** Execution providers compared on-device (D2). */
-    enum class OrtProvider(val label: String, val options: (OrtSession.SessionOptions) -> Unit) {
+    enum class OrtProvider(
+        val label: String,
+        val options: (OrtSession.SessionOptions) -> Unit,
+    ) {
         CPU("cpu", {}),
         XNNPACK("xnnpack", { it.addXnnpack(mapOf("intra_op_num_threads" to "6")) }),
         NNAPI("nnapi", { it.addNnapi() }),
         QNN_HTP("qnn-htp", { so -> QnnEp.install(so) }),
     }
+
     /** Model precisions for the D3 spike (all run on CPU EP). */
-    enum class ModelPrecision(val label: String, val fileName: String) {
+    enum class ModelPrecision(
+        val label: String,
+        val fileName: String,
+    ) {
         FP16("fp16", "kokoro-model-fp16"),
         INT8("int8", "kokoro-model-int8"),
         Q8("q8", "kokoro-model-q8"),
@@ -76,6 +86,7 @@ class KokoroBenchmarkRunner(private val context: Context) {
      */
     private object QnnEp {
         private var registered = false
+
         /** App native lib dir; parent of libQnnHtp.so → drives ADSP_LIBRARY_PATH. */
         var libDir: String? = null
 
@@ -128,9 +139,9 @@ class KokoroBenchmarkRunner(private val context: Context) {
         label: String,
         modelFileName: String,
         options: (OrtSession.SessionOptions) -> Unit,
-        oracleModelFileName: String?,   // null → no oracle (CPU EP baseline pass)
-        runs: Int,                       // CPU EP baseline → RUNS, else 1
-        capstone: Boolean,               // true only for CPU EP baseline (espeak full-pipeline block)
+        oracleModelFileName: String?, // null → no oracle (CPU EP baseline pass)
+        runs: Int, // CPU EP baseline → RUNS, else 1
+        capstone: Boolean, // true only for CPU EP baseline (espeak full-pipeline block)
         resultFileName: String,
         log: (String) -> Unit,
     ): Boolean {
@@ -144,10 +155,11 @@ class KokoroBenchmarkRunner(private val context: Context) {
             }
             check(corpusFile.isFile) { "corpus not found at ${corpusFile.absolutePath}" }
 
-            val entries = corpusFile.readLines().mapNotNull { line ->
-                val parts = line.split('\t')
-                if (parts.size != 3) null else Triple(parts[0], parts[1], parts[2])
-            }
+            val entries =
+                corpusFile.readLines().mapNotNull { line ->
+                    val parts = line.split('\t')
+                    if (parts.size != 3) null else Triple(parts[0], parts[1], parts[2])
+                }
             check(entries.isNotEmpty()) { "corpus.tsv is empty or malformed" }
             val lookup = entries.associate { it.first to it.third }
             val languages = entries.map { it.second }.toSet()
@@ -156,15 +168,16 @@ class KokoroBenchmarkRunner(private val context: Context) {
 
             // Cold engine-open (D1 metric) on this provider's factory.
             val tOpen = System.currentTimeMillis()
-            val engine = KokoroEngine.open(
-                spec = DefaultEngines.kokoro,
-                packs = KokoroPacks.all,
-                modelFile = File(models, modelFileName),
-                voicesFile = File(models, "kokoro-voices"),
-                phonemizer = CorpusPhonemizer(lookup, languages),
-                progress = { log("open stage: $it (${System.currentTimeMillis() - tOpen} ms)") },
-                sessionFactory = options,
-            )
+            val engine =
+                KokoroEngine.open(
+                    spec = DefaultEngines.kokoro,
+                    packs = KokoroPacks.all,
+                    modelFile = File(models, modelFileName),
+                    voicesFile = File(models, "kokoro-voices"),
+                    phonemizer = CorpusPhonemizer(lookup, languages),
+                    progress = { log("open stage: $it (${System.currentTimeMillis() - tOpen} ms)") },
+                    sessionFactory = options,
+                )
             val engineOpenMs = System.currentTimeMillis() - tOpen
             log("engine open: $engineOpenMs ms (candidate=$label)")
 
@@ -172,15 +185,16 @@ class KokoroBenchmarkRunner(private val context: Context) {
             var oracle: KokoroEngine? = null
             if (oracleModelFileName != null) {
                 val tO = System.currentTimeMillis()
-                oracle = KokoroEngine.open(
-                    spec = DefaultEngines.kokoro,
-                    packs = KokoroPacks.all,
-                    modelFile = File(models, oracleModelFileName),
-                    voicesFile = File(models, "kokoro-voices"),
-                    phonemizer = CorpusPhonemizer(lookup, languages),
-                    progress = {},
-                    sessionFactory = OrtProvider.CPU.options,
-                )
+                oracle =
+                    KokoroEngine.open(
+                        spec = DefaultEngines.kokoro,
+                        packs = KokoroPacks.all,
+                        modelFile = File(models, oracleModelFileName),
+                        voicesFile = File(models, "kokoro-voices"),
+                        phonemizer = CorpusPhonemizer(lookup, languages),
+                        progress = {},
+                        sessionFactory = OrtProvider.CPU.options,
+                    )
                 log("oracle engine open: ${System.currentTimeMillis() - tO} ms (provider=cpu)")
             }
 
@@ -200,53 +214,67 @@ class KokoroBenchmarkRunner(private val context: Context) {
                 for ((text, language, _) in entries) {
                     val voice = VOICES[language] ?: error("no voice mapped for corpus language '$language'")
                     var outcome: SynthesisOutcome? = null
-                    val millis = measureTimeMillis {
-                        outcome = runBlocking { engine.synthesize(SynthesisRequest(text, voice)) }
-                    }
+                    val millis =
+                        measureTimeMillis {
+                            outcome = runBlocking { engine.synthesize(SynthesisRequest(text, voice)) }
+                        }
                     when (val result = outcome) {
                         null -> error("synthesis returned null outcome")
                         is SynthesisOutcome.Audio -> {
                             val seconds = result.pcm.size / 2.0 / KokoroEngine.SAMPLE_RATE
                             val rtf = millis / 1000.0 / seconds
-                            passagesJson.put(JSONObject()
-                                .put("language", language)
-                                .put("voice", voice)
-                                .put("synth_ms", millis)
-                                .put("audio_seconds", seconds)
-                                .put("rtf", rtf)
-                                .put("samples", result.pcm.size / 2))
-                            log("run $run [$language/$voice]: ${"%.2f".format(seconds)}s audio in " +
-                                "$millis ms, RTF=${"%.3f".format(rtf)} (candidate=$label)")
-                            Wav.write(File(outDir, "kokoro_${label}_run${run}_${language}.wav"),
-                                pcmToFloats(result.pcm), KokoroEngine.SAMPLE_RATE)
+                            passagesJson.put(
+                                JSONObject()
+                                    .put("language", language)
+                                    .put("voice", voice)
+                                    .put("synth_ms", millis)
+                                    .put("audio_seconds", seconds)
+                                    .put("rtf", rtf)
+                                    .put("samples", result.pcm.size / 2),
+                            )
+                            log(
+                                "run $run [$language/$voice]: ${"%.2f".format(seconds)}s audio in " +
+                                    "$millis ms, RTF=${"%.3f".format(rtf)} (candidate=$label)",
+                            )
+                            Wav.write(
+                                File(outDir, "kokoro_${label}_run${run}_$language.wav"),
+                                pcmToFloats(result.pcm),
+                                KokoroEngine.SAMPLE_RATE,
+                            )
                             // Oracle gate (D2): candidate vs CPU on the same corpus.
                             if (oracle != null) {
                                 var oracleOutcome: SynthesisOutcome? = null
-                                val oMillis = measureTimeMillis {
-                                    oracleOutcome = runBlocking {
-                                        oracle.synthesize(SynthesisRequest(text, voice))
+                                val oMillis =
+                                    measureTimeMillis {
+                                        oracleOutcome =
+                                            runBlocking {
+                                                oracle.synthesize(SynthesisRequest(text, voice))
+                                            }
                                     }
-                                }
                                 val oRes = oracleOutcome as? SynthesisOutcome.Audio
                                 if (oRes == null) {
                                     oracleErrors++
-                                    log("  oracle [${language}]: FAILED (${oracleOutcome})")
+                                    log("  oracle [$language]: FAILED ($oracleOutcome)")
                                 } else {
-                                    Wav.write(File(outDir, "kokoro_${label}_oracle_${language}.wav"),
-                                        pcmToFloats(oRes.pcm), KokoroEngine.SAMPLE_RATE)
-                                    val (peak, mean) = pcmDiff(
-                                        pcmToFloats(result.pcm), pcmToFloats(oRes.pcm))
+                                    Wav.write(
+                                        File(outDir, "kokoro_${label}_oracle_$language.wav"),
+                                        pcmToFloats(oRes.pcm),
+                                        KokoroEngine.SAMPLE_RATE,
+                                    )
+                                    val (peak, mean) =
+                                        pcmDiff(pcmToFloats(result.pcm), pcmToFloats(oRes.pcm))
                                     maxAbsDiff = maxOf(maxAbsDiff, peak)
                                     meanAbsDiffSum += mean
                                     diffCount++
                                     oracleMillisTotal += oMillis
-                                    log("  oracle [$language]: peak=${"%.6f".format(peak)} " +
-                                        "mean=${"%.6f".format(mean)} (${oMillis}ms)")
+                                    log(
+                                        "  oracle [$language]: peak=${"%.6f".format(peak)} " +
+                                            "mean=${"%.6f".format(mean)} (${oMillis}ms)",
+                                    )
                                 }
                             }
                         }
-                        is SynthesisOutcome.Failed -> throw IllegalArgumentException(
-                            "synthesis failed [$language]: ${result.reason}")
+                        is SynthesisOutcome.Failed -> throw IllegalArgumentException("synthesis failed [$language]: ${result.reason}")
                         SynthesisOutcome.Unavailable -> error("packs not ready on device")
                     }
                 }
@@ -276,8 +304,10 @@ class KokoroBenchmarkRunner(private val context: Context) {
                 results.put("mean_abs_diff", meanAbsDiff)
                 results.put("oracle_errors", oracleErrors)
                 results.put("oracle_rejected", rejected)
-                log("oracle gate: max_abs_diff=${"%.6f".format(maxAbsDiff)} " +
-                    "mean_abs_diff=${"%.6f".format(meanAbsDiff)} errors=$oracleErrors rejected=$rejected")
+                log(
+                    "oracle gate: max_abs_diff=${"%.6f".format(maxAbsDiff)} " +
+                        "mean_abs_diff=${"%.6f".format(meanAbsDiff)} errors=$oracleErrors rejected=$rejected",
+                )
             }
             // Full-pipeline capstone (decision #32) — CPU pass only: when the
             // espeak-ng bundle is staged, phonemize ON the device and verify byte
@@ -288,10 +318,11 @@ class KokoroBenchmarkRunner(private val context: Context) {
                 val espeakData = File(context.filesDir, "espeak/espeak-ng-data")
                 if (espeakLib.isFile && espeakData.isDirectory) {
                     try {
-                        val real = com.moronigranja.localttsreader.tts.kokoro.EspeakPhonemizer(
-                            libraryPath = espeakLib.absolutePath,
-                            dataPath = espeakData.absolutePath,
-                        )
+                        val real =
+                            com.moronigranja.localttsreader.tts.kokoro.EspeakPhonemizer(
+                                libraryPath = espeakLib.absolutePath,
+                                dataPath = espeakData.absolutePath,
+                            )
                         log("on-device espeak-ng loaded (lib + data)")
                         var parity = true
                         for ((text, language, hostPhonemes) in entries) {
@@ -300,29 +331,49 @@ class KokoroBenchmarkRunner(private val context: Context) {
                                 log("phonemizer parity [$language]: MATCH (${devicePhonemes.length} chars)")
                             } else {
                                 parity = false
-                                log("phonemizer parity [$language]: MISMATCH\n  host:   ${hostPhonemes.take(100)}\n  device: ${devicePhonemes.take(100)}")
+                                log(
+                                    "phonemizer parity [$language]: MISMATCH\n  host:   ${hostPhonemes.take(
+                                        100,
+                                    )}\n  device: ${devicePhonemes.take(100)}",
+                                )
                             }
                         }
                         if (parity) {
-                            val fullEngine = KokoroEngine.open(
-                                spec = DefaultEngines.kokoro,
-                                packs = KokoroPacks.all,
-                                modelFile = File(models, "kokoro-model"),
-                                voicesFile = File(models, "kokoro-voices"),
-                                phonemizer = real,
-                                progress = { log("full open stage: $it") },
-                            )
+                            val fullEngine =
+                                KokoroEngine.open(
+                                    spec = DefaultEngines.kokoro,
+                                    packs = KokoroPacks.all,
+                                    modelFile = File(models, "kokoro-model"),
+                                    voicesFile = File(models, "kokoro-voices"),
+                                    phonemizer = real,
+                                    progress = { log("full open stage: $it") },
+                                )
                             val fullJson = JSONArray()
                             for ((text, language, _) in entries) {
                                 val voice = VOICES[language] ?: continue
                                 var outcome: SynthesisOutcome? = null
-                                val millis = measureTimeMillis {
-                                    outcome = runBlocking { fullEngine.synthesize(SynthesisRequest(text, voice)) }
-                                }
+                                val millis =
+                                    measureTimeMillis {
+                                        outcome = runBlocking { fullEngine.synthesize(SynthesisRequest(text, voice)) }
+                                    }
                                 val result = outcome as? SynthesisOutcome.Audio
-                                val seconds = result?.pcm?.size?.div(2.0)?.div(KokoroEngine.SAMPLE_RATE) ?: 0.0
-                                log("full run [$language]: ${"%.2f".format(seconds)}s audio in $millis ms, RTF=${"%.3f".format(millis / 1000.0 / seconds)}")
-                                fullJson.put(JSONObject().put("language", language).put("synth_ms", millis).put("rtf", millis / 1000.0 / seconds))
+                                val seconds =
+                                    result
+                                        ?.pcm
+                                        ?.size
+                                        ?.div(2.0)
+                                        ?.div(KokoroEngine.SAMPLE_RATE) ?: 0.0
+                                log(
+                                    "full run [$language]: ${"%.2f".format(
+                                        seconds,
+                                    )}s audio in $millis ms, RTF=${"%.3f".format(millis / 1000.0 / seconds)}",
+                                )
+                                fullJson.put(
+                                    JSONObject().put("language", language).put("synth_ms", millis).put(
+                                        "rtf",
+                                        millis / 1000.0 / seconds,
+                                    ),
+                                )
                             }
                             results.put("full_pipeline", fullJson)
                             fullEngine.close()
@@ -351,7 +402,10 @@ class KokoroBenchmarkRunner(private val context: Context) {
         }
     }
 
-    fun run(provider: OrtProvider, log: (String) -> Unit): Boolean =
+    fun run(
+        provider: OrtProvider,
+        log: (String) -> Unit,
+    ): Boolean =
         measure(
             label = provider.label,
             modelFileName = "kokoro-model",
@@ -368,7 +422,10 @@ class KokoroBenchmarkRunner(private val context: Context) {
      * against the pinned fp32. All precisions use the default session factory —
      * precision is a model-file axis, not an execution provider.
      */
-    fun runPrecision(precision: ModelPrecision, log: (String) -> Unit): Boolean =
+    fun runPrecision(
+        precision: ModelPrecision,
+        log: (String) -> Unit,
+    ): Boolean =
         measure(
             label = precision.label,
             modelFileName = precision.fileName,
@@ -386,7 +443,10 @@ class KokoroBenchmarkRunner(private val context: Context) {
      * partition where the fp32 graph fell back. Oracle-gated against the
      * pinned fp32 on the CPU EP, like every other candidate.
      */
-    fun runQnnPrecision(precision: ModelPrecision, log: (String) -> Unit): Boolean =
+    fun runQnnPrecision(
+        precision: ModelPrecision,
+        log: (String) -> Unit,
+    ): Boolean =
         measure(
             label = "qnn-htp-${precision.label}",
             modelFileName = precision.fileName,
@@ -405,13 +465,20 @@ class KokoroBenchmarkRunner(private val context: Context) {
 
     private fun pcmToFloats(pcm: ByteArray): FloatArray {
         val out = FloatArray(pcm.size / 2)
-        val buffer = java.nio.ByteBuffer.wrap(pcm).order(java.nio.ByteOrder.LITTLE_ENDIAN).asShortBuffer()
+        val buffer =
+            java.nio.ByteBuffer
+                .wrap(pcm)
+                .order(java.nio.ByteOrder.LITTLE_ENDIAN)
+                .asShortBuffer()
         for (i in out.indices) out[i] = buffer.get() / 32768.0f
         return out
     }
 
     /** Peak + mean absolute amplitude delta between two PCM float arrays. */
-    private fun pcmDiff(a: FloatArray, b: FloatArray): Pair<Float, Float> {
+    private fun pcmDiff(
+        a: FloatArray,
+        b: FloatArray,
+    ): Pair<Float, Float> {
         val n = minOf(a.size, b.size)
         var peak = 0.0f
         var total = 0.0
@@ -428,10 +495,11 @@ class KokoroBenchmarkRunner(private val context: Context) {
         private val corpus: Map<String, String>,
         private val languages: Set<String>,
     ) : Phonemizer {
-        override fun phonemize(text: String, language: String): String =
-            corpus[text] ?: throw PhonemizeException("corpus mismatch for text: '${text.take(40)}…'")
+        override fun phonemize(
+            text: String,
+            language: String,
+        ): String = corpus[text] ?: throw PhonemizeException("corpus mismatch for text: '${text.take(40)}…'")
 
         override fun supportedLanguages(): Set<String> = languages
     }
-
 }

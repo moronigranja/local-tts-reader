@@ -1,5 +1,51 @@
 # Decision log
 
+## 117. F4 — external file intake shipped: ACTION_VIEW gateway + book-file share routing through the one importer, device-verified on the S22 (2026-09-03)
+
+F4 ("open from file manager + share a book") is complete. Both entry points
+land the file in the library through the ONE existing `BookImporter` batch
+(F1/F3 machinery — no second import path), the `EBookFormats.parserFor`
+extension gate is the single backstop, and unsupported/`.kfx`/DRM files get
+typed guidance, never a silent no-op.
+
+**Routing (pure, host-tested — `core-ebook/IntakeRouting.kt`):** `resolveFile`
+gates a gateway file by extension (supported → import; `kfx` → DRM guidance;
+else → "format not supported"); `routeSend` triages ACTION_SEND — a stream
+with a supported name or an ebook container MIME forward to the import
+gateway, everything else (text/image shares) keeps the S2 resolve path.
+
+**Entry points:**
+- `feature-library/ExternalFileActivity` — the ACTION_VIEW gateway ("Open with
+  Ayvu" in any file manager) and the recipient of forwarded book shares. Exported,
+  never in recents; covers epub/mobi-family/md/txt plus octet-stream (file
+  managers type books inconsistently — the extension gate is the backstop);
+  reuses the gateway's own `LibraryViewModel.import` (F1 progress + typed
+  summary) and shows guidance for unsupported formats.
+- `feature-share/ShareReceiverActivity` — ACTION_SEND triage: book files
+  forward to the gateway via `IntakeRouting.ACTION_IMPORT_BOOK`
+  (package-qualified — no share-sheet duplicate, no feature-to-feature edge,
+  A6); text/image shares resolve exactly as before (S2).
+
+**Host:** `IntakeRoutingTest` (13 cases: gate, kfx, blank names, SEND triage
+text/image/unknown-document, octet-stream with no name); `:core-ebook:test`,
+`:feature-library:test`, `:feature-share:test`, `:app:assembleDebug`, and
+baseline-gated `ktlintCheck` all green (the spike-tts module's accumulated
+formatting debt was also cleared to make ktlintCheck fully green).
+
+**Device (S22, 2026-09-03):**
+- `ExternalIntakeInstrumentedTest` (2/2 OK): a real `startActivity` ACTION_VIEW
+  with an epub in the app's own files dir imports (row appears in the real
+  `local-tts-reader.db`) and re-import of the same content hash dedupes to
+  exactly one row; a `.kfx` file imports nothing (typed guidance).
+- Manual adb pass: the manifest VIEW filter resolves to `ExternalFileActivity`;
+  file-manager-shaped VIEW import → "Import complete / Added 1"; a second VIEW
+  and an ACTION_SEND book-file share (epub MIME + `EXTRA_STREAM`) both showed
+  "Already in library 1" — one row total across all three entries (content-hash
+  dedupe holds across entry points). A shell-grant-unsupported run surfaced the
+  typed "could not read file" failure (the pipeline never silently no-ops).
+
+Phase F is now complete (F1–F4).
+
 ## 116. D2 — 2-engine parallel pre-generation measured on the S22: serial wins; ORT-android is run-to-run nondeterministic at the PCM level (2026-09-03)
 
 The D2 additions' 2-engine parallel pregen leg (roadmap D2, candela-derived;

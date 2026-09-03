@@ -12,7 +12,6 @@ import java.util.regex.Pattern
  * only mode used; <|endofprompt|> is spliced in raw by Frontend).
  */
 internal object Bpe {
-
     const val QWEN2_SPLIT =
         """(?i:'s|'t|'re|'ve|'m|'ll|'d)|[^\r\n\p{L}\p{N}]?\p{L}+|\p{N}| ?[^\s\p{L}\p{N}]+[\r\n]*|\s*[\r\n]+|\s+(?!\S)|\s+"""
 
@@ -35,9 +34,10 @@ internal object Bpe {
                     out.add(vocab[token]!!)
                 } else {
                     for (piece in bpe(token)) {
-                        val id = vocab[piece]
-                            ?: // byte-fallback off; Qwen2 vocab covers all symbols post-merge
-                            throw IllegalStateException("BPE produced unknown token '$piece'")
+                        val id =
+                            vocab[piece]
+                                ?: // byte-fallback off; Qwen2 vocab covers all symbols post-merge
+                                throw IllegalStateException("BPE produced unknown token '$piece'")
                         out.add(id)
                     }
                 }
@@ -102,8 +102,10 @@ internal object Bpe {
         val vocab = HashMap<String, Int>(160000)
         val obj = JSONObject(vocabJson)
         for (k in obj.keys()) vocab[k] = obj.getInt(k)
-        val merges = File(modelDir, "merges.txt").readLines()
-            .filter { it.isNotBlank() && !it.startsWith("#") }
+        val merges =
+            File(modelDir, "merges.txt")
+                .readLines()
+                .filter { it.isNotBlank() && !it.startsWith("#") }
         val ranks = HashMap<String, Int>(merges.size)
         merges.forEachIndexed { i, line -> ranks[line.trim()] = i }
         return Tokenizer(vocab, ranks, buildByteEncoder(), Pattern.compile(QWEN2_SPLIT))

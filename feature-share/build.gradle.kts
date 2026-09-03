@@ -56,6 +56,7 @@ dependencies {
 
     implementation(project(":core-model"))
     implementation(project(":core-locate")) // TextIndex/IndexRebuilder — must be the API visible to the resolver
+    implementation(project(":core-ebook")) // F4: IntakeRouting (book-file share triage + gateway action)
     implementation(project(":core-persistence")) // AppSettings mirror (threshold, OCR langs)
     implementation(project(":core-ocr"))
     // A6: the OcrEngine binding and the app-wide singletons move to the app

@@ -3,9 +3,9 @@ package com.moronigranja.localttsreader.spiketts
 import android.util.Log
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
-import java.io.File
 import org.junit.Test
 import org.junit.runner.RunWith
+import java.io.File
 
 /**
  * MOSS-TTS-Nano D3 measurement as an instrumented test: runs on a locked or
@@ -20,7 +20,6 @@ import org.junit.runner.RunWith
  */
 @RunWith(AndroidJUnit4::class)
 class MossDeviceBenchmarkTest {
-
     @Test
     fun measureMossOnDevice() {
         val context = InstrumentationRegistry.getInstrumentation().targetContext

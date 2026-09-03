@@ -7,11 +7,11 @@ import ai.onnxruntime.OrtSession
 import android.content.Context
 import android.os.Build
 import android.os.Debug
+import org.json.JSONArray
+import org.json.JSONObject
 import java.io.File
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
-import org.json.JSONArray
-import org.json.JSONObject
 
 /**
  * 2026-08-31 closer-look probe (landscape.md §HF trending sweep): verifies the
@@ -39,33 +39,40 @@ import org.json.JSONObject
  * resident. Written after every completed leg (lmkd on a 3.97 GB device can
  * kill mid-run — the D3 runner's survive-the-kill flush pattern).
  */
-class OnnxProbeRunner(private val context: Context) {
-
+class OnnxProbeRunner(
+    private val context: Context,
+) {
     companion object {
         const val TAG = "OnnxProbe"
 
         private val CHATTERBOX = "chatterbox-q4"
         private val AUDIO8 = "audio8"
 
-        private val CBC_GRAPHS = mapOf(
-            "speech_encoder" to "onnx/speech_encoder.onnx",
-            "embed_tokens" to "onnx/embed_tokens.onnx",
-            "language_model" to "onnx/language_model.onnx",
-            "conditional_decoder" to "onnx/conditional_decoder.onnx",
-        )
-        private val A8_GRAPHS = mapOf(
-            "slow_ar" to "slow_ar_int8.onnx",
-            "fast_ar" to "fast_ar_int8.onnx",
-            "codec" to "codec_decoder_fp16.onnx",
-        )
+        private val CBC_GRAPHS =
+            mapOf(
+                "speech_encoder" to "onnx/speech_encoder.onnx",
+                "embed_tokens" to "onnx/embed_tokens.onnx",
+                "language_model" to "onnx/language_model.onnx",
+                "conditional_decoder" to "onnx/conditional_decoder.onnx",
+            )
+        private val A8_GRAPHS =
+            mapOf(
+                "slow_ar" to "slow_ar_int8.onnx",
+                "fast_ar" to "fast_ar_int8.onnx",
+                "codec" to "codec_decoder_fp16.onnx",
+            )
     }
 
     private val env: OrtEnvironment = OrtEnvironment.getEnvironment()
 
-    fun run(outDir: File, log: (String) -> Unit): JSONObject {
-        val merged = JSONObject()
-            .put("device", "${Build.MANUFACTURER} ${Build.MODEL}")
-            .put("sdk", Build.VERSION.SDK_INT)
+    fun run(
+        outDir: File,
+        log: (String) -> Unit,
+    ): JSONObject {
+        val merged =
+            JSONObject()
+                .put("device", "${Build.MANUFACTURER} ${Build.MODEL}")
+                .put("sdk", Build.VERSION.SDK_INT)
         val outFile = File(outDir, "onnx_probe_results.json")
 
         fun flush() {
@@ -104,7 +111,10 @@ class OnnxProbeRunner(private val context: Context) {
         return merged
     }
 
-    private fun open(graph: File, log: (String) -> Unit): Pair<OrtSession, Long> {
+    private fun open(
+        graph: File,
+        log: (String) -> Unit,
+    ): Pair<OrtSession, Long> {
         val t0 = System.currentTimeMillis()
         val opts = OrtSession.SessionOptions()
         opts.setIntraOpNumThreads(6)
@@ -117,7 +127,10 @@ class OnnxProbeRunner(private val context: Context) {
         return session to (System.currentTimeMillis() - t0)
     }
 
-    private fun probeChatterbox(root: File, log: (String) -> Unit): JSONObject {
+    private fun probeChatterbox(
+        root: File,
+        log: (String) -> Unit,
+    ): JSONObject {
         check(root.isDirectory) { "chatterbox-q4 model dir missing at $root" }
         val out = JSONObject()
         val opened = LinkedHashMap<String, OrtSession>()
@@ -130,9 +143,12 @@ class OnnxProbeRunner(private val context: Context) {
             }
             val enc = opened.getValue("speech_encoder")
             val t0 = System.currentTimeMillis()
-            val encOuts = enc.run(mapOf(
-                "audio_values" to f32T(12000, 1L, 12000L),
-            ))
+            val encOuts =
+                enc.run(
+                    mapOf(
+                        "audio_values" to f32T(12000, 1L, 12000L),
+                    ),
+                )
             out.put("enc_run_ms", System.currentTimeMillis() - t0)
             out.put("enc_audio_features", tensorStat(encOuts[0] as OnnxTensor))
             out.put("enc_audio_tokens", tensorStat(encOuts[1] as OnnxTensor))
@@ -144,11 +160,14 @@ class OnnxProbeRunner(private val context: Context) {
             val t1 = System.currentTimeMillis()
             val inputIds = LongArray(4)
             val pos = longArrayOf(-1, 0, 1, 2)
-            val embOut = emb.run(mapOf(
-                "input_ids" to i64T(inputIds, 1L, 4L),
-                "position_ids" to i64T(pos, 1L, 4L),
-                "exaggeration" to f32T(1, 1L),
-            ))
+            val embOut =
+                emb.run(
+                    mapOf(
+                        "input_ids" to i64T(inputIds, 1L, 4L),
+                        "position_ids" to i64T(pos, 1L, 4L),
+                        "exaggeration" to f32T(1, 1L),
+                    ),
+                )
             out.put("embed_run_ms", System.currentTimeMillis() - t1)
             out.put("embed_inputs_embeds", tensorStat(embOut[0] as OnnxTensor))
             log("embed_tokens run ok")
@@ -179,11 +198,14 @@ class OnnxProbeRunner(private val context: Context) {
             val voc = opened.getValue("conditional_decoder")
             val t3 = System.currentTimeMillis()
             try {
-                val vocOuts = voc.run(mapOf(
-                    "speech_tokens" to i64T(LongArray(13), 1L, 13L),
-                    "speaker_embeddings" to f32T2(0.0f, 1L, 192L),
-                    "speaker_features" to f32T2(0.0f, 1L, 25L, 80L),
-                ))
+                val vocOuts =
+                    voc.run(
+                        mapOf(
+                            "speech_tokens" to i64T(LongArray(13), 1L, 13L),
+                            "speaker_embeddings" to f32T2(0.0f, 1L, 192L),
+                            "speaker_features" to f32T2(0.0f, 1L, 25L, 80L),
+                        ),
+                    )
                 out.put("voc_run_ms", System.currentTimeMillis() - t3)
                 out.put("voc_waveform", tensorStat(vocOuts[0] as OnnxTensor))
                 log("conditional_decoder run ok")
@@ -198,7 +220,10 @@ class OnnxProbeRunner(private val context: Context) {
         }
     }
 
-    private fun probeAudio8(root: File, log: (String) -> Unit): JSONObject {
+    private fun probeAudio8(
+        root: File,
+        log: (String) -> Unit,
+    ): JSONObject {
         check(root.isDirectory) { "audio8 model dir missing at $root" }
         val out = JSONObject()
         val opened = LinkedHashMap<String, OrtSession>()
@@ -211,14 +236,17 @@ class OnnxProbeRunner(private val context: Context) {
             }
             val slow = opened.getValue("slow_ar")
             val t0 = System.currentTimeMillis()
-            val slowOuts = slow.run(mapOf(
-                "codes" to i64T(LongArray(11), 1L, 11L, 1L),
-                "position" to i64T(LongArray(1), 1L),
-                "cache_keys" to f32T2(0.0f, 24L, 1L, 2L, 2048L, 64L),
-                "cache_values" to f32T2(0.0f, 24L, 1L, 2L, 2048L, 64L),
-                "conv_states" to f32T2(0.0f, 24L, 1L, 896L, 4L),
-                "ssm_states" to f32T2(0.0f, 24L, 1L, 24L, 32L, 64L),
-            ))
+            val slowOuts =
+                slow.run(
+                    mapOf(
+                        "codes" to i64T(LongArray(11), 1L, 11L, 1L),
+                        "position" to i64T(LongArray(1), 1L),
+                        "cache_keys" to f32T2(0.0f, 24L, 1L, 2L, 2048L, 64L),
+                        "cache_values" to f32T2(0.0f, 24L, 1L, 2L, 2048L, 64L),
+                        "conv_states" to f32T2(0.0f, 24L, 1L, 896L, 4L),
+                        "ssm_states" to f32T2(0.0f, 24L, 1L, 24L, 32L, 64L),
+                    ),
+                )
             out.put("slow_run_ms", System.currentTimeMillis() - t0)
             out.put("slow_logits", tensorStat(slowOuts[0] as OnnxTensor))
             out.put("slow_hidden", tensorStat(slowOuts[1] as OnnxTensor))
@@ -226,29 +254,35 @@ class OnnxProbeRunner(private val context: Context) {
 
             val fast = opened.getValue("fast_ar")
             val t1 = System.currentTimeMillis()
-            val fastOuts = fast.run(mapOf(
-                "slow_hidden" to f32T2(0.0f, 1L, 1L, 512L),
-                "token_id" to i64T(LongArray(1), 1L, 1L),
-                "use_slow_hidden" to boolT(true, 1L),
-                "input_pos" to i64T(LongArray(1), 1L),
-                "cache_key_0" to f32T2(0.0f, 1L, 2L, 10L, 64L),
-                "cache_value_0" to f32T2(0.0f, 1L, 2L, 10L, 64L),
-                "cache_key_1" to f32T2(0.0f, 1L, 2L, 10L, 64L),
-                "cache_value_1" to f32T2(0.0f, 1L, 2L, 10L, 64L),
-                "cache_key_2" to f32T2(0.0f, 1L, 2L, 10L, 64L),
-                "cache_value_2" to f32T2(0.0f, 1L, 2L, 10L, 64L),
-                "cache_key_3" to f32T2(0.0f, 1L, 2L, 10L, 64L),
-                "cache_value_3" to f32T2(0.0f, 1L, 2L, 10L, 64L),
-            ))
+            val fastOuts =
+                fast.run(
+                    mapOf(
+                        "slow_hidden" to f32T2(0.0f, 1L, 1L, 512L),
+                        "token_id" to i64T(LongArray(1), 1L, 1L),
+                        "use_slow_hidden" to boolT(true, 1L),
+                        "input_pos" to i64T(LongArray(1), 1L),
+                        "cache_key_0" to f32T2(0.0f, 1L, 2L, 10L, 64L),
+                        "cache_value_0" to f32T2(0.0f, 1L, 2L, 10L, 64L),
+                        "cache_key_1" to f32T2(0.0f, 1L, 2L, 10L, 64L),
+                        "cache_value_1" to f32T2(0.0f, 1L, 2L, 10L, 64L),
+                        "cache_key_2" to f32T2(0.0f, 1L, 2L, 10L, 64L),
+                        "cache_value_2" to f32T2(0.0f, 1L, 2L, 10L, 64L),
+                        "cache_key_3" to f32T2(0.0f, 1L, 2L, 10L, 64L),
+                        "cache_value_3" to f32T2(0.0f, 1L, 2L, 10L, 64L),
+                    ),
+                )
             out.put("fast_run_ms", System.currentTimeMillis() - t1)
             out.put("fast_logits", tensorStat(fastOuts[0] as OnnxTensor))
             log("fast_ar run ok")
 
             val codec = opened.getValue("codec")
             val t2 = System.currentTimeMillis()
-            val codecOuts = codec.run(mapOf(
-                "codes" to i64T(LongArray(80) { 0 }, 1L, 10L, 8L),
-            ))
+            val codecOuts =
+                codec.run(
+                    mapOf(
+                        "codes" to i64T(LongArray(80) { 0 }, 1L, 10L, 8L),
+                    ),
+                )
             out.put("codec_run_ms", System.currentTimeMillis() - t2)
             out.put("codec_audio", tensorStat(codecOuts[0] as OnnxTensor))
             log("codec run ok")
@@ -260,12 +294,18 @@ class OnnxProbeRunner(private val context: Context) {
 
     // ---- tensor helpers (repo pattern: direct native-order buffers + OnnxTensor.createTensor) ----
 
-    private fun f32T(count: Int, vararg dims: Long): OnnxTensor {
+    private fun f32T(
+        count: Int,
+        vararg dims: Long,
+    ): OnnxTensor {
         val buf = ByteBuffer.allocateDirect(count * 4).order(ByteOrder.nativeOrder()).asFloatBuffer()
         return OnnxTensor.createTensor(env, buf, longArrayOf(*dims))
     }
 
-    private fun f32T2(fill: Float, vararg dims: Long): OnnxTensor {
+    private fun f32T2(
+        fill: Float,
+        vararg dims: Long,
+    ): OnnxTensor {
         val n = dims.fold(1L) { a, b -> a * b }.toInt()
         val buf = ByteBuffer.allocateDirect(n * 4).order(ByteOrder.nativeOrder()).asFloatBuffer()
         while (buf.hasRemaining()) buf.put(fill)
@@ -273,14 +313,20 @@ class OnnxProbeRunner(private val context: Context) {
         return OnnxTensor.createTensor(env, buf, longArrayOf(*dims))
     }
 
-    private fun i64T(data: LongArray, vararg dims: Long): OnnxTensor {
+    private fun i64T(
+        data: LongArray,
+        vararg dims: Long,
+    ): OnnxTensor {
         val buf = ByteBuffer.allocateDirect(data.size * 8).order(ByteOrder.nativeOrder()).asLongBuffer()
         buf.put(data)
         buf.rewind()
         return OnnxTensor.createTensor(env, buf, longArrayOf(*dims))
     }
 
-    private fun boolT(value: Boolean, vararg dims: Long): OnnxTensor {
+    private fun boolT(
+        value: Boolean,
+        vararg dims: Long,
+    ): OnnxTensor {
         val bb = ByteBuffer.allocateDirect(1)
         bb.put(if (value) 1 else 0)
         bb.rewind()
@@ -303,9 +349,11 @@ class OnnxProbeRunner(private val context: Context) {
         var v: Float
         repeat(n) {
             v = arr.get()
-            if (v.isNaN()) nan++
-            else if (v.isInfinite()) inf++
-            else {
+            if (v.isNaN()) {
+                nan++
+            } else if (v.isInfinite()) {
+                inf++
+            } else {
                 peak = maxOf(peak, kotlin.math.abs(v))
                 sumSq += v.toDouble() * v
             }

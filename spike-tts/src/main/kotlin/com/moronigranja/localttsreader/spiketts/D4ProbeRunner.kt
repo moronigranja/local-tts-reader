@@ -6,11 +6,11 @@ import ai.onnxruntime.OrtSession
 import android.content.Context
 import android.os.Build
 import android.os.Debug
+import org.json.JSONArray
+import org.json.JSONObject
 import java.io.File
 import java.nio.FloatBuffer
 import java.nio.LongBuffer
-import org.json.JSONArray
-import org.json.JSONObject
 
 /**
  * D4 small-tier probe (roadmap D4): Piper (rhasspy/piper-voices
@@ -34,19 +34,24 @@ import org.json.JSONObject
  * off, 6 intra-op threads) so memory numbers are truthful on a 3.9 GB device.
  * Results flush after every leg (lmkd can kill mid-run).
  */
-class D4ProbeRunner(private val context: Context) {
-
+class D4ProbeRunner(
+    private val context: Context,
+) {
     companion object {
         const val TAG = "D4Probe"
     }
 
     private val env: OrtEnvironment = OrtEnvironment.getEnvironment()
 
-    fun run(outDir: File, log: (String) -> Unit): JSONObject {
-        val merged = JSONObject()
-            .put("device", "${Build.MANUFACTURER} ${Build.MODEL}")
-            .put("sdk", Build.VERSION.SDK_INT)
-            .put("inputs", JSONObject(context.filesDir.resolve("d4_inputs.json").readText()))
+    fun run(
+        outDir: File,
+        log: (String) -> Unit,
+    ): JSONObject {
+        val merged =
+            JSONObject()
+                .put("device", "${Build.MANUFACTURER} ${Build.MODEL}")
+                .put("sdk", Build.VERSION.SDK_INT)
+                .put("inputs", JSONObject(context.filesDir.resolve("d4_inputs.json").readText()))
         val outFile = File(outDir, "d4_probe_results.json")
 
         fun flush() {
@@ -102,30 +107,34 @@ class D4ProbeRunner(private val context: Context) {
         val (session, openMs) = open(model, log)
         session.use {
             val ids = input.getJSONArray("ids").let { a -> LongArray(a.length()) { a.getLong(it) } }
-            val scales = floatArrayOf(
-                input.getDouble("noise_scale").toFloat(),
-                input.getDouble("length_scale").toFloat(),
-                input.getDouble("noise_w").toFloat(),
-            )
+            val scales =
+                floatArrayOf(
+                    input.getDouble("noise_scale").toFloat(),
+                    input.getDouble("length_scale").toFloat(),
+                    input.getDouble("noise_w").toFloat(),
+                )
             val sampleRate = input.getInt("sample_rate").toLong()
 
-            fun runOnce(): FloatArray = OnnxTensor.createTensor(
-                env,
-                LongBuffer.wrap(ids),
-                longArrayOf(1, ids.size.toLong()),
-            ).use { t ->
-                OnnxTensor.createTensor(env, FloatBuffer.wrap(scales), longArrayOf(3)).use { s ->
-                    OnnxTensor.createTensor(
+            fun runOnce(): FloatArray =
+                OnnxTensor
+                    .createTensor(
                         env,
-                        LongBuffer.wrap(longArrayOf(ids.size.toLong())),
-                        longArrayOf(1),
-                    ).use { l ->
-                        session.run(mapOf("input" to t, "scales" to s, "input_lengths" to l)).use { out ->
-                            flatten(out[0].value)
+                        LongBuffer.wrap(ids),
+                        longArrayOf(1, ids.size.toLong()),
+                    ).use { t ->
+                        OnnxTensor.createTensor(env, FloatBuffer.wrap(scales), longArrayOf(3)).use { s ->
+                            OnnxTensor
+                                .createTensor(
+                                    env,
+                                    LongBuffer.wrap(longArrayOf(ids.size.toLong())),
+                                    longArrayOf(1),
+                                ).use { l ->
+                                    session.run(mapOf("input" to t, "scales" to s, "input_lengths" to l)).use { out ->
+                                        flatten(out[0].value)
+                                    }
+                                }
                         }
                     }
-                }
-            }
 
             runOnce() // warmup
             val runs = JSONArray()
@@ -152,12 +161,13 @@ class D4ProbeRunner(private val context: Context) {
         outDir: File,
         log: (String) -> Unit,
     ): JSONObject {
-        val graphs = mapOf(
-            "dp" to "duration_predictor.onnx",
-            "text_encoder" to "text_encoder.onnx",
-            "vector_estimator" to "vector_estimator.onnx",
-            "vocoder" to "vocoder.onnx",
-        ).mapValues { File(onnxDir, it.value) }
+        val graphs =
+            mapOf(
+                "dp" to "duration_predictor.onnx",
+                "text_encoder" to "text_encoder.onnx",
+                "vector_estimator" to "vector_estimator.onnx",
+                "vocoder" to "vocoder.onnx",
+            ).mapValues { File(onnxDir, it.value) }
         graphs.values.forEach { check(it.isFile) { "supertonic graph missing at $it" } }
 
         val sessions = LinkedHashMap<String, Pair<OrtSession, Long>>()
@@ -198,41 +208,50 @@ class D4ProbeRunner(private val context: Context) {
                 dp.run(mapOf("text_ids" to textIdsT, "style_dp" to styleDpT, "text_mask" to textMaskT)).use { dpOut ->
                     dpOut[0].close()
                 }
-                textEncoder.run(
-                    mapOf("text_ids" to textIdsT, "style_ttl" to styleTtlT, "text_mask" to textMaskT),
-                ).use { encOut ->
-                    @Suppress("UNCHECKED_CAST")
-                    val emb = encOut[0].value as Array<Array<FloatArray>>
-                    val embFlat = emb.flatMap { a -> a.flatMap { it.toList() }.map { it } }.toFloatArray()
-                    OnnxTensor.createTensor(env, FloatBuffer.wrap(embFlat), longArrayOf(1, 256, textLen)).use { textEmbT ->
-                        var latent = noisyLatent()
-                        for (step in 0 until steps) {
-                            OnnxTensor.createTensor(env, FloatBuffer.wrap(floatArrayOf(step.toFloat())), longArrayOf(1)).use { curStepT ->
-                                vectorEst.run(
-                                    mapOf(
-                                        "noisy_latent" to latent,
-                                        "text_emb" to textEmbT,
-                                        "style_ttl" to styleTtlT,
-                                        "latent_mask" to latentMaskT,
-                                        "text_mask" to textMaskT,
-                                        "current_step" to curStepT,
-                                        "total_step" to totalStepT,
-                                    ),
-                                ).use { estOut ->
-                                    latent.close()
-                                    @Suppress("UNCHECKED_CAST")
-                                    val denoised = estOut[0].value as Array<Array<FloatArray>>
-                                    val flat = denoised.flatMap { a -> a.flatMap { it.toList() } }.toFloatArray()
-                                    latent = OnnxTensor.createTensor(env, FloatBuffer.wrap(flat), longArrayOf(1, latentDim, latentLen))
-                                }
+                textEncoder
+                    .run(
+                        mapOf("text_ids" to textIdsT, "style_ttl" to styleTtlT, "text_mask" to textMaskT),
+                    ).use { encOut ->
+                        @Suppress("UNCHECKED_CAST")
+                        val emb = encOut[0].value as Array<Array<FloatArray>>
+                        val embFlat = emb.flatMap { a -> a.flatMap { it.toList() }.map { it } }.toFloatArray()
+                        OnnxTensor.createTensor(env, FloatBuffer.wrap(embFlat), longArrayOf(1, 256, textLen)).use { textEmbT ->
+                            var latent = noisyLatent()
+                            for (step in 0 until steps) {
+                                OnnxTensor
+                                    .createTensor(env, FloatBuffer.wrap(floatArrayOf(step.toFloat())), longArrayOf(1))
+                                    .use { curStepT ->
+                                        vectorEst
+                                            .run(
+                                                mapOf(
+                                                    "noisy_latent" to latent,
+                                                    "text_emb" to textEmbT,
+                                                    "style_ttl" to styleTtlT,
+                                                    "latent_mask" to latentMaskT,
+                                                    "text_mask" to textMaskT,
+                                                    "current_step" to curStepT,
+                                                    "total_step" to totalStepT,
+                                                ),
+                                            ).use { estOut ->
+                                                latent.close()
+                                                @Suppress("UNCHECKED_CAST")
+                                                val denoised = estOut[0].value as Array<Array<FloatArray>>
+                                                val flat = denoised.flatMap { a -> a.flatMap { it.toList() } }.toFloatArray()
+                                                latent =
+                                                    OnnxTensor.createTensor(
+                                                        env,
+                                                        FloatBuffer.wrap(flat),
+                                                        longArrayOf(1, latentDim, latentLen),
+                                                    )
+                                            }
+                                    }
+                            }
+                            vocoder.run(mapOf("latent" to latent)).use { vocOut ->
+                                latent.close()
+                                return flatten(vocOut[0].value)
                             }
                         }
-                        vocoder.run(mapOf("latent" to latent)).use { vocOut ->
-                            latent.close()
-                            return flatten(vocOut[0].value)
-                        }
                     }
-                }
             }
 
             runFullPipeline() // warmup
@@ -259,17 +278,22 @@ class D4ProbeRunner(private val context: Context) {
     // ---- helpers ----
 
     /** Flattens a [T], [1,T] or [1,T,1] float output to samples. */
-    private fun flatten(value: Any): FloatArray = when (value) {
-        is FloatArray -> value
-        is Array<*> -> {
-            val out = ArrayList<Float>(1 shl 16)
-            for (e in value) out.addAll(flatten(e!!).toList())
-            out.toFloatArray()
+    private fun flatten(value: Any): FloatArray =
+        when (value) {
+            is FloatArray -> value
+            is Array<*> -> {
+                val out = ArrayList<Float>(1 shl 16)
+                for (e in value) out.addAll(flatten(e!!).toList())
+                out.toFloatArray()
+            }
+            else -> error("unexpected output tensor type: ${value::class.java}")
         }
-        else -> error("unexpected output tensor type: ${value::class.java}")
-    }
 
-    private fun statLine(ms: Double, samples: Int, sampleRate: Long): JSONObject {
+    private fun statLine(
+        ms: Double,
+        samples: Int,
+        sampleRate: Long,
+    ): JSONObject {
         val audioS = samples.toDouble() / sampleRate
         return JSONObject()
             .put("synth_ms", Math.round(ms * 10) / 10.0)
@@ -283,17 +307,21 @@ class D4ProbeRunner(private val context: Context) {
         wav: FloatArray,
         sampleRate: Long,
         mem: Debug.MemoryInfo,
-    ): JSONObject = JSONObject()
-        .put("open_ms", openMs)
-        .put("runs", runs)
-        .put("best_rtf", (0 until runs.length()).minOf { runs.getJSONObject(it).getDouble("rtf") })
-        .put("sample_rate", sampleRate)
-        .put("peak", Math.round(wav.max()))
-        .put("finite", wav.all { it.isFinite() })
-        .put("total_pss_kb", mem.totalPss)
-        .put("vm_hwm_kb", readVmHwm())
+    ): JSONObject =
+        JSONObject()
+            .put("open_ms", openMs)
+            .put("runs", runs)
+            .put("best_rtf", (0 until runs.length()).minOf { runs.getJSONObject(it).getDouble("rtf") })
+            .put("sample_rate", sampleRate)
+            .put("peak", Math.round(wav.max()))
+            .put("finite", wav.all { it.isFinite() })
+            .put("total_pss_kb", mem.totalPss)
+            .put("vm_hwm_kb", readVmHwm())
 
-    private fun open(graph: File, log: (String) -> Unit): Pair<OrtSession, Long> {
+    private fun open(
+        graph: File,
+        log: (String) -> Unit,
+    ): Pair<OrtSession, Long> {
         val t0 = System.currentTimeMillis()
         val opts = OrtSession.SessionOptions()
         opts.setIntraOpNumThreads(6)
@@ -315,6 +343,7 @@ class D4ProbeRunner(private val context: Context) {
         // Recursively flattens nested [1][d1][d2] (or [1][1][d2]) JSON arrays
         // to flat row-major floats — style_ttl is [1, 50, 256] = 12800 values.
         val out = ArrayList<Float>(a.length() * 4)
+
         fun add(node: Any) {
             when (node) {
                 is JSONArray -> for (i in 0 until node.length()) add(node.get(i))
@@ -326,11 +355,14 @@ class D4ProbeRunner(private val context: Context) {
         return out.toFloatArray()
     }
 
-    private fun readVmHwm(): Long = try {
-        File("/proc/self/status").readLines()
-            .first { it.startsWith("VmHWM") }
-            .split(Regex("\\s+"))[1].toLong()
-    } catch (_: Throwable) {
-        -1L
-    }
+    private fun readVmHwm(): Long =
+        try {
+            File("/proc/self/status")
+                .readLines()
+                .first { it.startsWith("VmHWM") }
+                .split(Regex("\\s+"))[1]
+                .toLong()
+        } catch (_: Throwable) {
+            -1L
+        }
 }

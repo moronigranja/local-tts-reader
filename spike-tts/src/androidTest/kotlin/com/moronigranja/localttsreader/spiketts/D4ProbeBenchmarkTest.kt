@@ -3,10 +3,10 @@ package com.moronigranja.localttsreader.spiketts
 import android.util.Log
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
-import java.io.File
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
+import java.io.File
 
 /**
  * D4 small-tier probe on-device (roadmap D4): runs the REAL Piper and
@@ -20,7 +20,6 @@ import org.junit.runner.RunWith
  */
 @RunWith(AndroidJUnit4::class)
 class D4ProbeBenchmarkTest {
-
     @Test
     fun probeSmallTierOnDevice() {
         val context = InstrumentationRegistry.getInstrumentation().targetContext

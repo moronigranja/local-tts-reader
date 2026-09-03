@@ -29,7 +29,6 @@ import kotlin.math.sqrt
  * rest of the pipeline exchanges.
  */
 internal object Mel {
-
     private fun hzToMelSlaney(f: Double): Double {
         val fSp = 200.0 / 3
         val minLogHz = 1000.0
@@ -47,7 +46,13 @@ internal object Mel {
     }
 
     /** Slaney-scale, slaney-normalized triangular filterbank: [n_mels, 1 + n_fft/2]. */
-    fun melFilterbank(sr: Int, nFft: Int, nMels: Int, fmin: Double, fmax: Double): DoubleArray {
+    fun melFilterbank(
+        sr: Int,
+        nFft: Int,
+        nMels: Int,
+        fmin: Double,
+        fmax: Double,
+    ): DoubleArray {
         val nBins = nFft / 2 + 1
         val fftfreqs = DoubleArray(nBins) { it.toDouble() * sr / nFft }
         val lo = hzToMelSlaney(fmin)
@@ -71,7 +76,10 @@ internal object Mel {
     fun hann(size: Int): DoubleArray = DoubleArray(size) { 0.5 - 0.5 * cos(2.0 * PI * it / size) }
 
     /** numpy reflect pad (edge NOT repeated): idx < 0 -> -idx, idx >= n -> 2n-2-idx. */
-    private fun reflectPad(x: DoubleArray, pad: Int): DoubleArray {
+    private fun reflectPad(
+        x: DoubleArray,
+        pad: Int,
+    ): DoubleArray {
         val n = x.size
         val out = DoubleArray(n + 2 * pad)
         for (i in out.indices) {
@@ -98,7 +106,8 @@ internal object Mel {
         val im = DoubleArray(400)
         for (t in 0 until nFrames - 1) {
             for (k in 0 until 400) frameBuf[k] = p[t * 160 + k] * win[k]
-            re.fill(0.0); im.fill(0.0)
+            re.fill(0.0)
+            im.fill(0.0)
             frameBuf.copyInto(re)
             Fft.fft(re, im)
             // power = re² + im² over ALL 201 bins; numpy drops the last FRAME
@@ -126,9 +135,11 @@ internal object Mel {
         val nFft = 512
         val n = audio16k.size
         val numFrames = 1 + (n - frameLen) / frameShift
-        val povey = DoubleArray(frameLen) {
-            (0.5 - 0.5 * cos(2.0 * PI * it / (frameLen - 1))).pow(0.85)
-        }
+        val povey =
+            DoubleArray(frameLen) {
+                (0.5 - 0.5 * cos(2.0 * PI * it / (frameLen - 1))).pow(0.85)
+            }
+
         fun hzToMel(f: Double) = 1127.0 * ln(1.0 + f / 700.0)
         val lowMel = hzToMel(20.0)
         val highMel = hzToMel(8000.0)
@@ -150,7 +161,8 @@ internal object Mel {
             for (k in frameLen - 1 downTo 1) frame[k] -= 0.97 * frame[k - 1]
             frame[0] *= 0.03
             for (k in 0 until frameLen) frame[k] *= povey[k]
-            re.fill(0.0); im.fill(0.0)
+            re.fill(0.0)
+            im.fill(0.0)
             frame.copyInto(re)
             Fft.fft(re, im)
             for (mb in 0 until 80) {
@@ -190,7 +202,8 @@ internal object Mel {
         val im = DoubleArray(1920)
         for (t in 0 until nFrames) {
             for (k in 0 until 1920) frameBuf[k] = p[t * 480 + k] * win[k]
-            re.fill(0.0); im.fill(0.0)
+            re.fill(0.0)
+            im.fill(0.0)
             frameBuf.copyInto(re)
             Fft.fft(re, im)
             for (mb in 0 until 80) {
@@ -205,7 +218,7 @@ internal object Mel {
     }
 
     /** torch.stft(n_fft=16, hop=4, periodic hann, center=True): returns [18, T] flat. */
-    fun stft16_4(x: FloatArray): Pair<FloatArray, Int> {
+fun stft16x4(x: FloatArray): Pair<FloatArray, Int> {
         // np.hanning(17)[:16] == periodic hann of 16
         val win = DoubleArray(16) { 0.5 - 0.5 * cos(2.0 * PI * it / 16.0) }
         val p = reflectPad(DoubleArray(x.size) { x[it].toDouble() }, 8)
@@ -213,21 +226,25 @@ internal object Mel {
         val re = DoubleArray(16)
         val im = DoubleArray(16)
         val out = FloatArray(18 * nFrames)
-                    for (t in 0 until nFrames) {
-                for (k in 0 until 16) re[k] = p[t * 4 + k] * win[k]
-                im.fill(0.0)
-                Fft.fft(re, im)
-                // output is [18, T] row-major: row (bin) * nFrames + frame
-                for (b in 0 until 9) {
-                    out[b * nFrames + t] = re[b].toFloat()        // real part rows
-                    out[(9 + b) * nFrames + t] = im[b].toFloat()  // imag part rows
-                }
+        for (t in 0 until nFrames) {
+            for (k in 0 until 16) re[k] = p[t * 4 + k] * win[k]
+            im.fill(0.0)
+            Fft.fft(re, im)
+            // output is [18, T] row-major: row (bin) * nFrames + frame
+            for (b in 0 until 9) {
+                out[b * nFrames + t] = re[b].toFloat() // real part rows
+                out[(9 + b) * nFrames + t] = im[b].toFloat() // imag part rows
             }
+        }
         return out to nFrames
     }
 
     /** torch.istft(n_fft=16, hop=4, periodic hann, center=True) equivalent. */
-    fun istft16_4(magnitude: FloatArray, nFrames: Int, phase: FloatArray): FloatArray {
+    fun istft16x4(
+        magnitude: FloatArray,
+        nFrames: Int,
+        phase: FloatArray,
+    ): FloatArray {
         val win = DoubleArray(16) { 0.5 - 0.5 * cos(2.0 * PI * it / 16.0) }
         val outLen = 16 + (nFrames - 1) * 4
         val audio = DoubleArray(outLen)

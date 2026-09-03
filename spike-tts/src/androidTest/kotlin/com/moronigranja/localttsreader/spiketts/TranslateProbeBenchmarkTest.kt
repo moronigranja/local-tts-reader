@@ -3,10 +3,10 @@ package com.moronigranja.localttsreader.spiketts
 import android.util.Log
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
-import java.io.File
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
+import java.io.File
 
 /**
  * Phase J NMT probe on-device (roadmap Phase J): runs the per-pair OPUS-MT
@@ -24,7 +24,6 @@ import org.junit.runner.RunWith
  */
 @RunWith(AndroidJUnit4::class)
 class TranslateProbeBenchmarkTest {
-
     @Test
     fun probeNmtOnDevice() {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
@@ -43,15 +42,20 @@ class TranslateProbeBenchmarkTest {
             for (modelId in pairs.getJSONObject(pair).getJSONObject("models").keys()) {
                 for (precision in arrayOf("fp32", "int8")) {
                     val legKey = "$pair/$modelId/$precision"
-                    val leg = pairResults.optJSONObject("$modelId/$precision")
-                        ?: throw AssertionError("$legKey: leg missing from results")
+                    val leg =
+                        pairResults.optJSONObject("$modelId/$precision")
+                            ?: throw AssertionError("$legKey: leg missing from results")
                     if (leg.has("unavailable")) {
                         // Measured absence (e.g. M2M-100 fp32: 4.75 GB of graphs,
                         // lmkd-killed on the S22 — decisions #114). The reason is
                         // the record; absence is not a test failure when the
                         // graphs are genuinely not staged.
-                        val dir = File(context.filesDir, "models/$modelId/" +
-                            if (precision == "fp32") "onnx" else "onnx-$precision")
+                        val dir =
+                            File(
+                                context.filesDir,
+                                "models/$modelId/" +
+                                    if (precision == "fp32") "onnx" else "onnx-$precision",
+                            )
                         assertTrue(
                             "$legKey: failed with graphs staged: ${leg.optString("unavailable")}",
                             !dir.isDirectory,

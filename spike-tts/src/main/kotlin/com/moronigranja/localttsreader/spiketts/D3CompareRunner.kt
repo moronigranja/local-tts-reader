@@ -10,11 +10,11 @@ import com.moronigranja.localttsreader.tts.kokoro.KokoroEngine
 import com.moronigranja.localttsreader.tts.kokoro.KokoroPacks
 import com.moronigranja.localttsreader.tts.kokoro.PhonemizeException
 import com.moronigranja.localttsreader.tts.kokoro.Phonemizer
-import java.io.File
-import kotlin.system.measureTimeMillis
 import kotlinx.coroutines.runBlocking
 import org.json.JSONArray
 import org.json.JSONObject
+import java.io.File
+import kotlin.system.measureTimeMillis
 
 /**
  * D3 unified device pass (decisions #93): runs the Kokoro baseline, the
@@ -28,8 +28,9 @@ import org.json.JSONObject
  * completes without them. All three legs exclude tokenization/phonemization
  * (host-precomputed corpus columns), so the numbers compare inference only.
  */
-class D3CompareRunner(private val context: Context) {
-
+class D3CompareRunner(
+    private val context: Context,
+) {
     companion object {
         const val TAG = "D3Compare"
         const val RUNS = 1
@@ -40,9 +41,18 @@ class D3CompareRunner(private val context: Context) {
 
     private val models = File(context.filesDir, "models")
 
-    private class Entry(val id: String, val lang: String, val text: String, val phonemes: String)
+    private class Entry(
+        val id: String,
+        val lang: String,
+        val text: String,
+        val phonemes: String,
+    )
 
-    fun run(corpusFile: File, outDir: File, log: (String) -> Unit): JSONObject {
+    fun run(
+        corpusFile: File,
+        outDir: File,
+        log: (String) -> Unit,
+    ): JSONObject {
         val merged = JSONObject()
         log("D3 compare: ${Build.MANUFACTURER} ${Build.MODEL}, sdk ${Build.VERSION.SDK_INT}")
         val outFile = File(outDir, "d3_results.json")
@@ -61,21 +71,23 @@ class D3CompareRunner(private val context: Context) {
         merged.put("kokoro", kokoro)
         flush()
 
-        val kitten = try {
-            KittenBenchmarkRunner(context).run(corpusFile, outDir, log = { log("[kitten] $it") })
-        } catch (e: Throwable) {
-            log("candidate kitten unavailable: $e")
-            JSONObject().put("unavailable", e.message ?: e.toString())
-        }
+        val kitten =
+            try {
+                KittenBenchmarkRunner(context).run(corpusFile, outDir, log = { log("[kitten] $it") })
+            } catch (e: Throwable) {
+                log("candidate kitten unavailable: $e")
+                JSONObject().put("unavailable", e.message ?: e.toString())
+            }
         merged.put("kitten", kitten)
         flush()
 
-        val moss = try {
-            MossBenchmarkRunner(context).run(corpusFile, outDir) { log("[moss] $it") }
-        } catch (e: Throwable) {
-            log("candidate moss unavailable: $e")
-            JSONObject().put("unavailable", e.message ?: e.toString())
-        }
+        val moss =
+            try {
+                MossBenchmarkRunner(context).run(corpusFile, outDir) { log("[moss] $it") }
+            } catch (e: Throwable) {
+                log("candidate moss unavailable: $e")
+                JSONObject().put("unavailable", e.message ?: e.toString())
+            }
         merged.put("moss", moss)
         flush()
 
@@ -95,21 +107,26 @@ class D3CompareRunner(private val context: Context) {
      * [KokoroBenchmarkRunner] corpus pattern), CPU session defaults, one
      * measured pass.
      */
-    private fun runKokoro(corpusFile: File, outDir: File, log: (String) -> Unit): JSONObject {
+    private fun runKokoro(
+        corpusFile: File,
+        outDir: File,
+        log: (String) -> Unit,
+    ): JSONObject {
         val entries = parseCorpus(corpusFile, log)
         log("kokoro corpus: ${entries.size} rows with phonemes")
         val lookup = entries.associate { it.text to it.phonemes }
         val languages = entries.map { it.lang }.toSet()
 
         val tOpen = System.currentTimeMillis()
-        val engine = KokoroEngine.open(
-            spec = DefaultEngines.kokoro,
-            packs = KokoroPacks.all,
-            modelFile = File(models, "kokoro-model"),
-            voicesFile = File(models, "kokoro-voices"),
-            phonemizer = CorpusPhonemizer(lookup, languages),
-            progress = { log("open stage: $it (${System.currentTimeMillis() - tOpen} ms)") },
-        )
+        val engine =
+            KokoroEngine.open(
+                spec = DefaultEngines.kokoro,
+                packs = KokoroPacks.all,
+                modelFile = File(models, "kokoro-model"),
+                voicesFile = File(models, "kokoro-voices"),
+                phonemizer = CorpusPhonemizer(lookup, languages),
+                progress = { log("open stage: $it (${System.currentTimeMillis() - tOpen} ms)") },
+            )
         val engineOpenMs = System.currentTimeMillis() - tOpen
         log("engine open: $engineOpenMs ms (candidate=kokoro)")
 
@@ -118,12 +135,14 @@ class D3CompareRunner(private val context: Context) {
         try {
             val rowsJson = JSONArray()
             for (entry in entries) {
-                val voice = VOICES[entry.lang]
-                    ?: error("no voice mapped for corpus language '${entry.lang}'")
+                val voice =
+                    VOICES[entry.lang]
+                        ?: error("no voice mapped for corpus language '${entry.lang}'")
                 var outcome: SynthesisOutcome? = null
-                val millis = measureTimeMillis {
-                    outcome = runBlocking { engine.synthesize(SynthesisRequest(entry.text, voice)) }
-                }
+                val millis =
+                    measureTimeMillis {
+                        outcome = runBlocking { engine.synthesize(SynthesisRequest(entry.text, voice)) }
+                    }
                 when (val result = outcome) {
                     null -> error("synthesis returned null outcome")
                     is SynthesisOutcome.Audio -> {
@@ -138,24 +157,30 @@ class D3CompareRunner(private val context: Context) {
                         rms = Math.sqrt(rms / floats.size)
                         val finite = floats.all { it.isFinite() }
                         val rtf = millis / 1000.0 / seconds
-                        rowsJson.put(JSONObject()
-                            .put("id", entry.id)
-                            .put("language", entry.lang)
-                            .put("voice", voice)
-                            .put("synth_ms", millis)
-                            .put("audio_seconds", seconds)
-                            .put("rtf", rtf)
-                            .put("samples", result.pcm.size / 2)
-                            .put("peak_abs", peak)
-                            .put("rms", rms)
-                            .put("finite", finite))
-                        log("run 1 [${entry.id}]: ${"%.2f".format(seconds)}s audio in $millis ms, " +
-                            "RTF=${"%.3f".format(rtf)}, rms=${"%.4f".format(rms)}")
-                        Wav.write(File(outDir, "kokoro_d3_run1_${entry.id}.wav"),
-                            floats, KokoroEngine.SAMPLE_RATE)
+                        rowsJson.put(
+                            JSONObject()
+                                .put("id", entry.id)
+                                .put("language", entry.lang)
+                                .put("voice", voice)
+                                .put("synth_ms", millis)
+                                .put("audio_seconds", seconds)
+                                .put("rtf", rtf)
+                                .put("samples", result.pcm.size / 2)
+                                .put("peak_abs", peak)
+                                .put("rms", rms)
+                                .put("finite", finite),
+                        )
+                        log(
+                            "run 1 [${entry.id}]: ${"%.2f".format(seconds)}s audio in $millis ms, " +
+                                "RTF=${"%.3f".format(rtf)}, rms=${"%.4f".format(rms)}",
+                        )
+                        Wav.write(
+                            File(outDir, "kokoro_d3_run1_${entry.id}.wav"),
+                            floats,
+                            KokoroEngine.SAMPLE_RATE,
+                        )
                     }
-                    is SynthesisOutcome.Failed -> throw IllegalArgumentException(
-                        "synthesis failed [${entry.id}]: ${result.reason}")
+                    is SynthesisOutcome.Failed -> throw IllegalArgumentException("synthesis failed [${entry.id}]: ${result.reason}")
                     SynthesisOutcome.Unavailable -> error("packs not ready on device")
                 }
             }
@@ -179,14 +204,20 @@ class D3CompareRunner(private val context: Context) {
         }
     }
 
-    private fun parseCorpus(corpusFile: File, log: (String) -> Unit): List<Entry> {
+    private fun parseCorpus(
+        corpusFile: File,
+        log: (String) -> Unit,
+    ): List<Entry> {
         check(corpusFile.isFile) { "corpus not found at ${corpusFile.absolutePath}" }
         val entries = ArrayList<Entry>()
         for ((index, line) in corpusFile.readLines().withIndex()) {
             if (index == 0 || line.isBlank()) continue
             val parts = line.split('\t')
             if (parts.size != 6) continue
-            val id = parts[0]; val lang = parts[1]; val text = parts[2]; val phonemes = parts[3]
+            val id = parts[0]
+            val lang = parts[1]
+            val text = parts[2]
+            val phonemes = parts[3]
             if (phonemes.isBlank()) {
                 log("SKIP $id: no kokoro_phonemes")
                 continue
@@ -204,7 +235,11 @@ class D3CompareRunner(private val context: Context) {
 
     private fun pcmToFloats(pcm: ByteArray): FloatArray {
         val out = FloatArray(pcm.size / 2)
-        val buffer = java.nio.ByteBuffer.wrap(pcm).order(java.nio.ByteOrder.LITTLE_ENDIAN).asShortBuffer()
+        val buffer =
+            java.nio.ByteBuffer
+                .wrap(pcm)
+                .order(java.nio.ByteOrder.LITTLE_ENDIAN)
+                .asShortBuffer()
         for (i in out.indices) out[i] = buffer.get() / 32768.0f
         return out
     }
@@ -214,8 +249,10 @@ class D3CompareRunner(private val context: Context) {
         private val corpus: Map<String, String>,
         private val languages: Set<String>,
     ) : Phonemizer {
-        override fun phonemize(text: String, language: String): String =
-            corpus[text] ?: throw PhonemizeException("corpus mismatch for text: '${text.take(40)}…'")
+        override fun phonemize(
+            text: String,
+            language: String,
+        ): String = corpus[text] ?: throw PhonemizeException("corpus mismatch for text: '${text.take(40)}…'")
 
         override fun supportedLanguages(): Set<String> = languages
     }

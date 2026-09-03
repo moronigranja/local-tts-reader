@@ -6,9 +6,9 @@ import ai.onnxruntime.OrtEnvironment
 import ai.onnxruntime.OrtSession
 import android.content.Context
 import android.os.Bundle
+import org.json.JSONObject
 import java.io.File
 import java.nio.ByteBuffer
-import org.json.JSONObject
 
 /**
  * ConvInteger availability probe (decisions #86 follow-up): the D3 int8 leg
@@ -19,11 +19,15 @@ import org.json.JSONObject
  * instrumentation arg (`-e ort_version x.y.z`) so results are self-labeling
  * under the pin A/B (1.23.2 vs 1.29.0).
  */
-class Int8OpsProbe(private val context: Context) {
-
+class Int8OpsProbe(
+    private val context: Context,
+) {
     private val env: OrtEnvironment = OrtEnvironment.getEnvironment()
 
-    fun run(args: Bundle?, log: (String) -> Unit): JSONObject {
+    fun run(
+        args: Bundle?,
+        log: (String) -> Unit,
+    ): JSONObject {
         val model = File(context.filesDir, "models/convinteger_test.onnx")
         val result = JSONObject().put("ort_version", args?.getString("ort_version") ?: "unknown")
         if (!model.isFile) {

@@ -10,7 +10,6 @@ import java.util.regex.Pattern
  * measurement (production core-tts must solve G2P separately).
  */
 internal object Frontend {
-
     const val ENDOFPROMPT_ID = 151646
     const val ZERO_SHOT_PREFIX = "You are a helpful assistant."
 
@@ -27,7 +26,10 @@ internal object Frontend {
         return t
     }
 
-    fun buildPromptTextIds(tok: Bpe.Tokenizer, transcript: String): IntArray {
+    fun buildPromptTextIds(
+        tok: Bpe.Tokenizer,
+        transcript: String,
+    ): IntArray {
         val prefix = tok.encode(ZERO_SHOT_PREFIX)
         val ref = tok.encode(normalizeText(transcript))
         return IntArray(prefix.size + 1 + ref.size) { i ->
@@ -39,5 +41,8 @@ internal object Frontend {
         }
     }
 
-    fun encodeTtsText(tok: Bpe.Tokenizer, text: String): IntArray = tok.encode(normalizeText(text))
+    fun encodeTtsText(
+        tok: Bpe.Tokenizer,
+        text: String,
+    ): IntArray = tok.encode(normalizeText(text))
 }

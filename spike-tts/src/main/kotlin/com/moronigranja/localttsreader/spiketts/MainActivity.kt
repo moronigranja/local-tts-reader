@@ -19,12 +19,13 @@ import kotlin.random.Random
  * engine-order decision.
  */
 class MainActivity : Activity() {
-
     companion object {
         private const val TAG = "T3Spike"
-        private val TEXT = ("The quick brown fox jumps over the lazy dog, and the orange cat "
-            + "sits on the windowsill watching the morning rain fall on the "
-            + "empty street below.")
+        private val TEXT = (
+            "The quick brown fox jumps over the lazy dog, and the orange cat " +
+                "sits on the windowsill watching the morning rain fall on the " +
+                "empty street below."
+        )
         private const val THREADS = 6
         private const val RUNS = 3
     }
@@ -40,8 +41,10 @@ class MainActivity : Activity() {
         status = TextView(this)
         status.textSize = 13f
         status.text = "T3 spike starting…"
-        scroll.addView(status, LinearLayout.LayoutParams(
-            LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
+        scroll.addView(
+            status,
+            LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT),
+        )
         setContentView(scroll)
         Thread { runBenchmark() }.start()
     }
@@ -57,8 +60,12 @@ class MainActivity : Activity() {
         // Android 11+ FUSE hides shell-pushed files under Android/data/<pkg>,
         // so the benchmark also accepts models staged in internal storage via
         // `adb shell run-as <pkg> cp -r /data/local/tmp/models files/models`.
-        val models = if (File(extModels, "onnx/flow_estimator.onnx").exists()) extModels
-        else File(filesDir, "models")
+        val models =
+            if (File(extModels, "onnx/flow_estimator.onnx").exists()) {
+                extModels
+            } else {
+                File(filesDir, "models")
+            }
         try {
             check(File(models, "onnx/flow_estimator.onnx").exists()) {
                 "models not found at ${models.absolutePath} — push them first"
@@ -83,13 +90,17 @@ class MainActivity : Activity() {
             val promptMs = System.currentTimeMillis() - tP
             var spkNorm = 0.0
             for (v in prompt.spkEmbedding) spkNorm += v * v
-            log("prompt processed in ${promptMs} ms: tokens=${prompt.speechTokens.size}, " +
-                "melFrames=${prompt.melFrames}, spkNorm=${Math.sqrt(spkNorm).toFloat()}")
+            log(
+                "prompt processed in $promptMs ms: tokens=${prompt.speechTokens.size}, " +
+                    "melFrames=${prompt.melFrames}, spkNorm=${Math.sqrt(spkNorm).toFloat()}",
+            )
 
             // Deterministic prompt mel is host-comparable (matches sokuji's
             // golden-tested melodics); dump it for exact cross-checking.
-            val melBytes = java.nio.ByteBuffer.allocate(prompt.mel.size * 4)
-                .order(java.nio.ByteOrder.LITTLE_ENDIAN)
+            val melBytes =
+                java.nio.ByteBuffer
+                    .allocate(prompt.mel.size * 4)
+                    .order(java.nio.ByteOrder.LITTLE_ENDIAN)
             for (v in prompt.mel) melBytes.putFloat(v)
             File(outDir, "prompt_mel.bin").writeBytes(melBytes.array())
             var pmSum = 0.0
@@ -120,8 +131,9 @@ class MainActivity : Activity() {
                 val (id, lang, text) = entry
                 val runsForEntry = if (index == 0) RUNS else 1
                 for (run in 1..runsForEntry) {
-                    runs.put(synthesizeOnce(
-                        pipeline, tok, prompt, sessions, text, run, id, lang, outDir))
+                    runs.put(
+                        synthesizeOnce(pipeline, tok, prompt, sessions, text, run, id, lang, outDir),
+                    )
                 }
             }
 
@@ -134,23 +146,44 @@ class MainActivity : Activity() {
             val classicWav = File(models, "voices/classic-zh.wav")
             if (classicWav.isFile && corpus != null) {
                 log("premade-voice pass: classic-zh prompt")
-                val cPrompt = pipeline.processPrompt(
-                    tok,
-                    Wav.read(File(models, "voices/classic-zh16.wav")),
-                    Wav.read(File(models, "voices/classic-zh24.wav")),
-                    File(models, "voices/classic-zh.txt").readText().trim())
+                val cPrompt =
+                    pipeline.processPrompt(
+                        tok,
+                        Wav.read(File(models, "voices/classic-zh16.wav")),
+                        Wav.read(File(models, "voices/classic-zh24.wav")),
+                        File(models, "voices/classic-zh.txt").readText().trim(),
+                    )
                 val premade = JSONObject().put("voice", "classic-zh")
                 val premadeRuns = org.json.JSONArray()
                 val rivera = corpus!!.firstOrNull { it.first == "probe-miss-rivera" }
                 if (rivera != null) {
-                    premadeRuns.put(synthesizeOnce(
-                        pipeline, tok, cPrompt, sessions,
-                        rivera.third, 1, rivera.first + "-premade", "zh", outDir))
+                    premadeRuns.put(
+                        synthesizeOnce(
+                            pipeline,
+                            tok,
+                            cPrompt,
+                            sessions,
+                            rivera.third,
+                            1,
+                            rivera.first + "-premade",
+                            "zh",
+                            outDir,
+                        ),
+                    )
                 }
-                premadeRuns.put(synthesizeOnce(
-                    pipeline, tok, cPrompt, sessions,
-                    "你好，这是预置音色的听感测试，希望它比克隆音色更自然。", 1,
-                    "probe-zh-premade", "zh", outDir))
+                premadeRuns.put(
+                    synthesizeOnce(
+                        pipeline,
+                        tok,
+                        cPrompt,
+                        sessions,
+                        "你好，这是预置音色的听感测试，希望它比克隆音色更自然。",
+                        1,
+                        "probe-zh-premade",
+                        "zh",
+                        outDir,
+                    ),
+                )
                 premade.put("runs", premadeRuns)
                 File(outDir, "d3_results_cosyvoice_premade.json")
                     .writeText(premade.toString(2))
@@ -224,9 +257,11 @@ class MainActivity : Activity() {
         var fVar = 0.0
         for (v in mel) fVar += (v - fMean) * (v - fMean)
         val fMax = mel.max()
-        log("  flow mel: mean=${"%.3f".format(fMean)} std=${"%.3f".format(Math.sqrt(fVar / mel.size))} " +
-            "max=${"%.3f".format(fMax)} | f0: mean=${"%.1f".format(hiftStats.f0Mean)} " +
-            "std=${"%.1f".format(hiftStats.f0Std)} | src: rms=${"%.4f".format(hiftStats.srcRms)} len=${hiftStats.srcLen}")
+        log(
+            "  flow mel: mean=${"%.3f".format(fMean)} std=${"%.3f".format(Math.sqrt(fVar / mel.size))} " +
+                "max=${"%.3f".format(fMax)} | f0: mean=${"%.1f".format(hiftStats.f0Mean)} " +
+                "std=${"%.1f".format(hiftStats.f0Std)} | src: rms=${"%.4f".format(hiftStats.srcRms)} len=${hiftStats.srcLen}",
+        )
         val synthMs = llmMs + flowMs + hiftMs
         val dur = audio.size.toDouble() / Pipeline.SAMPLE_RATE
         var peak = 0.0f
@@ -237,29 +272,32 @@ class MainActivity : Activity() {
         }
         rms = Math.sqrt(rms / audio.size)
         val finite = audio.all { it.isFinite() }
-        val runJson = JSONObject()
-            .put("run", run)
-            .put("llm_ms", llmMs)
-            .put("flow_ms", flowMs)
-            .put("hift_ms", hiftMs)
-            .put("flow_mel_mean", fMean)
-            .put("flow_mel_max", fMax)
-            .put("f0_mean", hiftStats.f0Mean)
-            .put("src_rms", hiftStats.srcRms)
-            .put("synth_ms", synthMs)
-            .put("audio_seconds", dur)
-            .put("rtf", synthMs / 1000.0 / dur)
-            .put("samples", audio.size)
-            .put("peak_abs", peak)
-            .put("rms", rms)
-            .put("finite", finite)
+        val runJson =
+            JSONObject()
+                .put("run", run)
+                .put("llm_ms", llmMs)
+                .put("flow_ms", flowMs)
+                .put("hift_ms", hiftMs)
+                .put("flow_mel_mean", fMean)
+                .put("flow_mel_max", fMax)
+                .put("f0_mean", hiftStats.f0Mean)
+                .put("src_rms", hiftStats.srcRms)
+                .put("synth_ms", synthMs)
+                .put("audio_seconds", dur)
+                .put("rtf", synthMs / 1000.0 / dur)
+                .put("samples", audio.size)
+                .put("peak_abs", peak)
+                .put("rms", rms)
+                .put("finite", finite)
         if (id.isNotEmpty()) {
             runJson.put("id", id).put("language", lang)
         }
         val label = if (id.isEmpty()) "run $run" else "run $run [$id]"
-        log("$label: llm=${llmMs} ms flow=${flowMs} ms hift=${hiftMs} ms, " +
-            "audio=${"%.2f".format(dur)} s, RTF=${"%.3f".format(synthMs / 1000.0 / dur)}, " +
-            "peak=${peak}, rms=${"%.4f".format(rms)}, finite=$finite")
+        log(
+            "$label: llm=$llmMs ms flow=$flowMs ms hift=$hiftMs ms, " +
+                "audio=${"%.2f".format(dur)} s, RTF=${"%.3f".format(synthMs / 1000.0 / dur)}, " +
+                "peak=$peak, rms=${"%.4f".format(rms)}, finite=$finite",
+        )
         val wavName = if (id.isEmpty()) "out_run$run" else "d3_cosyvoice_run${run}_$id"
         Wav.write(File(outDir, "$wavName.wav"), audio, Pipeline.SAMPLE_RATE)
         return runJson

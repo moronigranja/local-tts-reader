@@ -10,7 +10,6 @@ import kotlin.random.Random
  * cosyvoice/utils/common.py ras_sampling.
  */
 internal object Sampling {
-
     /** Numerically stable log-softmax over a full vocabulary vector. */
     fun logSoftmax(logits: DoubleArray): DoubleArray {
         var m = Double.NEGATIVE_INFINITY
@@ -30,7 +29,12 @@ internal object Sampling {
     }
 
     /** Nucleus (top-p) sampling with top-k constraint, stable descending sort. */
-    private fun nucleusSample(probs: DoubleArray, rng: Random, topP: Double, topK: Int): Int {
+    private fun nucleusSample(
+        probs: DoubleArray,
+        rng: Random,
+        topP: Double,
+        topK: Int,
+    ): Int {
         val order = probs.indices.sortedByDescending { probs[it] }
         var cum = 0.0
         val sel = ArrayList<Int>(topK)
@@ -38,7 +42,9 @@ internal object Sampling {
             if (cum < topP && sel.size < topK) {
                 cum += probs[idx]
                 sel.add(idx)
-            } else break
+            } else {
+                break
+            }
         }
         var wSum = 0.0
         for (idx in sel) wSum += probs[idx]

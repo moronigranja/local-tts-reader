@@ -3,10 +3,10 @@ package com.moronigranja.localttsreader.spiketts
 import android.util.Log
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
-import java.io.File
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
+import java.io.File
 
 /**
  * 2026-08-31 closer-look probe on-device (landscape.md §HF trending sweep):
@@ -27,7 +27,6 @@ import org.junit.runner.RunWith
  */
 @RunWith(AndroidJUnit4::class)
 class OnnxProbeBenchmarkTest {
-
     @Test
     fun probeCandidatesOnDevice() {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
@@ -39,9 +38,14 @@ class OnnxProbeBenchmarkTest {
         val merged = OnnxProbeRunner(context).run(outDir) { Log.d(OnnxProbeRunner.TAG, it) }
         assertTrue("results must carry both legs", merged.has("chatterbox-q4") && merged.has("audio8"))
         val a8res = merged.getJSONObject("audio8")
-        assertTrue("audio8 leg must complete",
-            !a8res.has("unavailable") && a8res.optLong("open_slow_ar_ms", -1) > 0)
-        Log.d(OnnxProbeRunner.TAG, "probe ok: cb=${merged.optJSONObject("chatterbox-q4")?.has("unavailable") == false} " +
-            "a8=${!a8res.has("unavailable")}")
+        assertTrue(
+            "audio8 leg must complete",
+            !a8res.has("unavailable") && a8res.optLong("open_slow_ar_ms", -1) > 0,
+        )
+        Log.d(
+            OnnxProbeRunner.TAG,
+            "probe ok: cb=${merged.optJSONObject("chatterbox-q4")?.has("unavailable") == false} " +
+                "a8=${!a8res.has("unavailable")}",
+        )
     }
 }

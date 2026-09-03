@@ -6,11 +6,11 @@ import ai.onnxruntime.OrtSession
 import android.content.Context
 import android.os.Build
 import android.os.Debug
+import org.json.JSONArray
+import org.json.JSONObject
 import java.io.File
 import java.nio.FloatBuffer
 import java.nio.LongBuffer
-import org.json.JSONArray
-import org.json.JSONObject
 
 /**
  * Phase J NMT probe on-device (roadmap Phase J): A/B of the per-pair OPUS-MT
@@ -46,15 +46,15 @@ import org.json.JSONObject
  * off, 6 intra-op threads); results flush after every leg (lmkd can kill
  * mid-run). A self-contained probe: no core-tts / TTSEngine involvement.
  */
-/** Per-leg mutable accumulator shared by [argmaxAndStats]. */
 private class LegStats {
     var finiteAll = true
     var logitsMin = Float.MAX_VALUE
     var logitsMax = -Float.MAX_VALUE
 }
 
-class TranslateProbeRunner(private val context: Context) {
-
+class TranslateProbeRunner(
+    private val context: Context,
+) {
     companion object {
         const val TAG = "TranslateProbe"
         private const val INPUTS_FILE = "translate_inputs.json"
@@ -64,11 +64,15 @@ class TranslateProbeRunner(private val context: Context) {
 
     private val env: OrtEnvironment = OrtEnvironment.getEnvironment()
 
-    fun run(outDir: File, log: (String) -> Unit): JSONObject {
-        val merged = JSONObject()
-            .put("device", "${Build.MANUFACTURER} ${Build.MODEL}")
-            .put("sdk", Build.VERSION.SDK_INT)
-            .put("inputs", JSONObject(context.filesDir.resolve(INPUTS_FILE).readText()))
+    fun run(
+        outDir: File,
+        log: (String) -> Unit,
+    ): JSONObject {
+        val merged =
+            JSONObject()
+                .put("device", "${Build.MANUFACTURER} ${Build.MODEL}")
+                .put("sdk", Build.VERSION.SDK_INT)
+                .put("inputs", JSONObject(context.filesDir.resolve(INPUTS_FILE).readText()))
         val outFile = File(outDir, RESULTS_FILE)
 
         fun flush() {
@@ -88,10 +92,11 @@ class TranslateProbeRunner(private val context: Context) {
                 for (precision in PRECISIONS) {
                     val legKey = "$modelId/$precision"
                     try {
-                        val dir = File(
-                            modelsRoot,
-                            "$modelId/" + if (precision == "fp32") "onnx" else "onnx-$precision",
-                        )
+                        val dir =
+                            File(
+                                modelsRoot,
+                                "$modelId/" + if (precision == "fp32") "onnx" else "onnx-$precision",
+                            )
                         pairResults.put(legKey, probeLeg(models.getJSONArray(modelId), dir, log))
                     } catch (t: Throwable) {
                         pairResults.put(
@@ -115,15 +120,20 @@ class TranslateProbeRunner(private val context: Context) {
 
     // ---- one leg: pair x model x precision ----
 
-    private fun probeLeg(items: JSONArray, dir: File, log: (String) -> Unit): JSONObject {
+    private fun probeLeg(
+        items: JSONArray,
+        dir: File,
+        log: (String) -> Unit,
+    ): JSONObject {
         check(File(dir, "encoder_model.onnx").isFile) { "graphs missing at $dir" }
         val enc = open(File(dir, "encoder_model.onnx"), log)
         val dec = open(File(dir, "decoder_model.onnx"), log)
         val decp = open(File(dir, "decoder_with_past_model.onnx"), log)
-        val openMs = JSONObject()
-            .put("encoder", enc.second)
-            .put("decoder", dec.second)
-            .put("decoder_with_past", decp.second)
+        val openMs =
+            JSONObject()
+                .put("encoder", enc.second)
+                .put("decoder", dec.second)
+                .put("decoder_with_past", decp.second)
 
         try {
             val perItem = JSONArray()
@@ -142,21 +152,24 @@ class TranslateProbeRunner(private val context: Context) {
 
                 // encoder once; hidden + mask stay open as feeds for the whole
                 // greedy loop (no Result/use close — it would close the tensor)
-                val idsT = OnnxTensor.createTensor(
-                    env,
-                    LongBuffer.wrap(inputIds),
-                    longArrayOf(1, inputIds.size.toLong()),
-                )
-                val maskT = OnnxTensor.createTensor(
-                    env,
-                    LongBuffer.wrap(mask),
-                    longArrayOf(1, mask.size.toLong()),
-                )
+                val idsT =
+                    OnnxTensor.createTensor(
+                        env,
+                        LongBuffer.wrap(inputIds),
+                        longArrayOf(1, inputIds.size.toLong()),
+                    )
+                val maskT =
+                    OnnxTensor.createTensor(
+                        env,
+                        LongBuffer.wrap(mask),
+                        longArrayOf(1, mask.size.toLong()),
+                    )
                 val t0 = System.nanoTime()
                 val hidden: OnnxTensor
                 try {
-                    val feeds = mapOf("input_ids" to idsT, "attention_mask" to maskT)
-                        .filterKeys { it in enc.first.inputNames }
+                    val feeds =
+                        mapOf("input_ids" to idsT, "attention_mask" to maskT)
+                            .filterKeys { it in enc.first.inputNames }
                     val out = enc.first.run(feeds)
                     hidden = out.get(0) as OnnxTensor
                 } catch (t: Throwable) {
@@ -167,10 +180,11 @@ class TranslateProbeRunner(private val context: Context) {
                 idsT.close()
                 encoderMs += (System.nanoTime() - t0) / 1_000_000.0
 
-                val sharedFeeds = mapOf(
-                    "encoder_hidden_states" to hidden,
-                    "encoder_attention_mask" to maskT,
-                ).filterKeys { it in dec.first.inputNames || it in decp.first.inputNames }
+                val sharedFeeds =
+                    mapOf(
+                        "encoder_hidden_states" to hidden,
+                        "encoder_attention_mask" to maskT,
+                    ).filterKeys { it in dec.first.inputNames || it in decp.first.inputNames }
 
                 // Sequential start: feed every decoder_start token in order
                 // (Marian [pad]; M2M-100 [eos, target-lang]); the argmax after
@@ -188,11 +202,12 @@ class TranslateProbeRunner(private val context: Context) {
                         val t1 = System.nanoTime()
                         val session = if (past.isEmpty()) dec.first else decp.first
                         val feeds = LinkedHashMap<String, OnnxTensor>(sharedFeeds)
-                        val tokT = OnnxTensor.createTensor(
-                            env,
-                            LongBuffer.wrap(longArrayOf(start[s])),
-                            longArrayOf(1, 1),
-                        )
+                        val tokT =
+                            OnnxTensor.createTensor(
+                                env,
+                                LongBuffer.wrap(longArrayOf(start[s])),
+                                longArrayOf(1, 1),
+                            )
                         feeds["input_ids"] = tokT
                         feeds.putAll(past)
                         val out = session.run(filterFeeds(feeds, session))
@@ -212,11 +227,12 @@ class TranslateProbeRunner(private val context: Context) {
                         }
                         val t1 = System.nanoTime()
                         val feeds = LinkedHashMap<String, OnnxTensor>(sharedFeeds)
-                        val tokT = OnnxTensor.createTensor(
-                            env,
-                            LongBuffer.wrap(longArrayOf(seq[seq.size - 1])),
-                            longArrayOf(1, 1),
-                        )
+                        val tokT =
+                            OnnxTensor.createTensor(
+                                env,
+                                LongBuffer.wrap(longArrayOf(seq[seq.size - 1])),
+                                longArrayOf(1, 1),
+                            )
                         feeds["input_ids"] = tokT
                         feeds.putAll(past)
                         val out = decp.first.run(filterFeeds(feeds, decp.first))
@@ -287,7 +303,10 @@ class TranslateProbeRunner(private val context: Context) {
      * Argmax over logits [1, 1, vocab] plus finiteness scan; updates the
      * leg-wide logit min/max. Caller closes the logits tensor.
      */
-    private fun argmaxAndStats(logits: OnnxTensor, st: LegStats): Int {
+    private fun argmaxAndStats(
+        logits: OnnxTensor,
+        st: LegStats,
+    ): Int {
         val fb = logits.floatBuffer
         var best = Int.MIN_VALUE
         var bestV = -Float.MAX_VALUE
@@ -347,16 +366,20 @@ class TranslateProbeRunner(private val context: Context) {
      * Dynamic-shape autoregressive decode is expected to partition poorly;
      * measured either way.
      */
-    private fun open(graph: File, log: (String) -> Unit): Pair<OrtSession, Long> {
+    private fun open(
+        graph: File,
+        log: (String) -> Unit,
+    ): Pair<OrtSession, Long> {
         val t0 = System.currentTimeMillis()
         val opts = OrtSession.SessionOptions()
         val files = context.filesDir
-        val ep = when {
-            File(files, "ep_qnn_gpu").isFile -> "qnn_gpu"
-            File(files, "ep_qnn").isFile -> "qnn_htp"
-            File(files, "ep_nnapi").isFile -> "nnapi"
-            else -> "cpu"
-        }
+        val ep =
+            when {
+                File(files, "ep_qnn_gpu").isFile -> "qnn_gpu"
+                File(files, "ep_qnn").isFile -> "qnn_htp"
+                File(files, "ep_nnapi").isFile -> "nnapi"
+                else -> "cpu"
+            }
         if (ep == "nnapi") {
             opts.addNnapi()
             log("EP: NNAPI requested for ${graph.name}")
@@ -372,23 +395,27 @@ class TranslateProbeRunner(private val context: Context) {
         // MOSS lesson (decisions #93): truthful memory numbers.
         opts.setMemoryPatternOptimization(false)
         opts.setCPUArenaAllocator(false)
-        val session = try {
-            env.createSession(graph.absolutePath, opts)
-        } catch (t: Throwable) {
-            log("NNAPI session failed for ${graph.name}: ${t.message}; falling back to CPU")
-            opts.setIntraOpNumThreads(6)
-            env.createSession(graph.absolutePath, opts)
-        }
+        val session =
+            try {
+                env.createSession(graph.absolutePath, opts)
+            } catch (t: Throwable) {
+                log("NNAPI session failed for ${graph.name}: ${t.message}; falling back to CPU")
+                opts.setIntraOpNumThreads(6)
+                env.createSession(graph.absolutePath, opts)
+            }
         val ms = System.currentTimeMillis() - t0
         log("opened ${graph.name} in $ms ms (ep=$ep)")
         return session to ms
     }
 
-    private fun readVmHwm(): Long = try {
-        File("/proc/self/status").readLines()
-            .first { it.startsWith("VmHWM") }
-            .split(Regex("\\s+"))[1].toLong()
-    } catch (_: Throwable) {
-        -1L
-    }
+    private fun readVmHwm(): Long =
+        try {
+            File("/proc/self/status")
+                .readLines()
+                .first { it.startsWith("VmHWM") }
+                .split(Regex("\\s+"))[1]
+                .toLong()
+        } catch (_: Throwable) {
+            -1L
+        }
 }

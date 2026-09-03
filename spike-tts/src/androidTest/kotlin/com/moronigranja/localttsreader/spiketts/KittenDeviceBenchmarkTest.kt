@@ -3,9 +3,9 @@ package com.moronigranja.localttsreader.spiketts
 import android.util.Log
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
-import java.io.File
 import org.junit.Test
 import org.junit.runner.RunWith
+import java.io.File
 
 /**
  * KittenTTS Nano D3 measurement as an instrumented test: runs on a locked or
@@ -24,7 +24,6 @@ import org.junit.runner.RunWith
  */
 @RunWith(AndroidJUnit4::class)
 class KittenDeviceBenchmarkTest {
-
     @Test
     fun measureKittenOnDevice() {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
@@ -34,16 +33,29 @@ class KittenDeviceBenchmarkTest {
             return
         }
         val outDir = context.getExternalFilesDir(null) ?: context.filesDir
-        val args = androidx.test.platform.app.InstrumentationRegistry.getInstrumentation().context.let { c ->
-            androidx.test.platform.app.InstrumentationRegistry.getArguments()
-        }
+        val args =
+            androidx.test.platform.app.InstrumentationRegistry.getInstrumentation().context.let { c ->
+                androidx.test.platform.app.InstrumentationRegistry
+                    .getArguments()
+            }
         val threads = args.getString("threads")?.toIntOrNull() ?: KittenBenchmarkRunner.THREADS
         val optProfile = args.getString("optProfile") ?: "default"
         val limit = args.getString("limit")?.toIntOrNull() ?: 0
-        val suffix = if (args.getString("optProfile") != null || args.getString("threads") != null)
-            "_${optProfile}_t$threads" else ""
-        val results = KittenBenchmarkRunner(context).run(corpus, outDir, { Log.d("KittenSpike", it) },
-            threads, optProfile, limit)
+        val suffix =
+            if (args.getString("optProfile") != null || args.getString("threads") != null) {
+                "_${optProfile}_t$threads"
+            } else {
+                ""
+            }
+        val results =
+            KittenBenchmarkRunner(context).run(
+                corpus,
+                outDir,
+                { Log.d("KittenSpike", it) },
+                threads,
+                optProfile,
+                limit,
+            )
         File(outDir, "d3_results_kitten$suffix.json").writeText(results.toString(2))
         Log.d("KittenSpike", "d3_results_kitten$suffix.json written to $outDir")
     }

@@ -12,30 +12,33 @@ import java.io.File
  * killed by lmkd when all 14 graphs are resident simultaneously, and stage
  * scoping matches how a production player would budget memory anyway.
  */
-internal class Sessions(private val modelDir: File, private val threads: Int) : AutoCloseable {
-
+internal class Sessions(
+    private val modelDir: File,
+    private val threads: Int,
+) : AutoCloseable {
     companion object {
-        val GRAPH_FILES = mapOf(
-            "text_embedding" to "onnx/text_embedding.onnx",
-            "speech_tokenizer" to "onnx/speech_tokenizer_v3.onnx",
-            "campplus" to "onnx/campplus.onnx",
-            "llm_initial" to "onnx/llm_backbone_initial_int4.onnx",
-            "llm_decode" to "onnx/llm_backbone_decode_int4.onnx",
-            "llm_decoder" to "onnx/llm_decoder.onnx",
-            "speech_embedding" to "onnx/llm_speech_embedding.onnx",
-            "flow_token_embedding" to "onnx/flow_token_embedding.onnx",
-            "flow_spk_projection" to "onnx/flow_speaker_projection.onnx",
-            "flow_pre_lookahead" to "onnx/flow_pre_lookahead.onnx",
-            "flow_estimator" to "onnx/flow_estimator.onnx",
-            "hift_f0" to "onnx/hift_f0_predictor.onnx",
-            "hift_source" to "onnx/hift_source_generator.onnx",
-            "hift_decoder" to "onnx/hift_decoder.onnx",
-        )
+        val GRAPH_FILES =
+            mapOf(
+                "text_embedding" to "onnx/text_embedding.onnx",
+                "speech_tokenizer" to "onnx/speech_tokenizer_v3.onnx",
+                "campplus" to "onnx/campplus.onnx",
+                "llm_initial" to "onnx/llm_backbone_initial_int4.onnx",
+                "llm_decode" to "onnx/llm_backbone_decode_int4.onnx",
+                "llm_decoder" to "onnx/llm_decoder.onnx",
+                "speech_embedding" to "onnx/llm_speech_embedding.onnx",
+                "flow_token_embedding" to "onnx/flow_token_embedding.onnx",
+                "flow_spk_projection" to "onnx/flow_speaker_projection.onnx",
+                "flow_pre_lookahead" to "onnx/flow_pre_lookahead.onnx",
+                "flow_estimator" to "onnx/flow_estimator.onnx",
+                "hift_f0" to "onnx/hift_f0_predictor.onnx",
+                "hift_source" to "onnx/hift_source_generator.onnx",
+                "hift_decoder" to "onnx/hift_decoder.onnx",
+            )
         val COLD_GRAPHS = setOf("speech_tokenizer", "campplus")
-        val LLM_GROUP = setOf(
-            "text_embedding", "speech_embedding", "llm_initial", "llm_decode", "llm_decoder")
-        val FLOW_GROUP = setOf(
-            "flow_token_embedding", "flow_spk_projection", "flow_pre_lookahead", "flow_estimator")
+        val LLM_GROUP =
+            setOf("text_embedding", "speech_embedding", "llm_initial", "llm_decode", "llm_decoder")
+        val FLOW_GROUP =
+            setOf("flow_token_embedding", "flow_spk_projection", "flow_pre_lookahead", "flow_estimator")
         val HIFT_GROUP = setOf("hift_f0", "hift_source", "hift_decoder")
     }
 
@@ -43,15 +46,16 @@ internal class Sessions(private val modelDir: File, private val threads: Int) : 
     private val opened = HashMap<String, OrtSession>()
     val loadTimesMs = HashMap<String, Long>()
 
-    operator fun get(key: String): OrtSession = opened.getOrPut(key) {
-        val t0 = System.currentTimeMillis()
-        val opts = OrtSession.SessionOptions()
-        opts.setOptimizationLevel(OrtSession.SessionOptions.OptLevel.ALL_OPT)
-        opts.setIntraOpNumThreads(threads)
-        val session = env.createSession(File(modelDir, GRAPH_FILES.getValue(key)).absolutePath, opts)
-        loadTimesMs[key] = System.currentTimeMillis() - t0
-        session
-    }
+    operator fun get(key: String): OrtSession =
+        opened.getOrPut(key) {
+            val t0 = System.currentTimeMillis()
+            val opts = OrtSession.SessionOptions()
+            opts.setOptimizationLevel(OrtSession.SessionOptions.OptLevel.ALL_OPT)
+            opts.setIntraOpNumThreads(threads)
+            val session = env.createSession(File(modelDir, GRAPH_FILES.getValue(key)).absolutePath, opts)
+            loadTimesMs[key] = System.currentTimeMillis() - t0
+            session
+        }
 
     fun release(keys: Set<String>) {
         for (k in keys) opened.remove(k)?.close()

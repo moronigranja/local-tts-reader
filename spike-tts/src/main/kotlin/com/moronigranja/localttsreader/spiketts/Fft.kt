@@ -12,7 +12,6 @@ import kotlin.math.sin
  * bit-comparable with numpy.fft.rfft/irfft; power-of-two sizes use a radix-2 core.
  */
 internal object Fft {
-
     private fun nextPow2(n: Int): Int {
         var v = 1
         while (v < n) v = v shl 1
@@ -20,7 +19,10 @@ internal object Fft {
     }
 
     /** In-place iterative radix-2 FFT. `re`/`im` must have a power-of-two length. */
-    private fun radix2(re: DoubleArray, im: DoubleArray) {
+    private fun radix2(
+        re: DoubleArray,
+        im: DoubleArray,
+    ) {
         val n = re.size
         var j = 0
         for (i in 1 until n) {
@@ -31,8 +33,12 @@ internal object Fft {
             }
             j = j xor bit
             if (i < j) {
-                var t = re[i]; re[i] = re[j]; re[j] = t
-                t = im[i]; im[i] = im[j]; im[j] = t
+                var t = re[i]
+                re[i] = re[j]
+                re[j] = t
+                t = im[i]
+                im[i] = im[j]
+                im[j] = t
             }
         }
         var len = 2
@@ -64,7 +70,10 @@ internal object Fft {
     }
 
     /** Full FFT of length n (any n). Overwrites and returns re/im. */
-    fun fft(re: DoubleArray, im: DoubleArray): Pair<DoubleArray, DoubleArray> {
+    fun fft(
+        re: DoubleArray,
+        im: DoubleArray,
+    ): Pair<DoubleArray, DoubleArray> {
         val n = re.size
         if (n and (n - 1) == 0) {
             radix2(re, im)
@@ -86,11 +95,12 @@ internal object Fft {
         // Chirp b_t = e^{iπ t²/n} on t in [0, n-1], mirrored e^{iπ (t-m)²/n} on
         // t in [m-n+1, m-1] (covers k-j in [-(n-1), n-1]); unused middle is 0.
         for (j in 0 until m) {
-            val t = when {
-                j < n -> j.toLong()
-                j > m - n -> (j - m).toLong()
-                else -> continue
-            }
+            val t =
+                when {
+                    j < n -> j.toLong()
+                    j > m - n -> (j - m).toLong()
+                    else -> continue
+                }
             val w = PI * t * t / n
             b[j] = cos(w)
             ib[j] = sin(w)
@@ -126,7 +136,11 @@ internal object Fft {
     }
 
     /** Inverse FFT of a real spectrum (re/im of size n/2+1) with output length n. */
-    fun irfft(re: DoubleArray, im: DoubleArray, n: Int): DoubleArray {
+    fun irfft(
+        re: DoubleArray,
+        im: DoubleArray,
+        n: Int,
+    ): DoubleArray {
         val fullRe = DoubleArray(n)
         val fullIm = DoubleArray(n)
         val h = re.size

@@ -21,7 +21,6 @@ import org.junit.runner.RunWith
  */
 @RunWith(AndroidJUnit4::class)
 class PregenParallelBenchmarkTest {
-
     @Test
     fun measureParallelPregenOnDevice() {
         val context = InstrumentationRegistry.getInstrumentation().targetContext

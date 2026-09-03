@@ -3,10 +3,10 @@ package com.moronigranja.localttsreader.spiketts
 import android.content.Context
 import android.os.Build
 import android.os.Debug
-import java.io.File
-import kotlin.system.measureTimeMillis
 import org.json.JSONArray
 import org.json.JSONObject
+import java.io.File
+import kotlin.system.measureTimeMillis
 
 /**
  * D3 MOSS-TTS-Nano leg (decisions #92/#93): wraps [MossEngine] (the ported
@@ -21,8 +21,9 @@ import org.json.JSONObject
  * `generation_defaults.max_new_frames` is recorded `truncated` and excluded
  * from the corpus-average RTF.
  */
-class MossBenchmarkRunner(private val context: Context) {
-
+class MossBenchmarkRunner(
+    private val context: Context,
+) {
     companion object {
         const val TAG = "MossSpike"
         const val THREADS = 6
@@ -31,7 +32,11 @@ class MossBenchmarkRunner(private val context: Context) {
 
     private val models = File(context.filesDir, "models/moss")
 
-    fun run(corpusFile: File, outDir: File, log: (String) -> Unit): JSONObject {
+    fun run(
+        corpusFile: File,
+        outDir: File,
+        log: (String) -> Unit,
+    ): JSONObject {
         val results = JSONObject()
         return try {
             val entries = parseCorpus(corpusFile)
@@ -42,16 +47,20 @@ class MossBenchmarkRunner(private val context: Context) {
             log("warm-up: opening engine with demo threads=$DEMO_THREADS for one entry")
             MossEngine(models, DEMO_THREADS).use { warm ->
                 val t = measureTimeMillis { warm.synthesize(entries.first().tokens) }
-                log("warm-up done: first entry '${entries.first().id}' in $t ms (threads=$DEMO_THREADS, " +
-                    "voice=${warm.voiceName}, maxFrames=${warm.maxFrames}, sampleRate=${warm.sampleRate})")
+                log(
+                    "warm-up done: first entry '${entries.first().id}' in $t ms (threads=$DEMO_THREADS, " +
+                        "voice=${warm.voiceName}, maxFrames=${warm.maxFrames}, sampleRate=${warm.sampleRate})",
+                )
             }
 
             val tOpen = System.currentTimeMillis()
             val engine = MossEngine(models, THREADS)
             val engineOpenMs = System.currentTimeMillis() - tOpen
             log("engine open: $engineOpenMs ms (candidate=moss, threads=$THREADS)")
-            log("builtin voices: ${engine.allVoiceNames} — chose '${engine.voiceName}' " +
-                "(first English group entry, Female preferred to match the Kokoro af_heart baseline)")
+            log(
+                "builtin voices: ${engine.allVoiceNames} — chose '${engine.voiceName}' " +
+                    "(first English group entry, Female preferred to match the Kokoro af_heart baseline)",
+            )
 
             val thermal = ThermalProbe(context, TAG)
             thermal.start()
@@ -61,9 +70,10 @@ class MossBenchmarkRunner(private val context: Context) {
             var rtfCount = 0
             for (entry in entries) {
                 var synthesis: MossEngine.Synthesis? = null
-                val millis = measureTimeMillis {
-                    synthesis = engine.synthesize(entry.tokens)
-                }
+                val millis =
+                    measureTimeMillis {
+                        synthesis = engine.synthesize(entry.tokens)
+                    }
                 val result = requireNotNull(synthesis)
                 val seconds = result.pcm.size / 2.0 / engine.sampleRate
                 var peak = 0.0f
@@ -79,27 +89,31 @@ class MossBenchmarkRunner(private val context: Context) {
                     rtfSum += rtf
                     rtfCount++
                 }
-                rowsJson.put(JSONObject()
-                    .put("id", entry.id)
-                    .put("language", entry.lang)
-                    .put("voice", engine.voiceName)
-                    .put("text_tokens", entry.tokens.size)
-                    .put("prefill_ms", result.timings.prefillMs)
-                    .put("decode_ms", result.timings.decodeMs)
-                    .put("codec_ms", result.timings.codecMs)
-                    .put("synth_ms", millis)
-                    .put("generated_frames", result.generatedFrames)
-                    .put("truncated", result.truncated)
-                    .put("audio_seconds", seconds)
-                    .put("rtf", rtf)
-                    .put("samples", result.pcm.size)
-                    .put("peak_abs", peak)
-                    .put("rms", rms)
-                    .put("finite", finite))
-                log("run 1 [${entry.id}]: ${"%.2f".format(seconds)}s audio in $millis ms " +
-                    "(prefill=${result.timings.prefillMs} decode=${result.timings.decodeMs} " +
-                    "codec=${result.timings.codecMs}), RTF=${"%.3f".format(rtf)}, " +
-                    "frames=${result.generatedFrames}${if (result.truncated) " TRUNCATED" else ""}")
+                rowsJson.put(
+                    JSONObject()
+                        .put("id", entry.id)
+                        .put("language", entry.lang)
+                        .put("voice", engine.voiceName)
+                        .put("text_tokens", entry.tokens.size)
+                        .put("prefill_ms", result.timings.prefillMs)
+                        .put("decode_ms", result.timings.decodeMs)
+                        .put("codec_ms", result.timings.codecMs)
+                        .put("synth_ms", millis)
+                        .put("generated_frames", result.generatedFrames)
+                        .put("truncated", result.truncated)
+                        .put("audio_seconds", seconds)
+                        .put("rtf", rtf)
+                        .put("samples", result.pcm.size)
+                        .put("peak_abs", peak)
+                        .put("rms", rms)
+                        .put("finite", finite),
+                )
+                log(
+                    "run 1 [${entry.id}]: ${"%.2f".format(seconds)}s audio in $millis ms " +
+                        "(prefill=${result.timings.prefillMs} decode=${result.timings.decodeMs} " +
+                        "codec=${result.timings.codecMs}), RTF=${"%.3f".format(rtf)}, " +
+                        "frames=${result.generatedFrames}${if (result.truncated) " TRUNCATED" else ""}",
+                )
                 Wav.write(File(outDir, "d3_moss_run1_${entry.id}.wav"), result.pcm, engine.sampleRate)
             }
             thermal.stop()
@@ -124,8 +138,10 @@ class MossBenchmarkRunner(private val context: Context) {
             results.put("engine_open_ms", engineOpenMs)
             results.put("tokenization", "excluded (host sentencepiece ids in corpus)")
             engine.close()
-            log("corpus avg RTF (non-truncated): ${if (rtfCount > 0) "%.3f".format(rtfSum / rtfCount) else "n/a"} " +
-                "over $rtfCount entries")
+            log(
+                "corpus avg RTF (non-truncated): ${if (rtfCount > 0) "%.3f".format(rtfSum / rtfCount) else "n/a"} " +
+                    "over $rtfCount entries",
+            )
             log("VmHWM: ${readVmHwm()} kB, totalPss: ${mem.totalPss} kB")
             log("DONE (candidate=moss)")
             results
@@ -137,7 +153,11 @@ class MossBenchmarkRunner(private val context: Context) {
         }
     }
 
-    private class Entry(val id: String, val lang: String, val tokens: IntArray)
+    private class Entry(
+        val id: String,
+        val lang: String,
+        val tokens: IntArray,
+    )
 
     /**
      * Loads `d3_corpus.tsv` (`id \t lang \t raw_text \t kokoro_phonemes \t
@@ -151,7 +171,9 @@ class MossBenchmarkRunner(private val context: Context) {
             if (index == 0 || line.isBlank()) continue
             val parts = line.split('\t')
             if (parts.size != 6) continue
-            val id = parts[0]; val lang = parts[1]; val moss = parts[5]
+            val id = parts[0]
+            val lang = parts[1]
+            val moss = parts[5]
             if (moss.isBlank()) {
                 android.util.Log.d(TAG, "SKIP $id: no moss_token_ids")
                 continue
