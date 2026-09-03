@@ -355,6 +355,12 @@ and the SM8850 CPU baseline is already RTF 0.43–0.66 vs the S22's 1.17–1.19 
 the Gen-5 CPU alone retires live-synthesis lag with ~2× headroom. Result
 JSONs: `docs/prints/qnn/`. Re-open only as a battery/thermal play, and only
 with a static-shape Kokoro re-export (Slices folded, fixed windows).
+Prior art for that export exists for Apple ANE — `laishere/kokoro-coreml`
+(Apache-2.0): 7-stage split, pinned frame counts, fp16 mainline with fp32
+phase-critical tail, dual-output graph anchor for the vocoder; 17× realtime on
+iPhone 16 Pro. No QNN/Hexagon equivalent is published anywhere (AI Hub, HF,
+GitHub swept 2026-09-03); that port is the concrete blueprint if the
+battery/thermal case ever justifies the work.
 
 **Candela-derived additions (2026-08-31, owner review):**
 

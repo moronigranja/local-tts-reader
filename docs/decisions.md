@@ -79,6 +79,25 @@ SLOWER than fp32 (RTF 1.07–1.41 vs 0.43–0.66) — QDQ overhead loses on this
 SoC, closing the quantization angle for Kokoro on strong devices entirely.
 The single remaining NPU path stays the static-shape re-export.
 
+**Prior-art sweep (2026-09-03):** no ready-made static-shape/QNN Kokoro export
+exists — Qualcomm AI Hub has no Kokoro at all; the one "NPU-quantized" HF repo
+(magicunicorn) targets AMD Ryzen-AI XDNA, not Hexagon; taylorchu's optimized
+exports and kokoro-onnx/sherpa releases are all dynamic-shape CPU/GPU builds.
+The equivalent work EXISTS for Apple ANE, which has the same static-shape
+constraint: **laishere/kokoro-coreml** (Apache-2.0, active) splits the model
+into 7 stage models with pinned dimensions (`--max-frames`, fp16 mainline),
+keeps phase-critical stages (SineGen cumsum/sin, iSTFT tail) in fp32 off-accel,
+solves the vocoder fp16-accumulation problem with a dual-output graph anchor,
+and reports 25× realtime on M4 / 17× on iPhone 16 Pro. That repo is the
+transferable blueprint for a Hexagon export: same stage-splitting (our
+`StridedSlice`/alignment ops become their own static graph), same fp16-main +
+fp32-tail precision surgery, then ORT-QNN AOT to a per-SoC context binary.
+Why nobody has done it for Hexagon yet: the kokoro-onnx ecosystem is CPU-first,
+the from-app QNN path only became installable this year (plugin EP, Aug 2026)
+and the vendor skel/version coupling is fragile (fastrpc#379), and Android
+flagship CPUs already run Kokoro realtime — the NPU's only remaining payoff is
+battery/thermal on long sessions, which no public project has measured.
+
 ## 114. Phase J — offline NMT spike measured; small100 int8 adopted for translate-then-read (2026-09-02)
 
 Roadmap Phase J (promoted 2026-09-02 from the "Later" translation row, decisions
