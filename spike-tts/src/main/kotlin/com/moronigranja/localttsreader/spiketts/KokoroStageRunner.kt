@@ -23,10 +23,12 @@ import kotlin.math.abs
  *   text_encoder (CPU; LSTM) -> duration[512], d[1,640,512], t_en[1,512,512]
  *   host alignment (Kotlin gather, bit-exact to common.host_alignment)
  *     -> en[1,640,T_a], asr[1,512,T_a], EOS-replicate-padded to 1344
- *   prosody (QNN?) en_pad + style_s -> F0[1,2688], N[1,2688]
+ *   prosody (QNN ctx) en_pad + style_s -> F0[1,2688], N[1,2688]
  *   noise (CPU only; Random ops) F0 + style_timbre -> x_source_0/1 at pin
- *   vocoder fp16 (QNN?) asr_pad + F0 + N + x_sources + style_timbre
- *     -> x_pre[1,128,161281] + anchor
+ *     (x_source_1 = x_pre = 120*T_a+1; the dims are the model's, verified vs
+ *     the onnx graph)
+ *   vocoder fp16 (CPU; AOT compile OOMs on v69, decision #12) asr_pad + F0 + N
+ *     + x_sources + style_timbre -> x_pre[1,128,161281] + anchor
  *   tail (CPU; ConvTranspose iSTFT) x_pre -> waveform[806400]
  *
  * Offload verdict per stage: QNN leg runs AND (max_abs_diff > 0 or faster
@@ -64,6 +66,32 @@ class KokoroStageRunner(
 
     private fun open(name: String, qnn: Boolean): OrtSession =
         env.createSession(File(stageDir, "$name.onnx").absolutePath, stageOptions(qnn))
+
+    /**
+     * Opens a precompiled QNN AOT context (the EPContext wrapper written by
+     * KokoroAotCompileTest) instead of JIT-compiling the ONNX. Returns null
+     * when no context exists for the stage. Loaded without ep.context_enable /
+     * ep.context_file_path — the wrapper embeds the context path; opening it
+     * reloads the cached HTP binary, which is the AOT payoff (JIT opens were
+     * minutes-to-OOM; a context reload is milliseconds).
+     */
+    private fun openContext(stage: String): OrtSession? {
+        val ctx = File(File(context.filesDir, "models"), "contexts-${platform()}/$stage.context.bin")
+        if (!ctx.isFile) return null
+        val options = OrtSession.SessionOptions().apply {
+            setOptimizationLevel(OrtSession.SessionOptions.OptLevel.ALL_OPT)
+            KokoroBenchmarkRunner.QnnEp.install(this)
+        }
+        return env.createSession(ctx.absolutePath, options)
+    }
+
+    /** Platform codename → directory label, mirroring QnnEp.SOC_MODELS. */
+    private fun platform(): String = try {
+        val get = Class.forName("android.os.SystemProperties").getMethod("get", String::class.java)
+        get.invoke(null, "ro.board.platform") as? String ?: Build.HARDWARE
+    } catch (_: Throwable) {
+        Build.HARDWARE
+    }
     /** FloatArray for fp32 outputs, LongArray for int64 outputs (duration). */
     private fun runStage(
         session: OrtSession,
@@ -233,7 +261,13 @@ class KokoroStageRunner(
                         stagesJson.put(JSONObject().put("stage", PROSODY).put("cpu_ms", ms))
                         log("prosody cpu ${ms}ms")
                     }
-                    open(PROSODY, qnn = true).use { s ->
+                    // Prefer the precompiled AOT context (ms reload) over a JIT
+                    // compile (minutes-to-OOM). Time createSession so the AOT
+                    // open cost is measured on the same session we run with.
+                    val qnnT0 = System.currentTimeMillis()
+                    val qnnCtx = openContext(PROSODY)
+                    val qnnOpenMs = if (qnnCtx != null) (System.currentTimeMillis() - qnnT0) else -1
+                    (qnnCtx ?: open(PROSODY, qnn = true)).use { s ->
                         val t0 = System.currentTimeMillis()
                         val outs = runStage(s, mapOf(
                             "/MatMul_output_0" to tensor(env, en!!, longArrayOf(1, 640, TA_PIN.toLong())),
@@ -242,8 +276,10 @@ class KokoroStageRunner(
                         val ms = System.currentTimeMillis() - t0
                         val (peak, mean) = diff(f0Cpu!!, outs[0] as FloatArray)
                         stagesJson.put(JSONObject().put("stage", PROSODY).put("qnn_ms", ms)
+                            .put("qnn_open_ms", qnnOpenMs ?: -1)
+                            .put("qnn_ctx", qnnCtx != null)
                             .put("max_abs_diff", peak.toDouble()).put("mean_abs_diff", mean.toDouble()))
-                        log("prosody qnn ${ms}ms diff peak=$peak mean=$mean")
+                        log("prosody qnn ${if (qnnCtx != null) "ctx" else "jit"} open=${qnnOpenMs ?: -1}ms run=${ms}ms diff peak=$peak mean=$mean")
                     }
                 }.onFailure { log("prosody leg issue: $it") }
 
@@ -274,7 +310,7 @@ class KokoroStageRunner(
                             "/If_output_0" to tensor(env, f0Cpu!!, longArrayOf(1, (TA_PIN * 2).toLong())),
                             "/If_1_output_0" to tensor(env, nCpu!!, longArrayOf(1, (TA_PIN * 2).toLong())),
                             "/decoder/generator/noise_res.0/Add_8_output_0" to tensor(env, xs0!!, longArrayOf(1, 256, (TA_PIN * 20).toLong())),
-                            "/decoder/generator/noise_res.1/Add_8_output_0" to tensor(env, xs1!!, longArrayOf(1, 128, (TA_PIN * 60 + 1).toLong())),
+                            "/decoder/generator/noise_res.1/Add_8_output_0" to tensor(env, xs1!!, longArrayOf(1, 128, (TA_PIN * 120 + 1).toLong())),
                             "/Slice_2_output_0" to tensor(env, styleTimbre, longArrayOf(1, 128)),
                         ))
                         val ms = System.currentTimeMillis() - t0
@@ -282,21 +318,28 @@ class KokoroStageRunner(
                         stagesJson.put(JSONObject().put("stage", VOCODER).put("cpu_ms", ms))
                         log("vocoder cpu ${ms}ms")
                     }
-                    open(VOCODER, qnn = true).use { s ->
-                        val t0 = System.currentTimeMillis()
-                        val outs = runStage(s, mapOf(
-                            "/MatMul_1_output_0" to tensor(env, asr!!, longArrayOf(1, 512, TA_PIN.toLong())),
-                            "/If_output_0" to tensor(env, f0Cpu!!, longArrayOf(1, (TA_PIN * 2).toLong())),
-                            "/If_1_output_0" to tensor(env, nCpu!!, longArrayOf(1, (TA_PIN * 2).toLong())),
-                            "/decoder/generator/noise_res.0/Add_8_output_0" to tensor(env, xs0!!, longArrayOf(1, 256, (TA_PIN * 20).toLong())),
-                            "/decoder/generator/noise_res.1/Add_8_output_0" to tensor(env, xs1!!, longArrayOf(1, 128, (TA_PIN * 60 + 1).toLong())),
-                            "/Slice_2_output_0" to tensor(env, styleTimbre, longArrayOf(1, 128)),
-                        ))
-                        val ms = System.currentTimeMillis() - t0
-                        val (peak, mean) = diff(xPreCpu!!, outs[0] as FloatArray)
-                        stagesJson.put(JSONObject().put("stage", VOCODER).put("qnn_ms", ms)
-                            .put("max_abs_diff", peak.toDouble()).put("mean_abs_diff", mean.toDouble()))
-                        log("vocoder qnn ${ms}ms diff peak=$peak mean=$mean")
+                    // No AOT context for the vocoder (on-device compile OOMs on
+                    // v69, decision #12); a JIT open would OOM the whole run.
+                    val vocCtx = openContext(VOCODER)
+                    if (vocCtx == null) {
+                        log("vocoder qnn SKIP: no AOT context (compile OOMs on v69); staying CPU")
+                    } else {
+                        vocCtx.use { s ->
+                            val t0 = System.currentTimeMillis()
+                            val outs = runStage(s, mapOf(
+                                "/MatMul_1_output_0" to tensor(env, asr!!, longArrayOf(1, 512, TA_PIN.toLong())),
+                                "/If_output_0" to tensor(env, f0Cpu!!, longArrayOf(1, (TA_PIN * 2).toLong())),
+                                "/If_1_output_0" to tensor(env, nCpu!!, longArrayOf(1, (TA_PIN * 2).toLong())),
+                                "/decoder/generator/noise_res.0/Add_8_output_0" to tensor(env, xs0!!, longArrayOf(1, 256, (TA_PIN * 20).toLong())),
+                                "/decoder/generator/noise_res.1/Add_8_output_0" to tensor(env, xs1!!, longArrayOf(1, 128, (TA_PIN * 120 + 1).toLong())),
+                                "/Slice_2_output_0" to tensor(env, styleTimbre, longArrayOf(1, 128)),
+                            ))
+                            val ms = System.currentTimeMillis() - t0
+                            val (peak, mean) = diff(xPreCpu!!, outs[0] as FloatArray)
+                            stagesJson.put(JSONObject().put("stage", VOCODER).put("qnn_ms", ms)
+                                .put("max_abs_diff", peak.toDouble()).put("mean_abs_diff", mean.toDouble()))
+                            log("vocoder qnn ctx ${ms}ms diff peak=$peak mean=$mean")
+                        }
                     }
                 }.onFailure { log("vocoder leg issue: $it") }
 
@@ -309,7 +352,7 @@ class KokoroStageRunner(
                     open(TAIL, qnn = false).use { s ->
                         val t0 = System.currentTimeMillis()
                         val outs = runStage(s, mapOf(
-                            "/decoder/generator/LeakyRelu_2_output_0" to tensor(env, xPreCpu!!, longArrayOf(1, 128, (TA_PIN * 60 + 1).toLong())),
+                            "/decoder/generator/LeakyRelu_2_output_0" to tensor(env, xPreCpu!!, longArrayOf(1, 128, (TA_PIN * 120 + 1).toLong())),
                         ))
                         val ms = System.currentTimeMillis() - t0
                         val wave = outs[0] as FloatArray

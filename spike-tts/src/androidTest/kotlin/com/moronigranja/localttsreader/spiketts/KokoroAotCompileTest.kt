@@ -71,7 +71,7 @@ class KokoroAotCompileTest {
                 "/decoder/generator/noise_res.0/Add_8_output_0" to OnnxTensor.createTensor(
                     env, FloatBuffer.wrap(FloatArray(256 * 20 * TA_PIN)), longArrayOf(1, 256, (20 * TA_PIN).toLong())),
                 "/decoder/generator/noise_res.1/Add_8_output_0" to OnnxTensor.createTensor(
-                    env, FloatBuffer.wrap(FloatArray(128 * (60 * TA_PIN + 1))), longArrayOf(1, 128, (60 * TA_PIN + 1).toLong())),
+                    env, FloatBuffer.wrap(FloatArray(128 * (120 * TA_PIN + 1))), longArrayOf(1, 128, (120 * TA_PIN + 1).toLong())),
                 "/Slice_2_output_0" to OnnxTensor.createTensor(
                     env, FloatBuffer.wrap(FloatArray(128)), longArrayOf(1, 128)),
             )
@@ -94,6 +94,10 @@ class KokoroAotCompileTest {
         val stages = if (File(stageDir, "vocoder-fp32.onnx").isFile)
             listOf("prosody", "vocoder", "vocoder-fp32") else listOf("prosody", "vocoder")
         for (stage in stages) {
+            if (File(outDir, "$stage.context.bin").isFile) {
+                log("aot $stage: context exists, skip")
+                continue
+            }
             try {
                 compileStage(env, stageDir, outDir, stage, log)
             } catch (e: Throwable) {
