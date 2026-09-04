@@ -85,7 +85,7 @@ class KokoroBenchmarkRunner(
      * enables the HTP (NPU) backend. Unsupported ops fall back to CPU per
      * subgraph; a failed graph build surfaces as candidate-unavailable.
      */
-    private object QnnEp {
+    internal object QnnEp {
         private var registered = false
 
         /** App native lib dir; parent of libQnnHtp.so → drives ADSP_LIBRARY_PATH. */
@@ -112,7 +112,10 @@ class KokoroBenchmarkRunner(
                 null
             }
 
-        fun install(options: OrtSession.SessionOptions) {
+        fun install(
+            options: OrtSession.SessionOptions,
+            extra: Map<String, String> = emptyMap(),
+        ) {
             val env = OrtEnvironment.getEnvironment()
             if (!registered) {
                 // Trivial constants from the plugin AAR (ai.onnxruntime.qnnpluginep).
@@ -124,11 +127,11 @@ class KokoroBenchmarkRunner(
             // dir (empty otherwise → HTP device create fails; onnxruntime-qnn#715,
             // qualcomm/fastrpc#379).
             val nativeLibDir = checkNotNull(libDir) { "native lib dir not initialized" }
-            val providerOptions =
-                mutableMapOf(
-                    "backend_path" to "$nativeLibDir/libQnnHtp.so",
-                )
+            val providerOptions = mutableMapOf(
+                "backend_path" to "$nativeLibDir/libQnnHtp.so",
+            )
             socModel()?.let { providerOptions["soc_model"] = it }
+            providerOptions.putAll(extra)
             options.addExecutionProvider(devices, providerOptions)
         }
     }
