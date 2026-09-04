@@ -6,6 +6,7 @@ import ai.onnxruntime.OrtEnvironment
 import ai.onnxruntime.OrtSession
 import android.content.Context
 import android.os.Build
+import android.os.Debug
 import com.moronigranja.localttsreader.tts.kokoro.KokoroVoiceBank
 import com.moronigranja.localttsreader.tts.kokoro.KokoroVocabulary
 import org.json.JSONArray
@@ -376,6 +377,177 @@ class KokoroStageRunner(
             allOk
         } catch (e: Throwable) {
             log("stage pipeline unavailable: $e")
+            false
+        }
+    }
+
+    /**
+     * P5 verdict loop: runs the pinned chain repeatedly for [durationMs] on ONE
+     * leg — prosody cpu ("cpu") or prosody HTP-context ("htp"; the rest of the
+     * chain is CPU either way, the vocoder has no context per decision #12) —
+     * accumulating per-window wall ms, RTF (window = 806400 samples = 33.6s)
+     * and peak PSS (Debug.getPss). Writes kokoro_p5_<leg>.json; the shell takes
+     * dumpsys batterystats deltas around each run for the power comparison.
+     */
+    fun runSustained(leg: String, durationMs: Long, log: (String) -> Unit): Boolean {
+        return try {
+            require(leg == "cpu" || leg == "htp") { "leg must be cpu|htp" }
+            val prosodyHtp = leg == "htp"
+            val vocab = KokoroVocabulary.parse(File(stageDir, "kokoro_config.json").readText())
+            val voices = KokoroVoiceBank.load(voicesFile)
+            val corpus = corpusFile.readLines().mapNotNull { l ->
+                val p = l.split('\t'); if (p.size == 3) p else null
+            }
+            if (prosodyHtp && !File(File(context.filesDir, "models"), "contexts-${platform()}/prosody.context.bin").isFile) {
+                throw IllegalStateException("no prosody AOT context staged for htp leg")
+            }
+            log("p5 $leg start: ${Build.MANUFACTURER} ${Build.MODEL}, duration ${durationMs / 1000}s")
+
+            val tStart = System.currentTimeMillis()
+            val windows = JSONArray()
+            var peakPssKb = 0L
+            var idx = 0
+            var fail = 0
+            while (System.currentTimeMillis() - tStart < durationMs) {
+                for ((text, language, phonemes) in corpus) {
+                    if (System.currentTimeMillis() - tStart >= durationMs) break
+                    val voice = VOICES[language] ?: continue
+                    val tWin0 = System.currentTimeMillis()
+                    var teMs = 0L; var proMs = 0L; var proOpenMs = 0L
+                    var noiseMs = 0L; var vocMs = 0L; var tailMs = 0L
+                    try {
+                        val styleRow = voices.styleFor(voice, WINDOW)
+                            ?: throw IllegalStateException("unknown voice $voice")
+                        val styleS = styleRow.copyOfRange(128, 256)
+                        val styleTimbre = styleRow.copyOfRange(0, 128)
+                        val ids = phonemes.mapNotNull { vocab[it] }.take(510).toIntArray()
+                        if (ids.isEmpty()) continue
+                        val idsPadded = LongArray(WINDOW)
+                        for (i in ids.indices) idsPadded[i + 1] = ids[i].toLong()
+
+                        var dOut: FloatArray? = null; var tEnOut: FloatArray? = null; var durOut: LongArray? = null
+                        var en: FloatArray? = null; var asr: FloatArray? = null
+                        var f0: FloatArray? = null; var n: FloatArray? = null
+                        var xs0: FloatArray? = null; var xs1: FloatArray? = null; var xPre: FloatArray? = null
+
+                        open(TEXT_ENCODER, qnn = false).use { s ->
+                            val t0 = System.currentTimeMillis()
+                            val outs = runStage(s, mapOf(
+                                "input_ids" to OnnxTensor.createTensor(env, LongBuffer.wrap(idsPadded), longArrayOf(1, WINDOW.toLong())),
+                                "style" to tensor(env, styleRow, longArrayOf(1, 256)),
+                                "speed" to tensor(env, floatArrayOf(1.0f), longArrayOf(1)),
+                            ))
+                            teMs = System.currentTimeMillis() - t0
+                            durOut = outs[0] as LongArray; dOut = outs[1] as FloatArray; tEnOut = outs[2] as FloatArray
+                        }
+                        val (enReal, asrReal) = align(dOut!!, tEnOut!!, durOut!!)
+                        en = padReplicate(enReal, 640, durOut!!.sum().toInt())
+                        asr = padReplicate(asrReal, 512, durOut!!.sum().toInt())
+                        System.gc()
+
+                        // prosody: the leg under test
+                        if (prosodyHtp) {
+                            val tOpen = System.currentTimeMillis()
+                            val ctx = openContext(PROSODY)!!
+                            proOpenMs = System.currentTimeMillis() - tOpen
+                            ctx.use { s ->
+                                val t0 = System.currentTimeMillis()
+                                val outs = runStage(s, mapOf(
+                                    "/MatMul_output_0" to tensor(env, en!!, longArrayOf(1, 640, TA_PIN.toLong())),
+                                    "/Slice_output_0" to tensor(env, styleS, longArrayOf(1, 128)),
+                                ))
+                                proMs = System.currentTimeMillis() - t0
+                                f0 = outs[0] as FloatArray; n = outs[1] as FloatArray
+                            }
+                        } else {
+                            open(PROSODY, qnn = false).use { s ->
+                                val t0 = System.currentTimeMillis()
+                                val outs = runStage(s, mapOf(
+                                    "/MatMul_output_0" to tensor(env, en!!, longArrayOf(1, 640, TA_PIN.toLong())),
+                                    "/Slice_output_0" to tensor(env, styleS, longArrayOf(1, 128)),
+                                ))
+                                proMs = System.currentTimeMillis() - t0
+                                f0 = outs[0] as FloatArray; n = outs[1] as FloatArray
+                            }
+                        }
+
+                        open(NOISE, qnn = false).use { s ->
+                            val t0 = System.currentTimeMillis()
+                            val outs = runStage(s, mapOf(
+                                "/If_output_0" to tensor(env, f0!!, longArrayOf(1, (TA_PIN * 2).toLong())),
+                                "/Slice_2_output_0" to tensor(env, styleTimbre, longArrayOf(1, 128)),
+                            ))
+                            noiseMs = System.currentTimeMillis() - t0
+                            xs0 = outs[0] as FloatArray; xs1 = outs[1] as FloatArray
+                        }
+
+                        open(VOCODER, qnn = false).use { s ->
+                            val t0 = System.currentTimeMillis()
+                            val outs = runStage(s, mapOf(
+                                "/MatMul_1_output_0" to tensor(env, asr!!, longArrayOf(1, 512, TA_PIN.toLong())),
+                                "/If_output_0" to tensor(env, f0!!, longArrayOf(1, (TA_PIN * 2).toLong())),
+                                "/If_1_output_0" to tensor(env, n!!, longArrayOf(1, (TA_PIN * 2).toLong())),
+                                "/decoder/generator/noise_res.0/Add_8_output_0" to tensor(env, xs0!!, longArrayOf(1, 256, (TA_PIN * 20).toLong())),
+                                "/decoder/generator/noise_res.1/Add_8_output_0" to tensor(env, xs1!!, longArrayOf(1, 128, (TA_PIN * 120 + 1).toLong())),
+                                "/Slice_2_output_0" to tensor(env, styleTimbre, longArrayOf(1, 128)),
+                            ))
+                            vocMs = System.currentTimeMillis() - t0
+                            xPre = outs[0] as FloatArray
+                        }
+                        en = null; asr = null; System.gc()
+
+                        open(TAIL, qnn = false).use { s ->
+                            val t0 = System.currentTimeMillis()
+                            val outs = runStage(s, mapOf(
+                                "/decoder/generator/LeakyRelu_2_output_0" to tensor(env, xPre!!, longArrayOf(1, 128, (TA_PIN * 120 + 1).toLong())),
+                            ))
+                            tailMs = System.currentTimeMillis() - t0
+                        }
+                        xPre = null; System.gc()
+
+                        val totalMs = System.currentTimeMillis() - tWin0
+                        val pssKb = Debug.getPss()
+                        if (pssKb > peakPssKb) peakPssKb = pssKb
+                        val rtf = totalMs / 33600.0
+                        windows.put(JSONObject()
+                            .put("w", idx).put("lang", language)
+                            .put("total_ms", totalMs).put("rtf", rtf)
+                            .put("te_ms", teMs).put("pro_ms", proMs).put("pro_open_ms", proOpenMs)
+                            .put("noise_ms", noiseMs).put("voc_ms", vocMs).put("tail_ms", tailMs)
+                            .put("pss_kb", pssKb))
+                        log("p5 $leg w$idx $language wall=${totalMs}ms rtf=${"%.2f".format(rtf)} te=$teMs pro=$proMs(+${proOpenMs}o) noise=$noiseMs voc=$vocMs tail=$tailMs pss=${pssKb / 1024}MB")
+                        idx++
+                    } catch (e: Throwable) {
+                        fail++
+                        log("p5 $leg window FAILED: $e")
+                    }
+                }
+            }
+            val tEnd = System.currentTimeMillis()
+
+            var rtfSum = 0.0; var wallSum = 0L
+            for (i in 0 until windows.length()) {
+                rtfSum += windows.getJSONObject(i).getDouble("rtf")
+                wallSum += windows.getJSONObject(i).getLong("total_ms")
+            }
+            val nWin = windows.length()
+            val agg = JSONObject()
+                .put("leg", leg).put("windows", nWin).put("failures", fail)
+                .put("elapsed_ms", tEnd - tStart)
+                .put("mean_rtf", if (nWin > 0) rtfSum / nWin else -1.0)
+                .put("mean_wall_ms", if (nWin > 0) wallSum / nWin else -1)
+                .put("peak_pss_kb", peakPssKb)
+            val res = JSONObject()
+                .put("device", "${Build.MANUFACTURER} ${Build.MODEL}")
+                .put("pin", TA_PIN).put("leg", leg)
+                .put("start_epoch_ms", tStart).put("end_epoch_ms", tEnd)
+                .put("agg", agg).put("windows", windows)
+            val outDir = context.getExternalFilesDir(null) ?: context.filesDir
+            File(outDir, "kokoro_p5_$leg.json").writeText(res.toString(2))
+            log("p5 $leg done: windows=$nWin failures=$fail elapsed=${tEnd - tStart}ms mean_rtf=${"%.3f".format(agg.getDouble("mean_rtf"))} peak_pss=${peakPssKb / 1024}MB -> kokoro_p5_$leg.json")
+            nWin > 0
+        } catch (e: Throwable) {
+            log("p5 $leg unavailable: $e")
             false
         }
     }
