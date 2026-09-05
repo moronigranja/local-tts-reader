@@ -85,7 +85,8 @@ PlayPositionE2e, SharePipeline (text + image OCR), OCR smoke, RealEpubImportProb
 3. **Share-and-identify** — share text or a screenshot from your Kindle app; the app
    finds which book and passage it comes from (text directly, screenshots via on-device
    OCR) and offers "Listen here" — opening the book at that passage and starting
-   playback. Reader supports the flip side: tap the passage to replay from here.
+   playback. Reader supports the flip side: pressing Play starts from the top of
+   the current visible page; the middle double tap toggles the immersive chrome.
 4. **Settings** — voice picker with favorites, engine/voice/OCR-language pack
    downloads (explicit, resumable, SHA-verified), match threshold, theme
    (system/light/dark), OCR language selection.

@@ -411,7 +411,7 @@ advance/publish after navigation moved elsewhere (T4 and decisions #55).
 Possible outcomes include the wrong book appearing/playing, an audio loop operating on
 shared state replaced by another job, or foreground-service state no longer matching
 active playback. Similar races exist between repeated card taps, reader open plus a
-quick middle-tap play, share-target playback, and chapter opens.
+quick reader play (play-from-view), share-target playback, and chapter opens.
 
 The race is not limited to selecting books. `pausePlayer()` stops output and launches
 `active.pause(live)` asynchronously without the command lock. A Resume intent arriving

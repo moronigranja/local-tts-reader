@@ -719,8 +719,10 @@ output only.
 ### G2 — Paragraph context menu — promoted from ideas
 
 Long-press a rendered paragraph to expose **Play from here** and **Copy text**. Reuse the
-existing passage hit-testing and playback-position command; preserve middle-tap play
-and page-turn gesture discrimination.
+existing passage hit-testing and playback-position command; the middle double tap now
+toggles the immersive chrome and pressing Play starts from the visible page's top
+(decisions #122), so Play-from-here belongs to this menu. Page-turn gesture
+discrimination is preserved.
 
 Acceptance: the selected passage—not merely the current narrated passage—is copied or
 played, including when several passages share one page.

@@ -44,6 +44,8 @@ import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.MutableState
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -51,6 +53,7 @@ import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -62,6 +65,7 @@ import androidx.compose.ui.input.pointer.positionChange
 import androidx.compose.ui.input.pointer.positionChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalViewConfiguration
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
@@ -75,6 +79,7 @@ import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.moronigranja.localttsreader.player.PlaybackUiState
+import com.moronigranja.localttsreader.player.PlayerCommands
 import com.moronigranja.localttsreader.player.PlayerPhase
 import com.moronigranja.localttsreader.player.PlayerPosition
 import com.moronigranja.localttsreader.player.SleepTimer
@@ -98,9 +103,9 @@ import kotlin.math.ceil
  * start audio. The shared player card docks below (play/pause, ±30s seek,
  * chapter skip); sleep timer + undo-skip stay in the top bar.
  * Page gestures (horizontal swipe or side-zone taps turn pages; a middle
- * tap toggles the immersive chrome) and the bookmark menu (add + jump)
- * round it out. Follow turns the page with the ACTIVE sentence, not the
- * passage start.
+ * double tap toggles the immersive chrome) and the bookmark menu (add +
+ * jump) round it out. Follow turns the page with the ACTIVE sentence, not
+ * the passage start.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -175,6 +180,30 @@ fun ReaderScreen(
         }
     }
 
+    // Play starts from the top of the current visible page (item 3): the
+    // page-start passage, published by PaginatedChapter from the page's
+    // first line. Always the passage that BEGINS on the page, so follow
+    // never snaps the view back to that passage's earlier start page.
+    val pageStartPassage = remember { mutableIntStateOf(0) }
+    // Play-from-view is shared by BOTH play buttons (the docked card and the
+    // immersive overlay). The wrapper is remembered once, so it reads the
+    // page-start passage through [pageStartPassage] (fresh state, not the
+    // captured value); the ref indirection keeps the resume override current
+    // for the delegated [PlayerCommands].
+    val playFromView: () -> Unit = {
+        if (state.chapterPassages.isNotEmpty()) {
+            viewModel.playPosition(bookId, state.chapterIndex, pageStartPassage.value)
+        } else {
+            viewModel.resume()
+        }
+    }
+    val playFromViewRef = rememberUpdatedState(playFromView)
+    val readerCommands =
+        remember(viewModel) {
+            object : PlayerCommands by viewModel {
+                override fun resume() = playFromViewRef.value()
+            }
+        }
     Scaffold(
         topBar = {
             // Immersive: no top bar at all — the book-title overlay draws in
@@ -274,7 +303,7 @@ fun ReaderScreen(
         // the slim title/player overlays below take their place. The chrome
         // is held during the bar fade (barsSettled) so the body never
         // reflows under a half-faded system bar (top-cut follow-up).
-        bottomBar = { if (showChrome) PlayerCard(state, viewModel) },
+        bottomBar = { if (showChrome) PlayerCard(state, readerCommands) },
     ) { padding ->
         Box(modifier = Modifier.fillMaxSize()) {
             Column(
@@ -292,6 +321,7 @@ fun ReaderScreen(
                             state = state,
                             bookId = bookId,
                             viewModel = viewModel,
+                            pageStartPassage = pageStartPassage,
                             immersive = showOverlays,
                             onToggleImmersive = ::toggleImmersive,
                             modifier = Modifier.weight(1f),
@@ -329,7 +359,7 @@ fun ReaderScreen(
                             .padding(horizontal = AyvuSpacing.SM, vertical = AyvuSpacing.XS),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    IconButton(onClick = { if (playing) viewModel.pause() else viewModel.resume() }) {
+                    IconButton(onClick = { if (playing) viewModel.pause() else playFromView() }) {
                         Icon(
                             imageVector = if (playing) Icons.Filled.Pause else Icons.Filled.PlayArrow,
                             contentDescription = if (playing) "Pause" else "Play",
@@ -402,17 +432,19 @@ private val PlaybackUiState.sleepLabel: String
  * chapter layout; pages are contiguous line ranges, so the rendered slice
  * re-wraps identically (greedy wrap breaks only depend on the line start).
  *
- * Gestures: horizontal swipe or side-zone taps turn pages; a middle tap
- * toggles the immersive chrome (both ways). Follow turns the page with the
- * ACTIVE sentence — a long paragraph narrated across a page break follows
- * by sentence, and a manual page turn holds follow back for a short grace
- * period before it resumes.
+ * Gestures: horizontal swipe or side-zone taps turn pages; a middle double
+ * tap toggles the immersive chrome (both ways). Follow turns the page with
+ * the ACTIVE sentence — a long paragraph narrated across a page break
+ * follows by sentence, and a manual page turn stops playback (item 4).
+ * Follow acts only when the (chapter, passage, active sentence) triple
+ * changes, so neither a chrome toggle nor a pause/turn can yank the page.
  */
 @Composable
 private fun PaginatedChapter(
     state: PlaybackUiState,
     bookId: String,
     viewModel: ReaderViewModel,
+    pageStartPassage: MutableState<Int>,
     immersive: Boolean = false,
     onToggleImmersive: () -> Unit = {},
     modifier: Modifier = Modifier,
@@ -433,13 +465,27 @@ private fun PaginatedChapter(
     val horizontalPadPx = with(density) { AyvuSpacing.LG.toPx() }.toInt()
     var page by remember(state.chapterIndex) { mutableIntStateOf(0) }
     var pressedPassage by remember { mutableStateOf<Int?>(null) }
-    // Manual-turn grace (item 3): when a hand turn happened, follow holds
-    // off until this + FOLLOW_GRACE_MS. Per-session, deliberately NOT
-    // rememberSaveable — a process death should not suppress follow.
-    var lastManualTurnAt by remember { mutableLongStateOf(0L) }
+    // Middle-zone double-tap detection (item 2): the first tap of a pair
+    // only records its time — a second tap inside the double-tap window
+    // toggles the immersive chrome. A single middle tap does nothing.
+    var lastMiddleTapAt by remember { mutableLongStateOf(0L) }
+    // Follow dedupe (item 1): both follow effects re-fire whenever their
+    // geometry keys (firstPageLines/fullPageLines/totalPages) change — the
+    // immersive toggle re-derives them. The dedupe key is the (chapter,
+    // passage, active sentence) triple: when it is unchanged the effects
+    // early-return BEFORE any snap, so a chrome toggle (or a pause that
+    // flips phase) never yanks the page back to the highlighted passage —
+    // the geometry-restore effect keeps the reading place instead. A manual
+    // page turn stops playback (item 4), so no grace timer is needed.
+    var lastFollowKey by remember { mutableStateOf<Triple<Int, Int, Int>?>(null) }
 
     BoxWithConstraints(modifier = modifier) {
         val viewportHeight = constraints.maxHeight
+        // Double-tap window for the immersive toggle (item 2): the platform
+        // timings come from the composition's ViewConfiguration — capture
+        // once here, they are stable for the session.
+        val doubleTapMinMs = LocalViewConfiguration.current.doubleTapMinTimeMillis
+        val doubleTapTimeoutMs = LocalViewConfiguration.current.doubleTapTimeoutMillis
         val pageWidth = (constraints.maxWidth - horizontalPadPx * 2).coerceAtLeast(1)
         val chapterTitle = state.chapters.getOrNull(state.chapterIndex).orEmpty()
         val chapterText =
@@ -571,6 +617,18 @@ private fun PaginatedChapter(
             remember(bodyLayout, passageOffsets, totalLines) {
                 passageOffsets.map { bodyLayout.getLineForOffset(it.coerceAtMost(maxOf(0, chapterText.length - 1))) }
             }
+        // The passage the current page starts at (item 3): the first passage
+        // whose start line lies on the page, or the passage containing the
+        // page's first line when the whole page sits inside one long
+        // paragraph (no passage starts on it). Published to the parent so
+        // the play action starts audio from the top of the visible page —
+        // always the passage that BEGINS here, so follow never snaps the
+        // view back to the passage's earlier start page.
+        val firstPassageOnPage =
+            passageStartLines.indexOfFirst { it in range.first..range.last }
+                .takeIf { it >= 0 }
+                ?: passageStartLines.indexOfLast { it <= range.first }.coerceAtLeast(0)
+        SideEffect { pageStartPassage.value = firstPassageOnPage }
 
         // The page holding the ACTIVE sentence's first char — ONE shared
         // source for both follow effects (item 3). Null when there is no
@@ -584,9 +642,12 @@ private fun PaginatedChapter(
         }
 
         // Playback turns the page when the ACTIVE SENTENCE leaves it
-        // (item 3). Manual turns hold follow back for FOLLOW_GRACE_MS — the
-        // sentence ticking forward right after a hand turn must not yank the
-        // page back.
+        // (item 3). The effect re-fires on every geometry change (the
+        // immersive toggle re-derives firstPageLines…) — dedupe on the
+        // (chapter, passage, active sentence) triple: an unchanged triple
+        // means the viewport only reflowed, and follow must not yank the
+        // page. The claim is taken only when this effect actually acts, so
+        // the paused effect below still runs on open/resume.
         LaunchedEffect(
             state.chapterIndex,
             state.passageIndex,
@@ -596,8 +657,10 @@ private fun PaginatedChapter(
             firstPageLines,
             fullPageLines,
         ) {
+            val key = Triple(state.chapterIndex, state.passageIndex, state.activeSentenceIndex)
+            if (key == lastFollowKey) return@LaunchedEffect
             if (state.phase == PlayerPhase.PLAYING || state.phase == PlayerPhase.LOADING) {
-                if (System.currentTimeMillis() - lastManualTurnAt < FOLLOW_GRACE_MS) return@LaunchedEffect
+                lastFollowKey = key
                 val target = activeSentencePage() ?: return@LaunchedEffect
                 if (target != page) page = target.coerceIn(0, totalPages - 1)
             }
@@ -606,7 +669,9 @@ private fun PaginatedChapter(
         // shows the presented passage's page, not page one — the backward turn
         // lands on the previous chapter's LAST passage, so its ending page is
         // what the reader must open at. Chapter no-ops (book edges) change no
-        // key here, so the page stays put.
+        // key here, so the page stays put. Shares the playing effect's dedupe:
+        // a pause or chrome-toggle re-measure keeps the triple, so the page
+        // must not move.
         LaunchedEffect(
             state.chapterIndex,
             state.passageIndex,
@@ -616,8 +681,9 @@ private fun PaginatedChapter(
             totalPages,
         ) {
             if (state.phase != PlayerPhase.PLAYING && state.phase != PlayerPhase.LOADING) {
-                // Follows immediately — it fires on pause/open, not while the
-                // user browses, so the grace period does not apply here.
+                val key = Triple(state.chapterIndex, state.passageIndex, state.activeSentenceIndex)
+                if (key == lastFollowKey) return@LaunchedEffect
+                lastFollowKey = key
                 val targetPage = activeSentencePage() ?: return@LaunchedEffect
                 if (targetPage != page) page = targetPage.coerceIn(0, totalPages - 1)
             }
@@ -654,6 +720,22 @@ private fun PaginatedChapter(
                 }
             }
 
+        // Phase read fresh inside the pointer handler (item 4): the
+        // pointerInput block does not restart when state.phase changes, so
+        // it must read the CURRENT phase through a rememberUpdatedState ref.
+        val phaseRef = rememberUpdatedState(state.phase)
+        // A manual page turn stops playback (item 4) — only the IN-CHAPTER
+        // paths call this; chapter-boundary turns go through openChapter,
+        // which stops playback on its own. Pausing re-fires the paused
+        // follow effect, which dedupes on the unchanged (chapter, passage,
+        // active sentence) triple — the page never yanks back, and no grace
+        // timer is needed.
+        fun stopPlaybackOnManualTurn() {
+            if (phaseRef.value == PlayerPhase.PLAYING || phaseRef.value == PlayerPhase.LOADING) {
+                viewModel.pause()
+            }
+        }
+
         Column(
             modifier =
                 Modifier
@@ -667,7 +749,7 @@ private fun PaginatedChapter(
                     .pointerInput(state.bookId, totalPages, state.chapterPassages, immersive) {
                         // Passage under a y coordinate — the middle-third tap
                         // mapping, shared by the press highlight and the
-                        // chrome-toggle tap.
+                        // chrome-toggle double tap.
                         val pageWidthPx = size.width / 3f
                         val swipePx = SWIPE_PAGE_THRESHOLD.toPx()
 
@@ -683,7 +765,7 @@ private fun PaginatedChapter(
                         awaitEachGesture {
                             val down = awaitFirstDown()
                             // Press feedback only for middle-zone touches — the
-                            // zone whose up-action toggles the chrome.
+                            // zone whose double tap toggles the chrome.
                             if (down.position.x >= pageWidthPx && down.position.x <= pageWidthPx * 2f) {
                                 pressedPassage = passageAt(down.position.y)
                             }
@@ -703,28 +785,47 @@ private fun PaginatedChapter(
                             pressedPassage = null
                             if (paged) {
                                 val delta = if (dragX < 0f) 1 else -1
-                                lastManualTurnAt = System.currentTimeMillis()
                                 when {
                                     page + delta < 0 -> viewModel.openChapter(bookId, -1)
                                     page + delta > totalPages - 1 -> viewModel.openChapter(bookId, +1)
-                                    else -> page = page + delta
+                                    else -> {
+                                        stopPlaybackOnManualTurn()
+                                        page = page + delta
+                                    }
                                 }
                             } else {
                                 val x = down.position.x
                                 when {
                                     x < pageWidthPx -> {
-                                        lastManualTurnAt = System.currentTimeMillis()
-                                        if (page <= 0) viewModel.openChapter(bookId, -1) else page = page - 1
+                                        if (page <= 0) {
+                                            viewModel.openChapter(bookId, -1)
+                                        } else {
+                                            stopPlaybackOnManualTurn()
+                                            page = page - 1
+                                        }
                                     }
                                     x > pageWidthPx * 2f -> {
-                                        lastManualTurnAt = System.currentTimeMillis()
-                                        if (page >= totalPages - 1) viewModel.openChapter(bookId, +1) else page = page + 1
+                                        if (page >= totalPages - 1) {
+                                            viewModel.openChapter(bookId, +1)
+                                        } else {
+                                            stopPlaybackOnManualTurn()
+                                            page = page + 1
+                                        }
                                     }
                                     else -> {
-                                        // Middle tap: toggle the immersive
-                                        // chrome (item 1). Play-from-here
-                                        // moves to the long-press menu (G2).
-                                        onToggleImmersive()
+                                        // Middle double tap: toggle the
+                                        // immersive chrome (item 2). A single
+                                        // middle tap does nothing; the press
+                                        // highlight above still gives
+                                        // feedback.
+                                        val now = System.currentTimeMillis()
+                                        val since = now - lastMiddleTapAt
+                                        if (since >= doubleTapMinMs && since <= doubleTapTimeoutMs) {
+                                            lastMiddleTapAt = 0L
+                                            onToggleImmersive()
+                                        } else {
+                                            lastMiddleTapAt = now
+                                        }
                                     }
                                 }
                             }
@@ -838,11 +939,6 @@ private tailrec fun Context.findActivity(): Activity? =
         is ContextWrapper -> baseContext.findActivity()
         else -> null
     }
-
-/** A manual page turn holds follow back for this long (item 3) — long
- * enough to read the turned page, short enough that playback does not
- * visibly drift off the spoken sentence. */
-private const val FOLLOW_GRACE_MS = 4_000L
 
 /** The system-bars hide/show fade duration — the chrome holds for this
  * long after a toggle so the body never reflows mid-fade (top-cut fix). */

@@ -76,7 +76,7 @@ re-binds), so a finished run leaves a trace.
 
 ## 122. Immersive reader chrome: overlay title + minimal player, reflow accepted (2026-09-04)
 
-Item 1: a middle tap toggles an immersive mode — system bars hide
+Item 1: a middle DOUBLE tap toggles an immersive mode — system bars hide
 (BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE, restored on exit/dispose/rotation),
 the top bar and the full PlayerCard drop, and two slim overlays take their
 place: the book title (labelLarge, centered, semi-transparent surface,
@@ -86,10 +86,11 @@ two-tone progress line + the item-4 passage indicator). Dropping the bottom
 card GROWS the body: pages re-derive on toggle (accepted reflow — more text
 per page), with the reading place preserved by re-deriving the page from the
 top visible line of the OLD page (geometry remembered across the toggle).
-Middle-tap-play ("listen from here", S3) is superseded: the middle tap now
-toggles chrome; play-from-here returns as G2's long-press menu. The
+Middle-tap-play ("listen from here", S3) is superseded: the middle DOUBLE tap
+now toggles chrome (a single middle tap does nothing); play-from-here
+returns as G2's long-press menu. The
 pressed-passage highlight stays (the three-way discrimination surface, G2).
-ReaderScreen's middle-tap doc comments updated in the same change.
+ReaderScreen's gesture doc comments updated in the same change.
 
 ## 121. Follow keys on the ACTIVE SENTENCE with a manual-turn grace period (2026-09-04)
 
@@ -99,10 +100,14 @@ passage ended. Follow now re-keys on the active sentence's line:
 `activeSentenceRange` → char offset → `getLineForOffset` →
 `TextPagination.pageOf`, extracted as one `activeSentencePage()` shared by
 both follow effects (PLAYING/LOADING and the paused-reposition path). A
-manual page turn (side tap or swipe) suppresses follow for
-`FOLLOW_GRACE_MS = 4 s` — a hand turn is not yanked back by the next
-sentence tick. The grace is per-session (`remember`, deliberately NOT
-rememberSaveable — a process death must not suppress follow).
+manual page turn now STOPS playback (item 4: in-chapter turns pause via the
+phase-ref'd gesture handler; chapter-boundary turns stop through
+`openChapter`), so no grace period is needed — after a hand turn the
+paused-follow effect sees the same (chapter, passage, active sentence)
+triple and dedupes, leaving the turned page alone. Both follow effects
+dedupe on that triple: a chrome toggle or rotation re-measures pagination
+and re-fires them, but an unchanged triple makes the restart a no-op, so the
+page never yanks back to the highlighted passage (item 1).
 
 ## 120. Book-wide passage indicator replaces page numbers (2026-09-04)
 
@@ -4007,8 +4012,10 @@ Seven small items from a live review pass on the S22 + the host:
   `require` (which would have crashed on sparse layouts). Titles match
   furniture by containment ("Copyright Notice"), not equality.
 - **Reader paging**: swipe (≥ 64 dp horizontal) or tap the left/right third
-  of the passage pages forward/backward at passage grain; the middle tap
-  still (re)starts at the current passage ("listen from here"). The system
+  of the passage pages forward/backward at passage grain; the middle DOUBLE
+  tap toggles the immersive chrome (a single middle tap does nothing, and
+  pressing Play always starts from the top of the visible page — decisions
+  #122). The system
   back gesture on the reader and settings returns to the library instead of
   exiting the app (`BackHandler` mirrors the top-bar arrows).
 - **Library read/listened progress bar**: fraction from the resume rows over
