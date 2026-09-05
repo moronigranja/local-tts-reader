@@ -2565,8 +2565,10 @@
         <error line="360" column="1" source="standard:final-newline" />
     </file>
     <file name="feature-player/src/main/kotlin/com/moronigranja/localttsreader/featureplayer/ui/ReaderScreen.kt">
-        <error line="105" column="5" source="standard:function-naming" />
-        <error line="387" column="13" source="standard:function-naming" />
+        <error line="107" column="5" source="standard:function-naming" />
+        <error line="126" column="5" source="standard:blank-line-before-declaration" />
+        <error line="126" column="5" source="standard:spacing-between-declarations-with-comments" />
+        <error line="412" column="13" source="standard:function-naming" />
     </file>
     <file name="feature-player/src/test/kotlin/com/moronigranja/localttsreader/featureplayer/playback/CachedBookMapperTest.kt">
         <error line="10" column="1" source="standard:no-empty-first-line-in-class-body" />

@@ -84,6 +84,8 @@ import com.moronigranja.localttsreader.ui.AyvuSpacing
 import com.moronigranja.localttsreader.ui.EmptyState
 import com.moronigranja.localttsreader.ui.PlayerCard
 import com.moronigranja.localttsreader.ui.SegmentedProgress
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlin.math.ceil
 
 /**
@@ -116,6 +118,27 @@ fun ReaderScreen(
     // Immersive chrome (item 1): rememberSaveable so rotation keeps the
     // choice; the system bar controller re-hides the bars on the new window.
     var immersive by rememberSaveable { mutableStateOf(false) }
+    // System-bar fade sync (item 1 follow-up): the insets hide/show is
+    // ANIMATED (~300ms), so switching the layout the same frame reflows the
+    // body under a half-faded bar — the occasional "top cut". Hold the
+    // chrome until the bars settle, in BOTH directions.
+    var barsSettled by remember { mutableStateOf(true) }
+    // The toggle flips [barsSettled] false SYNCHRONOUSLY (same frame as
+    // [immersive]) so the layout holds its pre-toggle chrome while the
+    // system bars fade; [showOverlays] (the full-bleed body) appears only
+    // once the bars have fully left — no mid-fade reflow under a half-faded
+    // bar (the top-cut fix). The effect re-settles after the fade; the
+    // controller hide/show runs off the same [immersive].
+    fun toggleImmersive() {
+        barsSettled = false
+        immersive = !immersive
+    }
+    LaunchedEffect(immersive) {
+        delay(SYSTEM_BARS_ANIM_MS)
+        barsSettled = true
+    }
+    val showChrome = !immersive || !barsSettled
+    val showOverlays = immersive && barsSettled
     // System bars: hide on enter, restore on exit/dispose. One swipe brings
     // them back transiently (BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE) — the
     // immersive page is never soft-locked without bars.
@@ -155,8 +178,8 @@ fun ReaderScreen(
     Scaffold(
         topBar = {
             // Immersive: no top bar at all — the book-title overlay draws in
-            // its place (item 1).
-            if (!immersive) {
+            // its place (item 1). Held during the bar fade (barsSettled).
+            if (showChrome) {
                 Column(
                     modifier =
                         Modifier
@@ -248,8 +271,10 @@ fun ReaderScreen(
         // stay in the top bar; the old transport row and footer are gone.
         // Immersive (item 1) drops BOTH bars: the empty top/bottom slots feed
         // no insets, so the body grows — the reflow is accepted (item 1) and
-        // the slim title/player overlays below take their place.
-        bottomBar = { if (!immersive) PlayerCard(state, viewModel) },
+        // the slim title/player overlays below take their place. The chrome
+        // is held during the bar fade (barsSettled) so the body never
+        // reflows under a half-faded system bar (top-cut follow-up).
+        bottomBar = { if (showChrome) PlayerCard(state, viewModel) },
     ) { padding ->
         Box(modifier = Modifier.fillMaxSize()) {
             Column(
@@ -267,13 +292,13 @@ fun ReaderScreen(
                             state = state,
                             bookId = bookId,
                             viewModel = viewModel,
-                            immersive = immersive,
-                            onToggleImmersive = { immersive = !immersive },
+                            immersive = showOverlays,
+                            onToggleImmersive = ::toggleImmersive,
                             modifier = Modifier.weight(1f),
                         )
                 }
             }
-            if (immersive) {
+            if (showOverlays) {
                 // Top overlay: book title drawn OVER the page — semi-
                 // transparent surface, labelLarge centered, SM margin. It
                 // never feeds reservedPx: pagination is unchanged by it.
@@ -492,16 +517,18 @@ private fun PaginatedChapter(
         // Chrome-toggle reflow (item 1): dropping the bottom PlayerCard grows
         // the viewport, so pages re-derive. Keep the reading place by
         // re-deriving the page from the top visible line of the OLD page
-        // (geometry remembered across the toggle).
+        // (geometry remembered across the toggle). Runs when the settled
+        // layout actually changes (the toggle, or a rotation re-measure).
         var lastGeometry by remember { mutableStateOf<Pair<Int, Int>?>(null) }
         LaunchedEffect(immersive, viewportHeight) {
+            val current = firstPageLines to fullPageLines
             val old = lastGeometry
-            if (old != null && old != (firstPageLines to fullPageLines)) {
+            if (old != null && old != current) {
                 val line = TextPagination.pageStartLine(page, old.first, old.second)
-                val targetPage = TextPagination.pageOf(line, firstPageLines, fullPageLines)
+                val targetPage = TextPagination.pageOf(line, current.first, current.second)
                 if (targetPage != page) page = targetPage.coerceIn(0, totalPages - 1)
             }
-            lastGeometry = firstPageLines to fullPageLines
+            lastGeometry = current
         }
         val range =
             remember(page, totalLines, firstPageLines, fullPageLines) {
@@ -785,3 +812,7 @@ private tailrec fun Context.findActivity(): Activity? =
  * enough to read the turned page, short enough that playback does not
  * visibly drift off the spoken sentence. */
 private const val FOLLOW_GRACE_MS = 4_000L
+
+/** The system-bars hide/show fade duration — the chrome holds for this
+ * long after a toggle so the body never reflows mid-fade (top-cut fix). */
+private const val SYSTEM_BARS_ANIM_MS = 350L
