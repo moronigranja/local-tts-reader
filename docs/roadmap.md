@@ -187,6 +187,9 @@ allowing a voice change to restart active playback.
   resume, retry and checksum/network/storage failures that name the failed asset.
 - End at import-a-book, then first playback. A bundled public-domain sample remains an
   explicit review decision; onboarding must work without it.
+- **Device-verified (S22, 2026-09-05, decisions #119/#125):** PRIVACY → DOWNLOAD_PACKS →
+  CHOOSE_VOICE → IMPORT_BOOK walk on a clean install with all three packs downloading
+  live; voice selection after the packs are Ready (Preview works on the open engine).
 
 Acceptance: from clean app data on the S22 and HiBreak, a user can understand the data
 cost, choose a voice, download only required speech assets, import a supported book and

@@ -1,5 +1,39 @@
 # Decision log
 
+## 125. Immersive top-cut: the floating title overlay clipped tall first lines — reserve + offset fix (2026-09-05)
+
+Device finding (S22, immersive): the top of the text was cut "sometimes" —
+most visibly on a NEW CHAPTER page, where the LARGE chapter title's glyph
+tops were dimmed/hidden under the translucent book-title overlay band. Body
+text (smaller font) only grazes the band's edge and read fine, which is why
+it looked intermittent.
+
+Two distinct causes, both fixed:
+
+1. **Standing layout** — the plan's "the title overlay enters no
+   `reservedPx`" decision meant page content started at the body top, under
+   the floating band (band ≈ measured `labelLarge` title + 2 × SM padding,
+   ~105 px). Any first line whose glyphs rose into the band got its top
+   dimmed; the taller chapter title (page 0 of every chapter) was the worst.
+   Fix (5c0a7cb's follow-up, this entry): in immersive the body RESERVES the
+   measured band height in BOTH `linesPerPage` calls AND the body Column is
+   padded down by that same height, so the first rendered line (chapter
+   title or body) always starts below the band. The tap-mapping `passageAt`
+   offset gains the same inset and the pointer handler re-keys on
+   `immersive`. Regular mode keeps the floating overlay unchanged (no
+   reserve, no offset). Net immersive line count drops by ~3-4 lines/page —
+   accepted: correct text beats marginal density; the reflow place-keeping
+   re-clamps on toggle as before.
+2. **Transition** (already fixed in 5c0a7cb) — the animated system-bar
+   hide/show reflowed the body under a half-faded bar for a few frames; the
+   chrome now holds through `SYSTEM_BARS_ANIM_MS = 350` ms in both
+   directions (`showChrome`/`showOverlays`/`barsSettled`).
+
+Verified on-device (S22): chapter-start and mid-chapter pages in immersive —
+first body row now at y ≈ 200+ with a clear gap under the band; the large
+chapter heading fully rendered (y ≈ 146 vs previously peeking into the band
+at y ≈ 57-72); page turns and rotation unaffected.
+
 ## 124. Realtime capability measured from Preview, persisted tri-state (2026-09-04)
 
 Item 8 of the immersive plan (D2 family): NO dedicated probe step — a probe

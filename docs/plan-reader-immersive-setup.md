@@ -1,9 +1,12 @@
 # Plan — reader immersive mode, pagination & follow fixes, setup wizard, realtime probe
 
-Status: **planning** (not started). Owner-reviewed 2026-09-04; review-round
-decisions recorded under "Resolved up front".
-Companion to `roadmap.md`, `decisions.md`, `ideas.md`, `open-bugs.md`. This is a
-working plan; when items land they graduate into the decision ledger.
+Status: **landed** (executed 2026-09-04, committed f0f7cab; device pass S22
+2026-09-04/05; post-land fixes 5c0a7cb + the immersive top-overlay reserve).
+Owner-reviewed 2026-09-04; review-round decisions recorded under "Resolved up
+front". Companion to `roadmap.md`, `decisions.md`, `ideas.md`, `open-bugs.md`.
+Items landed and graduated into the decision ledger (#119-#125).
+Follow-ups recorded in open-bugs: E2E fixture geometry (pre-existing) and the
+immersive top-cut (fixed 2026-09-05, decisions #125).
 
 Eight items, grouped by surface.
 

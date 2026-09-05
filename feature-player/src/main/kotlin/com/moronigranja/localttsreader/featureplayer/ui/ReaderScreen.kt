@@ -509,10 +509,35 @@ private fun PaginatedChapter(
         // last page beats a clipped line.
         val bottomReservePx = indicatorReservedPx + lineHeightPx
 
+        // Immersive top reserve (top-cut follow-up): the book-title overlay
+        // is drawn OVER the page — a body line that starts under its
+        // translucent band has its glyph tops dimmed (the large chapter
+        // title on page 0 is the worst offender: its taller glyphs rise well
+        // into the band). In immersive the body reserves the MEASURED band
+        // height so no first line ever sits under it; regular mode keeps the
+        // floating overlay (pagination unchanged there).
+        val overlayTitleStyle = MaterialTheme.typography.labelLarge
+        val titleOverlayMeasuredPx =
+            remember(pageWidth, state.bookTitle) {
+                textMeasurer
+                    .measure(
+                        text = AnnotatedString(state.bookTitle.ifEmpty { "Reader" }),
+                        style = overlayTitleStyle,
+                        constraints = Constraints(maxWidth = pageWidth),
+                    ).size.height
+            }
+        val titleOverlayReservedPx =
+            if (immersive) titleOverlayMeasuredPx + 2 * with(density) { AyvuSpacing.SM.roundToPx() } else 0
+
         val totalLines = bodyLayout.lineCount
         val firstPageLines =
-            TextPagination.linesPerPage(viewportHeight, lineHeightPx, reservedPx = titleHeightPx + titleGapPx + bottomReservePx)
-        val fullPageLines = TextPagination.linesPerPage(viewportHeight, lineHeightPx, reservedPx = bottomReservePx)
+            TextPagination.linesPerPage(
+                viewportHeight,
+                lineHeightPx,
+                reservedPx = titleHeightPx + titleGapPx + bottomReservePx + titleOverlayReservedPx,
+            )
+        val fullPageLines =
+            TextPagination.linesPerPage(viewportHeight, lineHeightPx, reservedPx = bottomReservePx + titleOverlayReservedPx)
         val totalPages = TextPagination.totalPages(totalLines, firstPageLines, fullPageLines)
         // Chrome-toggle reflow (item 1): dropping the bottom PlayerCard grows
         // the viewport, so pages re-derive. Keep the reading place by
@@ -633,8 +658,13 @@ private fun PaginatedChapter(
             modifier =
                 Modifier
                     .fillMaxSize()
+                    // Immersive top-cut fix: the body content (page-0 chapter
+                    // title included) must RENDER below the floating title
+                    // overlay — the reserve math counts this offset, and the
+                    // padding places it.
+                    .padding(top = if (immersive) with(density) { titleOverlayReservedPx.toDp() } else 0.dp)
                     .clipToBounds()
-                    .pointerInput(state.bookId, totalPages, state.chapterPassages) {
+                    .pointerInput(state.bookId, totalPages, state.chapterPassages, immersive) {
                         // Passage under a y coordinate — the middle-third tap
                         // mapping, shared by the press highlight and the
                         // chrome-toggle tap.
@@ -642,7 +672,8 @@ private fun PaginatedChapter(
                         val swipePx = SWIPE_PAGE_THRESHOLD.toPx()
 
                         fun passageAt(y: Float): Int? {
-                            val titleBlock = if (page <= 0) titleHeightPx + titleGapPx else 0
+                            val topInset = if (immersive) titleOverlayReservedPx else 0
+                            val titleBlock = (if (page <= 0) titleHeightPx + titleGapPx else 0) + topInset
                             val lineInPage = ((y - titleBlock).toInt() / lineHeightPx).coerceAtLeast(0)
                             val globalLine = range.first + lineInPage
                             return passageStartLines
