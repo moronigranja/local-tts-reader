@@ -6,6 +6,21 @@ plugins {
     alias(libs.plugins.hilt.android)
 }
 
+// Release signing (decisions #123): the release keystore lives OUTSIDE the
+// repo (~/.android/ayvu-release.jks) and is wired through the gitignored
+// keystore.properties. CI's tag gate assembles the release build UNSIGNED on
+// purpose — signing is a local, manual publish step (tools/release.sh).
+val keystorePropertiesFile = rootProject.file("keystore.properties")
+val keystoreProperties: Map<String, String> =
+    if (keystorePropertiesFile.exists()) {
+        keystorePropertiesFile
+            .readLines()
+            .filter { it.contains('=') && !it.trimStart().startsWith("#") }
+            .associate { it.substringBefore('=').trim() to it.substringAfter('=').trim() }
+    } else {
+        emptyMap()
+    }
+
 android {
     namespace = "com.moronigranja.localttsreader"
     compileSdk = 36
@@ -31,11 +46,30 @@ android {
             keyAlias = "androiddebugkey"
             keyPassword = "android"
         }
+        // Present only when keystore.properties exists (local machines);
+        // CI/other clones just get the unsigned release build.
+        if (keystorePropertiesFile.exists()) {
+            create("release") {
+                storeFile = file(keystoreProperties.getValue("storeFile"))
+                storePassword = keystoreProperties.getValue("storePassword")
+                keyAlias = keystoreProperties.getValue("keyAlias")
+                keyPassword = keystoreProperties.getValue("keyPassword")
+            }
+        }
     }
 
     buildTypes {
         getByName("debug") {
             signingConfig = signingConfigs.getByName("debug")
+        }
+        getByName("release") {
+            // Unminified for 0.1.0 (decisions #123): R8 needs shrink rules +
+            // a device pass (Hilt/JNA/ONNX reflection); the first release
+            // trades size for a crash-proof runtime.
+            isMinifyEnabled = false
+            if (keystorePropertiesFile.exists()) {
+                signingConfig = signingConfigs.getByName("release")
+            }
         }
     }
 

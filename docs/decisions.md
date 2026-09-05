@@ -1,5 +1,46 @@
 # Decision log
 
+## 126. Release distribution: GitHub Releases APK, manual local signing (2026-09-05)
+
+First public distribution decision. The app publishes as a signed APK on
+GitHub Releases; there is no Play Store / F-Droid listing yet.
+
+- **Why GitHub Releases**: the repo and its pack distribution already live
+  there (Kokoro/espeak-ng/tessdata packs ship from the same project's
+  releases); no store account/listing/Data-Safety paperwork gates a first
+  release. A Play listing (AAB) can follow later without rework — the
+  versioning/signing below carries over.
+- **Signing stays manual and local** (the existing "release signing stays out
+  of the repo" stance): the release keystore lives at
+  `~/.android/ayvu-release.jks` (PKCS12, alias `ayvu`, 4096-bit RSA) and is
+  wired through `keystore.properties` (gitignored, chmod 600).
+  `app/build.gradle.kts` only adds the `release` signingConfig when that file
+  exists, so CI's `assemble-on-tag` gate still builds the release variant
+  (unsigned) in the toolchain image. `tools/release.sh` builds the signed
+  APK, verifies the signature with apksigner, and creates a DRAFT GitHub
+  release (`--publish` makes it live).
+- **Unminified for 0.1.0**: `isMinifyEnabled = false`. R8 would need shrink
+  rules + a device pass for the reflection-heavy stack (Hilt, JNA, ONNX
+  Runtime); the first release trades APK size for a crash-proof runtime.
+  Revisit with a shrink-rule + regression pass.
+- **Universal APK, no ABI splits**: one APK ships all ABIs
+  (arm64-v8a/armeabi-v7a/x86_64); ABI-split APKs are a later optimization if
+  size becomes a store constraint.
+- **Versioning**: release tag == `versionName`; `versionCode` increments per
+  release. The first release keeps `0.1.0`/`1` (no earlier public release to
+  bump over); installing over an existing DEBUG build requires uninstall
+  anyway (different signing key) — versionCode is irrelevant to that.
+- **Attribution**: `NOTICE.md` lists the bundled runtimes (ONNX Runtime MIT;
+  JNA Apache-2.0 OR LGPL-2.1-or-later; AndroidX/Kotlin Apache-2.0) and the
+  runtime-downloaded packs (Kokoro Apache-2.0, espeak-ng GPL-3.0-or-later
+  with toolchain exception, OCR tessdata Apache-2.0) — revisited each
+  release.
+- **Still open** (roadmap "Release readiness"): a full Play-listing package
+  (Data Safety, store privacy, screenshots/listing, AAB) is deferred until a
+  store listing is actually wanted; roadmap A8 (FS-side Room data deletion)
+  remains a device-investigation item — the quarantine+rebuild mitigation is
+  the ship-with behavior.
+
 ## 125. Immersive top-cut: the floating title overlay clipped tall first lines — reserve + offset fix (2026-09-05)
 
 Device finding (S22, immersive): the top of the text was cut "sometimes" —

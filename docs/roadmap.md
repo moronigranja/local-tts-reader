@@ -922,11 +922,21 @@ resource-exhaustion contract.
 
 ### Release readiness
 
-Review release signing/AAB production, versioning and install-over-existing-data,
-privacy policy and Play Data Safety declarations, GPL/model/voice attribution, store
-listing and screenshots, supported devices/ABIs, native crash symbols and shrink rules,
-and compatibility promises for future backup versions. Current `0.1.0`/version-code 1
-and debug signing are development configuration, not a store-release procedure.
+Distribution decision made (decisions #126, 2026-09-05): **GitHub Releases
+signed APK, manual local signing** — CI stays a gate (tag assemble only). The
+local signing pipeline ships: release keystore outside the repo, gitignored
+`keystore.properties`, unminified `release` buildType, `tools/release.sh`
+(build + apksigner verify + draft/publish release), `NOTICE.md` attribution.
+Remaining before the first public tag: write the release notes, run the
+on-device sanity pass on the SIGNED build, and press publish.
+
+Deferred until a store listing is actually wanted: AAB + Play Data Safety,
+store privacy policy, listing/screenshots, supported-devices declaration.
+Native crash symbols and shrink rules are moot while unminified; a shrink
+pass (R8 rules + device regression) is the gate for enabling minify. Backup
+versioning compatibility: `versionCode` increments per release; the backup
+codec carries its own version, so restore á-version compatibility promises
+stay codec-scoped.
 
 ### Narration-quality benchmark
 

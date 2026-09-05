@@ -26,6 +26,9 @@ local.properties
 *.keystore
 *.p12
 key*.pem
+# The release wiring file (decisions #123): points at the keystore OUTSIDE the
+# repo and holds its passwords — local only, per machine.
+keystore.properties
 # …with ONE exception: the pinned DEBUG keystore (decisions #45). Debug builds
 # must be signed identically across toolchains (docker images recreate AGP's
 # default keystore per container, breaking device re-installs); a debug key is

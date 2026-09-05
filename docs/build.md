@@ -313,6 +313,31 @@ tools/docker-build.sh assembleDebug      # full APK
   #41): `.github/workflows/ci.yml` runs the JVM suite + Docker Android build and
   unit tests on every push/PR and assembles debug+release on tags.
 
+## Release APK (manual sign + publish, decisions #126)
+
+Signing is local and manual; CI only gate-assembles the release variant
+unsigned on tags. First-time setup on a machine that will publish:
+
+```bash
+# 1. Create the release keystore OUTSIDE the repo (never commit it):
+keytool -genkeypair -v -keystore ~/.android/ayvu-release.jks -alias ayvu \
+  -keyalg RSA -keysize 4096 -validity 10000 -dname "CN=Ayvu, O=moronigranja, C=BR"
+# 2. Write keystore.properties at the repo root (gitignored; chmod 600):
+#    storeFile=/home/<you>/.android/ayvu-release.jks
+#    storePassword=<your-store-password>
+#    keyAlias=ayvu
+#    keyPassword=<your-key-password>
+# 3. Build + verify the signed APK (and optionally draft/publish the release):
+tools/release.sh                 # signed app-release.apk + signature check
+tools/release.sh --upload        # + draft GitHub release v0.1.0
+tools/release.sh --upload --publish --notes docs/release-notes-0.1.0.md
+```
+
+The `release` buildType is unminified for 0.1.0 (R8 needs shrink rules + a
+device pass for Hilt/JNA/ONNX; decisions #126). Upgrading over an installed
+DEBUG build requires uninstall first — the release key differs from the pinned
+debug key by design.
+
 ## App preview on a device (T4-2 player)
 
 The player's engine needs its packs + the espeak-ng bundle in the app's
