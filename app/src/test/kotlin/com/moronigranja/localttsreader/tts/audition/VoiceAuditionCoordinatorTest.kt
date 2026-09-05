@@ -88,6 +88,7 @@ class VoiceAuditionCoordinatorTest {
             commands = commands,
             appScope = this,
             ioDispatcher = kotlinx.coroutines.test.StandardTestDispatcher(testScheduler),
+            settings = settings,
         )
 
     private class FakeRuntime(

@@ -1083,6 +1083,16 @@ class PlaybackService : Service() {
             authors = book?.authors ?: emptyList(),
             chapterIndex = position?.chapterIndex ?: 0,
             passageIndex = position?.passageIndex ?: 0,
+            // Book-wide passage position (item 4): chapter prefix sums + the
+            // in-chapter index — the book is resident in memory (CR-9 reads
+            // book.chapters for the stitched reader), so no Room query and
+            // no cache. Chapters are ordered by index (model contract).
+            bookPassageIndex =
+                book?.let {
+                    it.chapters.filter { ch -> ch.index < (position?.chapterIndex ?: 0) }.sumOf { ch -> ch.passages.size } +
+                        (position?.passageIndex ?: 0)
+                } ?: 0,
+            bookPassageCount = book?.chapters?.sumOf { it.passages.size } ?: 0,
             passageText = position?.let { p -> book?.passageText(p.chapterIndex, p.passageIndex) } ?: "",
             passageDurationSeconds = segments.lastOrNull()?.endSeconds ?: 0.0,
             chapters = book?.chapters?.map { it.title.orEmpty() } ?: emptyList(),
@@ -1355,23 +1365,30 @@ class PlaybackService : Service() {
         pregenJob?.cancel() // superseded queue (speed/voice/book) — safe to drop
         pregenJob =
             scope.launch {
-                val startedAt = System.currentTimeMillis()
-                while (isActive) {
-                    if (deadlineMs != null && System.currentTimeMillis() - startedAt >= deadlineMs) break
-                    // Re-arm from the live playhead every tick so consumed passages
-                    // stay pruned and the fill tracks the moving position; [from]
-                    // is the start (a book opened idle front-loads its opening).
-                    val playhead = if (followPlayhead) machine?.state?.value?.position ?: from else from
-                    // D1: the live playhead is re-checked BETWEEN passages inside
-                    // ensure, so a seek during a fill does not synthesize the
-                    // stale plan (the plan yields once the playhead overtakes the
-                    // next planned key).
-                    q.ensure(playhead) { machine?.state?.value?.position }
-                    if (!followPlayhead && q.aheadSeconds(playhead) >= PREFILL_LOOKAHEAD_SECONDS) {
-                        android.util.Log.d("PlaybackService", "postStop: fill done ahead=${q.aheadSeconds(playhead)} self-stopping")
-                        break
+                // Conditional-yield signal (item 5): the fill occupies the
+                // shared engine for its whole session.
+                PlaybackActive.markEngineUsed()
+                try {
+                    val startedAt = System.currentTimeMillis()
+                    while (isActive) {
+                        if (deadlineMs != null && System.currentTimeMillis() - startedAt >= deadlineMs) break
+                        // Re-arm from the live playhead every tick so consumed passages
+                        // stay pruned and the fill tracks the moving position; [from]
+                        // is the start (a book opened idle front-loads its opening).
+                        val playhead = if (followPlayhead) machine?.state?.value?.position ?: from else from
+                        // D1: the live playhead is re-checked BETWEEN passages inside
+                        // ensure, so a seek during a fill does not synthesize the
+                        // stale plan (the plan yields once the playhead overtakes the
+                        // next planned key).
+                        q.ensure(playhead) { machine?.state?.value?.position }
+                        if (!followPlayhead && q.aheadSeconds(playhead) >= PREFILL_LOOKAHEAD_SECONDS) {
+                            android.util.Log.d("PlaybackService", "postStop: fill done ahead=${q.aheadSeconds(playhead)} self-stopping")
+                            break
+                        }
+                        delay(PREFILL_TICK_MS)
                     }
-                    delay(PREFILL_TICK_MS)
+                } finally {
+                    PlaybackActive.markEngineStopped()
                 }
                 onDone?.invoke()
             }
@@ -1386,6 +1403,16 @@ class PlaybackService : Service() {
      * stalling at the first boundary. Loop inbound only (suspends the play);
      * bounded by [PLAY_BUFFER_TIMEOUT_MS] for engines slower than real-time
      * (the wait then ends early with whatever buffer exists).
+     *
+     * RTF hook (item 8, D2): when the persisted tri-state says the engine is
+     * realtime (wall ≤ audio over ≥ 10 s of samples), the wait is skipped —
+     * the current passage resolves from the synchronous synthesis below fast
+     * enough that the look-ahead cushion buys nothing. [PLAY_BUFFER_TIMEOUT_MS]
+     * stays the hard cap for the slow/unmeasured path. Degraded (system-TTS)
+     * is treated as realtime-by-not-gating: it does NOT benefit from the
+     * cushion either, but its engine is outside the Kokoro measurement — the
+     * hook is gated on non-degraded so the degraded path keeps today's wait
+     * byte-for-byte (the fill still polls aheadSeconds on it).
      */
     private suspend fun bufferForPlayback(
         position: PlayerPosition,
@@ -1394,7 +1421,8 @@ class PlaybackService : Service() {
         text: String,
     ): SynthesisOutcome {
         val q = queue
-        if (q != null && !stopSignal.isCompleted) {
+        val realtime = !selector.isDegraded && settings.state.value.realtimeCapable == true
+        if (q != null && !stopSignal.isCompleted && !realtime) {
             val startedAt = System.currentTimeMillis()
             android.util.Log.d("PlaybackService", "buffer: waiting for $PREFILL_LOOKAHEAD_SECONDS s ahead")
             while (
@@ -1413,8 +1441,26 @@ class PlaybackService : Service() {
                     (System.currentTimeMillis() - startedAt) + "ms",
             )
         }
-        return selector.engine()?.synthesize(SynthesisRequest(text, voice, speed = speed))
-            ?: SynthesisOutcome.Failed("engine unavailable")
+        return try {
+            // Conditional-yield signal (item 5): a synchronous buffer
+            // synthesis holds the engine.
+            PlaybackActive.markEngineUsed()
+            val startedAt = System.currentTimeMillis()
+            val outcome =
+                selector.engine()?.synthesize(SynthesisRequest(text, voice, speed = speed))
+                    ?: SynthesisOutcome.Failed("engine unavailable")
+            // RTF lazy fallback (item 8): real passages measure the same
+            // wall/audio pair as Preview; stop accumulating once a verdict
+            // exists (realtimeCapable != null).
+            if (outcome is SynthesisOutcome.Audio && settings.state.value.realtimeCapable == null) {
+                val wallMs = System.currentTimeMillis() - startedAt
+                val audioMs = outcome.pcm.size * 1000L / (outcome.sampleRateHz * 2L) // mono 16-bit
+                settings.setRtfSample(wallMs, audioMs)
+            }
+            outcome
+        } finally {
+            PlaybackActive.markEngineStopped()
+        }
     }
 
     /**

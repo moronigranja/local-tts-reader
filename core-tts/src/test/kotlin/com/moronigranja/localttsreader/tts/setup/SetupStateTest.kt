@@ -23,8 +23,10 @@ class SetupStateTest {
     @Test
     fun `empty facts open with the full plan`() {
         val steps = SetupState.derive(nothing)
+        // C1 reversal: voice selection follows the packs download (its
+        // Preview needs the engine open) instead of preceding it.
         assertEquals(
-            listOf(StepKind.PRIVACY, StepKind.CHOOSE_VOICE, StepKind.DOWNLOAD_PACKS, StepKind.IMPORT_BOOK),
+            listOf(StepKind.PRIVACY, StepKind.DOWNLOAD_PACKS, StepKind.CHOOSE_VOICE, StepKind.IMPORT_BOOK),
             steps,
         )
         assertFalse(SetupState.isTerminal(steps))
@@ -109,7 +111,7 @@ class SetupStateTest {
                 nothing.copy(requiredPacksReady = true, espeakStaged = false, bookCount = 1),
             )
         assertEquals(
-            listOf(StepKind.PRIVACY, StepKind.CHOOSE_VOICE, StepKind.DOWNLOAD_PACKS, StepKind.IMPORT_BOOK),
+            listOf(StepKind.PRIVACY, StepKind.DOWNLOAD_PACKS, StepKind.CHOOSE_VOICE, StepKind.IMPORT_BOOK),
             steps,
         )
     }

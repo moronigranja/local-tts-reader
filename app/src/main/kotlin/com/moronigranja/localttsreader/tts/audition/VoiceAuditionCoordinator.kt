@@ -2,6 +2,7 @@ package com.moronigranja.localttsreader.tts.audition
 
 import com.moronigranja.localttsreader.featureplayer.playback.EngineSelector
 import com.moronigranja.localttsreader.featureplayer.playback.PassageOutput
+import com.moronigranja.localttsreader.persistence.AppSettings
 import com.moronigranja.localttsreader.player.AuditionStage
 import com.moronigranja.localttsreader.player.AuditionUiState
 import com.moronigranja.localttsreader.player.IoDispatcher
@@ -54,6 +55,7 @@ class VoiceAuditionCoordinator
         private val commands: PlayerCommands,
         private val appScope: CoroutineScope,
         @IoDispatcher private val ioDispatcher: CoroutineDispatcher,
+        private val settings: AppSettings,
     ) : VoiceAudition {
         private val _state = MutableStateFlow(AuditionUiState())
         override val state: StateFlow<AuditionUiState> = _state.asStateFlow()
@@ -105,7 +107,17 @@ class VoiceAuditionCoordinator
                                 )
                             return@launch
                         }
+                        // RTF probe (item 8, D2): every Preview contributes a
+                        // wall/audio sample — a ~1-2 s sample alone never
+                        // crosses the 10 s gate (#93), so it only ever
+                        // ACCUMULATES toward the verdict.
+                        val startedAt = System.currentTimeMillis()
                         val outcome = engine.synthesize(SynthesisRequest(phrase, voice))
+                        if (outcome is SynthesisOutcome.Audio) {
+                            val wallMs = System.currentTimeMillis() - startedAt
+                            val audioMs = outcome.pcm.size * 1000L / (outcome.sampleRateHz * 2L) // mono 16-bit
+                            settings.setRtfSample(wallMs, audioMs)
+                        }
                         when (outcome) {
                             is SynthesisOutcome.Audio -> {
                                 _state.value = AuditionUiState(voice, AuditionStage.Playing)

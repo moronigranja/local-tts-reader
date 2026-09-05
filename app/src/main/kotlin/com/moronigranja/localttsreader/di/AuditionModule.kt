@@ -2,6 +2,7 @@ package com.moronigranja.localttsreader.di
 
 import com.moronigranja.localttsreader.featureplayer.playback.AudioTrackPassageOutput
 import com.moronigranja.localttsreader.featureplayer.playback.PassageOutput
+import com.moronigranja.localttsreader.persistence.AppSettings
 import com.moronigranja.localttsreader.player.IoDispatcher
 import com.moronigranja.localttsreader.player.PlayerCommands
 import com.moronigranja.localttsreader.player.VoiceAudition
@@ -37,5 +38,6 @@ object AuditionModule {
         commands: PlayerCommands,
         appScope: CoroutineScope,
         @IoDispatcher ioDispatcher: CoroutineDispatcher,
-    ): VoiceAudition = VoiceAuditionCoordinator(selector, output, commands, appScope, ioDispatcher)
+        settings: AppSettings,
+    ): VoiceAudition = VoiceAuditionCoordinator(selector, output, commands, appScope, ioDispatcher, settings)
 }

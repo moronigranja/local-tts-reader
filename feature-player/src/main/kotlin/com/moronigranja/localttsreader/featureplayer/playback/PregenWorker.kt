@@ -22,6 +22,7 @@ import com.moronigranja.localttsreader.tts.SynthesisOutcome
 import com.moronigranja.localttsreader.tts.SynthesisRequest
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
+import kotlinx.coroutines.delay
 
 /**
  * Offline pre-generation worker (decisions #42): runs the tested
@@ -30,10 +31,12 @@ import dagger.assisted.AssistedInject
  *
  * Single-mode manual worker: one book (`KEY_BOOK_IDS`), unbounded time — the
  * run ends when the book is fully cached, the tier saturates, or the user
- * cancels. The run YIELDS to an engaged playback session ([PlaybackActive],
- * G2): the signal stays true from session start through the service's
- * post-stop fill completion, so manual pre-generation never competes with
- * playback (or the fill) for the shared engine.
+ * cancels. The run YIELDS at passage boundaries while playback HOLDS the
+ * shared engine ([PlaybackActive.engineInUse], item 5 — the G2 blanket
+ * session yield is superseded): a cache-fed session leaves the engine free,
+ * so a manual run advances; a cold seek's fill or buffer synthesis pauses
+ * it at the next boundary. After an engine-touch burst it waits and
+ * resumes, never aborting the run.
  *
  * Runs as a foreground worker (dataSync) — synthesis is minutes-to-hours, so
  * the process must not be reaped; the notification carries progress and the
@@ -56,6 +59,9 @@ class PregenWorker @AssistedInject constructor(
     private val settings: AppSettings,
     private val pregenCache: PregenCache,
 ) : CoroutineWorker(appContext, params) {
+    private var lastNotifyAt = 0L
+    private var totalSynthesized = 0
+    private var lastBookTitle: String? = null
 
     override suspend fun doWork(): Result {
         settings.reload()
@@ -113,8 +119,84 @@ class PregenWorker @AssistedInject constructor(
             voice = voice,
             speed = speed,
             synthesize = synthesize,
-            notify = { title, progress -> notify(title, progress) },
+            notify = { title, progress -> refreshNotification(title, progress, System::currentTimeMillis) },
+        ).also { result ->
+            // Terminal notification (item 5): the FGS stops with the worker,
+            // so a finished run must leave a trace of its own. Cancellation
+            // is deliberate — silent, no nag.
+            if (!isStopped) postTerminal(result)
+        }
+    }
+
+    /** In-place foreground-notification refresh (item 5): re-binding the FGS
+     * every passage (the old chapter-boundary setForeground) re-bound the
+     * service every second for the whole run — instead the ALREADY-FOREGROUND
+     * notification is updated via [NotificationManager.notify], throttled to
+     * ~1 s so a fast run does not spam binder traffic. [clock] injectable so
+     * host tests can pin the cadence. */
+    internal suspend fun refreshNotification(
+        bookTitle: String,
+        progress: PregenProgress,
+        clock: () -> Long,
+    ) {
+        val percent = progress.percent
+        setProgress(
+            workDataOf(
+                KEY_PROGRESS_PERCENT to percent,
+                KEY_PROGRESS_CHAPTER to progress.chaptersDone,
+                KEY_PROGRESS_TOTAL_CHAPTERS to progress.totalChapters,
+                KEY_PROGRESS_BOOK to bookTitle,
+            ),
         )
+        if (clock() - lastNotifyAt >= NOTIFY_THROTTLE_MS) {
+            lastNotifyAt = clock()
+            val manager = applicationContext.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+            manager.notify(
+                NOTIFICATION_ID,
+                pregenNotification(
+                    bookTitle = bookTitle,
+                    chapter = progress.chaptersDone,
+                    totalChapters = progress.totalChapters,
+                    percent = percent,
+                ),
+            )
+        }
+    }
+
+    /** Posts the non-ongoing, auto-cancel terminal notification (item 5):
+     * success terminals say the offline audio is ready, failure terminals
+     * carry the typed [KEY_ERROR] text. Reuses [NOTIFICATION_ID], replacing
+     * the vanishing FGS entry in place. */
+    private fun postTerminal(result: Result) {
+        ensureChannel()
+        val manager = applicationContext.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        val base =
+            NotificationCompat
+                .Builder(applicationContext, CHANNEL_ID)
+                .setSmallIcon(android.R.drawable.stat_sys_download_done)
+                .setAutoCancel(true)
+                .setOngoing(false)
+                .setOnlyAlertOnce(true)
+        when (result) {
+            is Result.Success ->
+                manager.notify(
+                    NOTIFICATION_ID,
+                    base
+                        .setContentTitle("Ayvu — offline audio ready")
+                        .setContentText(
+                            "Offline audio ready — $totalSynthesized passages cached (${lastBookTitle ?: "Ayvu"})",
+                        ).build(),
+                )
+            is Result.Failure ->
+                manager.notify(
+                    NOTIFICATION_ID,
+                    base
+                        .setContentTitle("Ayvu — pre-generation stopped")
+                        .setContentText(result.outputData.getString(KEY_ERROR) ?: "pre-generation stopped")
+                        .build(),
+                )
+            is Result.Retry -> Unit // the worker never returns Retry; nothing to trace
+        }
     }
 
     /**
@@ -134,9 +216,13 @@ class PregenWorker @AssistedInject constructor(
         val startedAt = clock()
         var bookIndex = 0
         for (book in books) {
-            // G2: engaged playback — session start through post-stop fill
-            // completion — pauses the run before it starts the next book.
-            if (PlaybackActive.isActive) break
+            // Conditional yield (item 5): the run continues while playback
+            // is fully cache-fed (engineInUse false) and waits at the book
+            // boundary when playback needs the shared engine. The budget
+            // clock keeps running through the wait.
+            while (PlaybackActive.engineInUse) {
+                delay(1000)
+            }
             val elapsed = clock() - startedAt
             // CR-1: an absent deadline (whole-book manual) is NOT an expired
             // one. remaining == null → unbounded; break only when non-null and
@@ -147,7 +233,7 @@ class PregenWorker @AssistedInject constructor(
                 cache = pregenCache.cache,
                 synthesize = synthesize,
                 // G2: yield to an engaged playback session (manual runs too).
-                shouldContinue = { !PlaybackActive.isActive },
+                shouldContinue = { !PlaybackActive.engineInUse },
             )
             bookIndex++
             if (bookIndex == 1) {
@@ -174,7 +260,12 @@ class PregenWorker @AssistedInject constructor(
                 PregenTerminal.BudgetExhausted,
                 PregenTerminal.CacheSaturated,
                 PregenTerminal.Yielded,
-                -> Unit
+                -> {
+                    // The terminal notification's count/title come from the
+                    // last successfully-finished book (item 5).
+                    totalSynthesized += result.passagesSynthesized
+                    lastBookTitle = book.title
+                }
                 PregenTerminal.Unavailable,
                 PregenTerminal.FailureCap,
                 -> return Result.failure(
@@ -255,6 +346,8 @@ class PregenWorker @AssistedInject constructor(
         const val KEY_PROGRESS_BOOK = "progressBook"
         const val OVERNIGHT_NAME = "offline-pregen-overnight"
         const val NOTIFICATION_ID = 43
+        /** Throttle for the in-place notification refresh (item 5). */
+        internal const val NOTIFY_THROTTLE_MS = 1_000L
         private const val CHANNEL_ID = "pregen"
         /**
          * Manual: whole book by default, or bounded by a KEY_BUDGET_TIME_MS

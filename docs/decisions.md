@@ -1,5 +1,110 @@
 # Decision log
 
+## 124. Realtime capability measured from Preview, persisted tri-state (2026-09-04)
+
+Item 8 of the immersive plan (D2 family): NO dedicated probe step — a probe
+pays 25-60 s of engine open + synthesis on exactly the devices where the
+answer is negative (HiBreak cold open ≈ 25 s, RTF ≈ 3), and both reference
+answers are already measured (S22 0.66-0.77, HiBreak 2.84-3.12). Instead RTF
+is measured from real synthesis:
+
+1. **Preview** (the C2 audition) records every sample: wall-clock vs rendered
+   audio duration, ACCUMULATED in persistence (`rtf_wall_ms`/`rtf_audio_ms`
+   Longs, no migration). A single ~1-2 s preview never crosses the gate — it
+   only contributes (#93: short probes overstate RTF).
+2. **Live passages** in `PlaybackService` record the same pair on the
+   synthesized path while the tri-state is unmeasured — the lazy fallback for
+   users who never preview.
+3. **Tri-state** (`AppSettings.Snapshot.realtimeCapable`): `null` under 10 s of
+   audio (keep today's behavior), `true` at wall ≤ audio (realtime), `false`
+   slower. `bufferForPlayback` skips the look-ahead wait when realtime (the
+   current passage resolves from the synchronous synthesis; the hard cap
+   stays); slow/unmeasured keep today's path byte-for-byte. Degraded
+   (system-TTS) is excluded from the gate — its engine is outside the Kokoro
+   measurement and the buffer wait treats it as-is. D1 replaces the hook's
+   insides later; the seam (settings read + branch) stays.
+
+## 123. Pregen yield is conditional on the engine, not the session (2026-09-04)
+
+Item 5: the G2 blanket yield (decisions #42 family) — pause the whole manual
+run for the whole playback session — is superseded by a conditional yield.
+Manual pre-generation now advances while playback is fully cache-fed
+(buffer/queue/disk resolve the active + look-ahead passages) and pauses at
+the next passage boundary only while playback actually HOLDS the shared
+engine ([PlaybackActive.engineInUse]: a synchronous buffer synthesis or the
+fill job's session). Playback > pregen priority; a cold seek waits at most
+for one in-flight pregen passage (per-batch cancellable via
+`shouldContinue`). Worst case on a forever-held engine the run waits and
+resumes — it never aborts. Runtimes keep their progress notifications; the
+run's terminal posts a non-ongoing `NotificationManager.notify` (throttled
+~1 s in-run via in-place refresh instead of per-second `setForeground`
+re-binds), so a finished run leaves a trace.
+
+## 122. Immersive reader chrome: overlay title + minimal player, reflow accepted (2026-09-04)
+
+Item 1: a middle tap toggles an immersive mode — system bars hide
+(BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE, restored on exit/dispose/rotation),
+the top bar and the full PlayerCard drop, and two slim overlays take their
+place: the book title (labelLarge, centered, semi-transparent surface,
+drawn OVER the page — it never enters `reservedPx`, so pagination is
+unchanged by it) and a bottom minimal player (play/pause + the thin
+two-tone progress line + the item-4 passage indicator). Dropping the bottom
+card GROWS the body: pages re-derive on toggle (accepted reflow — more text
+per page), with the reading place preserved by re-deriving the page from the
+top visible line of the OLD page (geometry remembered across the toggle).
+Middle-tap-play ("listen from here", S3) is superseded: the middle tap now
+toggles chrome; play-from-here returns as G2's long-press menu. The
+pressed-passage highlight stays (the three-way discrimination surface, G2).
+ReaderScreen's middle-tap doc comments updated in the same change.
+
+## 121. Follow keys on the ACTIVE SENTENCE with a manual-turn grace period (2026-09-04)
+
+Item 3: page-follow previously keyed on the passage's START line — a long
+paragraph narrated across a page break pinned the page until the whole
+passage ended. Follow now re-keys on the active sentence's line:
+`activeSentenceRange` → char offset → `getLineForOffset` →
+`TextPagination.pageOf`, extracted as one `activeSentencePage()` shared by
+both follow effects (PLAYING/LOADING and the paused-reposition path). A
+manual page turn (side tap or swipe) suppresses follow for
+`FOLLOW_GRACE_MS = 4 s` — a hand turn is not yanked back by the next
+sentence tick. The grace is per-session (`remember`, deliberately NOT
+rememberSaveable — a process death must not suppress follow).
+
+## 120. Book-wide passage indicator replaces page numbers (2026-09-04)
+
+Item 4: the reader's footer drops "Page N of M" (per-chapter, churned by
+every font/viewport/immersive change) for a book-wide `Passage X/Y (P%)` in
+BOTH modes. `PlaybackUiState` gains `bookPassageIndex`/`bookPassageCount`
+populated in `PlaybackService.stateCopy()` from the already-resident
+in-memory book (chapter prefix sums — no Room query, no cache); the label
+format lives in one pure helper (`passageIndicatorLabel`, unit-tested):
+0-based index, 1-based line, percent clamps at 100, count 0 → hidden
+(cold-open before the book loads). The pagination reserve proxy measures the
+widest renderable label, so the footer can never wrap past its reserved
+height.
+
+## 119. C1 reversal — voice selection moves after the packs download (2026-09-04)
+
+Owner call with the immersive-reader plan (item 7): the guided setup
+now presents **PRIVACY → DOWNLOAD_PACKS → CHOOSE_VOICE → IMPORT_BOOK**
+(full plan), reversing C1's original "choose language and voice BEFORE
+downloading" (roadmap C1, decisions #102.4).
+
+**Why:** the choice carried no product value before the packs landed — all 54
+voices ship in one `kokoro-voices` pack (`voices-v1.0.bin`, 28 MB), so
+"pre-download voice choice" was only a persisted preference, and the voice
+step needed the pack to enumerate names at all. Moving voice selection AFTER
+the download is what makes **Preview work during selection**: the engine is
+already open and the selected voice is a cached, instant switch. The degraded
+path (PRIVACY → CHOOSE_VOICE → IMPORT_BOOK) has no download step and is
+unchanged, as is the presentation-only nature of the change — no asset
+difference, no Room migration.
+
+**Implementation:** `SetupState.derive` full-plan branch reordered (core-tts;
+the single shared table); `SetupStateTest` full-plan expectations updated
+(the 5 existing rules otherwise unchanged); roadmap C1 text updated. The
+wizard (item 6) is built against this order.
+
 ## 118. F4 — import overlay inside the library: one surface for every entry point, progress + stage; ExternalFileActivity removed (2026-09-03)
 
 Follow-up to #117 (same day): the standalone `ExternalFileActivity` gateway is

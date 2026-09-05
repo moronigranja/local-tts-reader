@@ -1,5 +1,6 @@
 package com.moronigranja.localttsreader.featureplayer.playback
 
+import android.app.NotificationManager
 import android.content.Context
 import androidx.room.Room
 import androidx.work.Data
@@ -28,8 +29,11 @@ import com.moronigranja.localttsreader.tts.SynthesisOutcome
 import com.moronigranja.localttsreader.tts.SynthesisRequest
 import com.moronigranja.localttsreader.tts.TTSEngine
 import com.moronigranja.localttsreader.tts.TtsPack
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -37,6 +41,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
+import org.robolectric.Shadows.shadowOf
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.RuntimeEnvironment
 import org.robolectric.annotation.Config
@@ -160,7 +165,8 @@ class PregenWorkerTest {
     @After
     fun tearDown() {
         database.close()
-        PlaybackActive.markStopped() // the G2 tests drive the global session flag
+        PlaybackActive.markStopped() // the G2 tests drive the session flag
+        PlaybackActive.markEngineStopped()
     }
 
     @Test
@@ -225,62 +231,113 @@ class PregenWorkerTest {
     }
 
     // ------------------------------------------------------------------
-    // G2 — manual runs yield to an engaged playback session
+    // Conditional yield (item 5) — manual runs pause only while playback
+    // HOLDS the shared engine ([PlaybackActive.engineInUse]); a cache-fed
+    // session leaves it free and the run proceeds.
     // ------------------------------------------------------------------
 
-    /** G2: the admission window covers manual runs too — with [PlaybackActive]
-     * already engaged (playback live, or the post-stop fill synthesizing), the
-     * run must not synthesize a single passage. */
+    /** With the engine held by playback (a cold seek's fill or buffer
+     * synthesis), the run WAITS before its first book instead of aborting —
+     * the old G2 blanket session yield (break + run over) is superseded. */
     @Test
-    fun `manual pregen breaks before any synthesis while playback is engaged`() = runBlocking {
+    fun `manual pregen waits while playback holds the engine and resumes after release`() = runBlocking {
         val engine = FakeEngine()
         val w = worker(manualInput(book.id), engine)
-        PlaybackActive.markStarted()
+        PlaybackActive.markEngineUsed()
+        val released = CompletableDeferred<Unit>()
+        val holder =
+            scope.launch {
+                delay(300) // hold the engine briefly, then free it
+                PlaybackActive.markEngineStopped()
+                released.complete(Unit)
+            }
         try {
             val result = w.runBooks(
                 books = listOf(toCached(book)),
-                budget = PregenBudget(), // unbounded — only the session can stop it
+                budget = PregenBudget(), // unbounded — only the engine can hold it
                 voice = "af_heart",
                 speed = 1.0,
                 synthesize = engine::synthesizeText,
             )
+            assertTrue("the run must wait for the engine, not abort", released.isCompleted)
             assertTrue(result is ListenableWorker.Result.Success)
-            assertTrue(
-                "an engaged session must pause the run before any synthesis",
-                engine.synthesized.isEmpty(),
-            )
+            assertEquals("once the engine frees, the whole book runs", 5, engine.synthesized.size)
         } finally {
-            PlaybackActive.markStopped()
+            PlaybackActive.markEngineStopped()
+            holder.cancel()
         }
     }
 
-    /** G2: playback engaging MID-run yields at the next passage boundary — the
-     * run settles as success (Yielded is a safely bounded terminal, CR-1)
-     * without ever resuming, so manual pregen cannot compete with an active
-     * session for the shared engine. */
+    /** Playback grabbing the engine MID-run yields at the next passage
+     * boundary (Yielded is a safely bounded terminal, CR-1); the run then
+     * waits and RESUMES with the next book — it never competes with playback
+     * for the shared engine, and it never aborts the run. */
     @Test
-    fun `manual pregen yields mid-book when playback engages and never resumes`() = runBlocking {
+    fun `manual pregen yields at a boundary while playback holds the engine, then resumes`() = runBlocking {
         val engine = FakeEngine(onText = { text ->
-            if (text == "p0") PlaybackActive.markStarted() // playback engages during the first passage
+            if (text == "p0") PlaybackActive.markEngineUsed() // playback grabs the engine mid-first-passage
         })
+        val book2 = Book(id = "t42-worker-book2", title = "Two", chapters = listOf(Chapter(0, "A", listOf(TextPassage("q0")))))
         val w = worker(manualInput(book.id), engine)
+        val released = CompletableDeferred<Unit>()
+        val holder =
+            scope.launch {
+                delay(300) // release before the worker's next 1 s check
+                PlaybackActive.markEngineStopped()
+                released.complete(Unit)
+            }
         try {
             val result = w.runBooks(
-                books = listOf(toCached(book)),
-                budget = PregenBudget(), // unbounded — only the session can stop it
+                books = listOf(toCached(book), toCached(book2)),
+                budget = PregenBudget(),
                 voice = "af_heart",
                 speed = 1.0,
                 synthesize = engine::synthesizeText,
             )
             assertTrue(result is ListenableWorker.Result.Success)
             assertEquals(
-                "the run yields at the boundary after playback engages",
-                listOf("p0"),
+                "p0 runs, p1 yields to playback, the next book resumes after release",
+                listOf("p0", "q0"),
                 engine.synthesized,
             )
         } finally {
-            PlaybackActive.markStopped()
+            PlaybackActive.markEngineStopped()
+            holder.cancel()
         }
+    }
+
+    /** The in-place notification refresh is throttled to ~1 s: a progress
+     * event inside the window must NOT re-notify; one past the window
+     * replaces the [PregenWorker.NOTIFICATION_ID] entry in place (the same
+     * ID, so the notification list never grows). */
+    @Test
+    fun `notification refresh is throttled to about a second`() = runBlocking {
+        val w = worker(manualInput(book.id), FakeEngine())
+        val manager = context.getSystemService(NotificationManager::class.java) as NotificationManager
+        // percent = processed*100/totalPassages — synthesize+cache both count.
+        fun progress(pct: Int) =
+            com.moronigranja.localttsreader.player.pregen.PregenProgress(
+                chaptersDone = 1,
+                passagesSynthesized = pct,
+                passagesCached = pct,
+                failures = 0,
+                totalChapters = 2,
+                totalPassages = 200,
+            )
+        var now = 1_000L
+        w.refreshNotification("T", progress(10), clock = { now })
+        val first = shadowOf(manager).activeNotifications.single().notification.extras.getString(android.app.Notification.EXTRA_TEXT)
+        now += 500 // inside the 1 s window
+        w.refreshNotification("T", progress(20), clock = { now })
+        assertEquals("an in-window refresh must not re-notify", first, shadowOf(manager).activeNotifications.single().notification.extras.getString(android.app.Notification.EXTRA_TEXT))
+        now += 1_000 // past the window
+        w.refreshNotification("T", progress(30), clock = { now })
+        val notifications = shadowOf(manager).activeNotifications
+        assertEquals("same ID replaces in place — the list never grows", 1, notifications.size)
+        assertTrue(
+            "the replaced notification carries the newer percent",
+            notifications.single().notification.extras.getString(android.app.Notification.EXTRA_TEXT)!!.contains("(30%)"),
+        )
     }
 
     @Test

@@ -67,6 +67,29 @@ class SettingsStore(private val settingsDao: SettingsDao) {
         settingsDao.put(SettingEntity(KEY_TTS_ENGINE, value))
     }
 
+    /** Accumulated wall-clock / audio-duration samples of the realtime probe
+     * (item 8, D2): [rtfWallMs] is synthesis wall time, [rtfAudioMs] the
+     * rendered audio duration. Realtime when wall <= audio over >= 10 s of
+     * audio; short samples OVERSTATe RTF (#93), so the derivation ignores
+     * them. Both are cumulative — every Preview and live-synthesis sample
+     * contributes (0 = never measured). */
+    suspend fun rtfWallMs(): Long = settingsDao.get(KEY_RTF_WALL_MS)?.toLongOrNull() ?: 0L
+
+    suspend fun rtfAudioMs(): Long = settingsDao.get(KEY_RTF_AUDIO_MS)?.toLongOrNull() ?: 0L
+
+    suspend fun putRtf(
+        wallMs: Long,
+        audioMs: Long,
+    ) {
+        require(wallMs >= 0 && audioMs >= 0) { "rtf samples must be non-negative, were $wallMs/$audioMs" }
+        settingsDao.putAll(
+            listOf(
+                SettingEntity(KEY_RTF_WALL_MS, wallMs.toString()),
+                SettingEntity(KEY_RTF_AUDIO_MS, audioMs.toString()),
+            ),
+        )
+    }
+
     companion object {
         const val DEFAULT_MATCH_THRESHOLD = 0.6
         const val DEFAULT_VOICE = "af_heart"
@@ -80,6 +103,8 @@ class SettingsStore(private val settingsDao: SettingsDao) {
         const val KEY_THEME_MODE = "theme_mode"
         const val KEY_OCR_LANGUAGES = "ocr_languages"
         const val KEY_TTS_ENGINE = "tts_engine"
+        const val KEY_RTF_WALL_MS = "rtf_wall_ms"
+        const val KEY_RTF_AUDIO_MS = "rtf_audio_ms"
     }
 }
 

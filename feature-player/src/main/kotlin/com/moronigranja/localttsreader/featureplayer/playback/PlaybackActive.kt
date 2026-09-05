@@ -27,4 +27,20 @@ object PlaybackActive {
     fun markStopped() {
         isActive = false
     }
+
+    /** True while playback actually HOLDS the shared engine (a sync buffer
+     * synthesis or the fill job's session) — the pregen worker's yield
+     * signal (item 5). A fully cache-fed session keeps this false, so a
+     * manual run proceeds; any engine touch pauses it at the next passage
+     * boundary. Priority: playback > pregen. */
+    @Volatile var engineInUse: Boolean = false
+        private set
+
+    fun markEngineUsed() {
+        engineInUse = true
+    }
+
+    fun markEngineStopped() {
+        engineInUse = false
+    }
 }

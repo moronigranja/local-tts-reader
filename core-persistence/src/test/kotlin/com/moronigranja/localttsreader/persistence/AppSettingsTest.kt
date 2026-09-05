@@ -3,6 +3,7 @@ package com.moronigranja.localttsreader.persistence
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -79,5 +80,54 @@ class AppSettingsTest {
         assertTrue("af_heart" in settings.state.value.favorites)
         settings.toggleFavorite("af_heart")
         assertFalse("af_heart" in settings.state.value.favorites)
+    }
+
+    // ------------------------------------------------------------------
+    // RTF tri-state (item 8, D2): derived from ACCUMULATED wall/audio
+    // samples; a verdict needs >= 10 s of rendered audio (#93).
+    // ------------------------------------------------------------------
+
+    @Test
+    fun `rtf stays unmeasured below the ten second audio gate`() = runBlocking {
+        val settings = AppSettings(SettingsStore(FakeSettingsDao()))
+        // A real Preview: ~1.2 s of audio contributed once.
+        settings.setRtfSample(2_000L, 1_200L)
+        assertNull(settings.state.value.realtimeCapable)
+        // 9 s of audio in total — still under the gate even at wall == audio.
+        settings.setRtfSample(8_000L, 7_800L)
+        assertNull(settings.state.value.realtimeCapable)
+    }
+
+    @Test
+    fun `rtf is realtime at wall equal to audio once the gate is crossed`() = runBlocking {
+        val settings = AppSettings(SettingsStore(FakeSettingsDao()))
+        settings.setRtfSample(6_000L, 6_000L)
+        settings.setRtfSample(4_000L, 4_001L) // accumulates to 10.001 s audio
+        assertEquals(true, settings.state.value.realtimeCapable)
+    }
+
+    @Test
+    fun `rtf is slow when wall exceeds audio past the gate`() = runBlocking {
+        val settings = AppSettings(SettingsStore(FakeSettingsDao()))
+        // 20 s of wall for 10 s of audio — RTF 2.0, the HiBreak profile.
+        settings.setRtfSample(20_000L, 10_000L)
+        assertEquals(false, settings.state.value.realtimeCapable)
+    }
+
+    @Test
+    fun `rtf samples accumulate and the verdict survives reload`() = runBlocking {
+        val dao = FakeSettingsDao()
+        val store = SettingsStore(dao)
+        val settings = AppSettings(store)
+        settings.setRtfSample(3_000L, 5_000L)
+        settings.setRtfSample(3_000L, 5_000L) // accumulated: 6 s wall / 10 s audio
+        assertEquals(6_000L, store.rtfWallMs())
+        assertEquals(10_000L, store.rtfAudioMs())
+        assertEquals(true, settings.state.value.realtimeCapable)
+
+        // A cold restart derives the same verdict from the persisted pair.
+        val restarted = AppSettings(SettingsStore(dao))
+        restarted.reload()
+        assertEquals(true, restarted.state.value.realtimeCapable)
     }
 }

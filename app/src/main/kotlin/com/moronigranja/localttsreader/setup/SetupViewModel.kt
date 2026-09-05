@@ -44,6 +44,10 @@ import javax.inject.Named
 
 data class SetupUiState(
     val steps: List<StepKind> = emptyList(),
+    /** The wizard's single visible step (item 6): derived identity with
+     * clamp rules — a step that disappears never throws the user back, a
+     * reappearing step inserts without moving the pointer. */
+    val currentStep: StepKind? = null,
     /** The three required Kokoro packs, mapped for the shared plan card. */
     val packs: List<PlanPackRow> = emptyList(),
     /** Static 54-voice catalog — usable before any download. */
@@ -97,8 +101,14 @@ class SetupViewModel
         private val stageTick = MutableStateFlow(0)
         private val auditionFlow = voiceAudition.state
         private val importTick = MutableStateFlow(0)
+        private val wizardTick = MutableStateFlow(0)
         private val jobs = mutableMapOf<String, Job>()
         private var importSummaryValue: String? = null
+
+        /** The wizard pointer (item 6) — held here so Back/Next survive
+         * re-derivations, mutated only through [wizardNext]/[wizardBack]. */
+        private var wizardStep: StepKind? = null
+        private var lastSteps: List<StepKind> = emptyList()
 
         // `combine` types at most 5 flows — nest: (packs, errors, settings) then
         // books + the two ticks re-derive the checklist on every fact change.
@@ -108,10 +118,8 @@ class SetupViewModel
                     Triple(packs, err, prefs)
                 },
                 libraryStore.books,
-                stageTick,
-                importTick,
-                auditionFlow,
-            ) { (packs, err, prefs), books, _, _, audition ->
+                combine(stageTick, importTick, wizardTick, auditionFlow) { _, _, _, audition -> audition },
+            ) { (packs, err, prefs), books, audition ->
                 val required = REQUIRED_PACK_IDS.mapNotNull { id -> packs.firstOrNull { it.pack.id == id } }
                 val requiredReady =
                     REQUIRED_PACK_IDS.all { id -> packs.firstOrNull { it.pack.id == id }?.status == PackStatus.Ready }
@@ -124,10 +132,17 @@ class SetupViewModel
                         systemTtsOptedIn = prefs.ttsEngine == SettingsStore.SYSTEM_TTS_ENGINE,
                     )
                 val steps = SetupState.derive(facts)
+                // Wizard clamp (item 6): keep the pointer on its step while it
+                // survives; a removed step lands on the nearest PRECEDING
+                // surviving step (the flow never throws the user back); a
+                // re-inserted step never moves the pointer.
+                wizardStep = clampWizardStep(wizardStep, lastSteps, steps)
+                lastSteps = steps
                 val requiredBytes = required.filter { it.status != PackStatus.Ready }.sumOf { it.pack.sizeBytes }
                 val available = storageProbe.availableBytes()
                 SetupUiState(
                     steps = steps,
+                    currentStep = wizardStep,
                     packs = required.map { it.toPlanRow(err, filesDir) },
                     selectedVoice = prefs.voice,
                     voiceSelector = voiceSelector(required, prefs, audition),
@@ -186,6 +201,48 @@ class SetupViewModel
         fun retry(packId: String) = download(packId)
 
         fun chooseVoice(name: String) = viewModelScope.launch { settings.setVoice(name) }
+
+        /** Wizard Next (item 6): the next surviving step; Terminal Heads
+         * settle through the derive-driven auto-finish, not here. */
+        fun wizardNext() {
+            val steps = state.value.steps
+            val current = state.value.currentStep
+            val index = steps.indexOf(current)
+            val next = steps.getOrNull(index + 1) ?: return
+            wizardStep = next
+            wizardTick.value += 1
+        }
+
+        /** Wizard Back (item 6) — the system-back mapping. Blocked on the
+         * first step (PRIVACY): the gate owns dismissal. */
+        fun wizardBack() {
+            val steps = state.value.steps
+            val index = steps.indexOf(state.value.currentStep)
+            if (index > 0) {
+                wizardStep = steps[index - 1]
+                wizardTick.value += 1
+            }
+        }
+
+        /** The clamp rule shared by every re-derivation (item 6). */
+        private fun clampWizardStep(
+            previous: StepKind?,
+            oldList: List<StepKind>,
+            newList: List<StepKind>,
+        ): StepKind? {
+            val current = previous ?: return newList.firstOrNull()
+            if (newList.isEmpty()) return current
+            if (current in newList) return current
+            // Walk backwards from where the step USED to sit; the first
+            // surviving step found is the landing (never a forward throw).
+            var index = oldList.indexOf(current)
+            while (index > 0) {
+                index -= 1
+                val candidate = oldList[index]
+                if (candidate in newList) return candidate
+            }
+            return newList.first()
+        }
 
         /** decisions #102: opt into the zero-download degraded device voice. */
         fun optInSystemTts() = viewModelScope.launch { settings.setTtsEngine(SettingsStore.SYSTEM_TTS_ENGINE) }

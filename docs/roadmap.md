@@ -178,7 +178,7 @@ allowing a voice change to restart active playback.
 
 - Explain the offline/no-account/no-telemetry model and why speech assets are downloaded
   separately.
-- Let the user choose language and voice before downloading, then present one required
+- Present the required setup plan first (Kokoro model + voices + espeak-ng), let the user choose the voice AFTER the packs are ready — the choice needs the downloaded catalog to enumerate names and Preview needs the engine open (C1 reversal, decisions #119)
   setup plan for Kokoro model + voices + espeak-ng. OCR languages remain optional until
   the share-image path is used.
 - Show exact download bytes, expected installed footprint and available storage before

@@ -25,6 +25,19 @@ class TextPaginationTest {
     }
 
     @Test
+    fun `conservative bottom reserve floors at the boundary`() {
+        // The reader's bottom reserve is the MEASURED footer height plus one
+        // line of slack (decision: one line lost on the last page beats a
+        // clipped line). Exactly n lines + that reserve fit; one px short the
+        // reserve boundary floors to n-1 — the floor must never squeeze a
+        // line into the reserved footer space.
+        val lineHeight = 30
+        val conservativeReserve = 46 + lineHeight // measured footer + slack
+        assertEquals(5, TextPagination.linesPerPage(5 * lineHeight + conservativeReserve, lineHeight, reservedPx = conservativeReserve))
+        assertEquals(4, TextPagination.linesPerPage(5 * lineHeight + conservativeReserve - 1, lineHeight, reservedPx = conservativeReserve))
+    }
+
+    @Test
     fun `page of a line splits after the first page`() {
         // Page 0: lines 0..9 (10 lines); later pages: 20 lines each.
         assertEquals(0, TextPagination.pageOf(0, 10, 20))

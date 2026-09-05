@@ -29,20 +29,27 @@ class AppSettings @Inject constructor(
         /** The speech engine id (C1.5/decisions #102): kokoro-82m default,
          * system-tts degraded fallback. */
         val ttsEngine: String = SettingsStore.DEFAULT_TTS_ENGINE,
+        /** Realtime-capability tri-state (item 8, D2): `true` = the engine
+         * generates ≥ as fast as it plays (wall ≤ audio over ≥ 10 s of
+         * rendered audio), `false` = slower, `null` = unmeasured (fewer than
+         * 10 s of audio samples accumulated; today's behavior keeps). */
+        val realtimeCapable: Boolean? = null,
     )
 
     private val _state = MutableStateFlow(Snapshot())
     val state: StateFlow<Snapshot> = _state.asStateFlow()
 
     suspend fun reload() {
-        _state.value = Snapshot(
-            threshold = store.matchThreshold(),
-            voice = store.voice(),
-            favorites = store.favoriteVoices(),
-            theme = store.themeMode(),
-            ocrLanguages = store.ocrLanguages(),
-            ttsEngine = store.ttsEngine(),
-        )
+        _state.value =
+            Snapshot(
+                threshold = store.matchThreshold(),
+                voice = store.voice(),
+                favorites = store.favoriteVoices(),
+                theme = store.themeMode(),
+                ocrLanguages = store.ocrLanguages(),
+                ttsEngine = store.ttsEngine(),
+                realtimeCapable = deriveRtf(store.rtfWallMs(), store.rtfAudioMs()),
+            )
     }
 
     suspend fun setVoice(value: String) {
@@ -79,5 +86,36 @@ class AppSettings @Inject constructor(
     suspend fun setTtsEngine(value: String) {
         store.setTtsEngine(value)
         _state.value = _state.value.copy(ttsEngine = value)
+    }
+
+    /** Records one synthesis sample (item 8): ACCUMULATES wall and audio
+     * into the persisted pair — every Preview and live passage contributes,
+     * and the tri-state flips the moment the ≥ 10 s gate is crossed. */
+    suspend fun setRtfSample(
+        wallMs: Long,
+        audioMs: Long,
+    ) {
+        store.putRtf(store.rtfWallMs() + wallMs, store.rtfAudioMs() + audioMs)
+        _state.value = _state.value.copy(realtimeCapable = deriveRtf(store.rtfWallMs(), store.rtfAudioMs()))
+    }
+
+    /** The derivation table (null under the 10 s gate, true ≤ 1.0 realtime,
+     * false slower). */
+    private fun deriveRtf(
+        wallMs: Long,
+        audioMs: Long,
+    ): Boolean? =
+        when {
+            // #93: short probes overstate RTF — no verdict below 10 s of audio.
+            audioMs < RTF_MIN_AUDIO_MS -> null
+            wallMs <= 0L -> null
+            wallMs <= audioMs -> true
+            else -> false
+        }
+
+    private companion object {
+        /** The realtime gate (item 8/#93): verdicts need ≥ 10 s of rendered
+         * audio, else the tri-state stays unmeasured. */
+        const val RTF_MIN_AUDIO_MS = 10_000L
     }
 }

@@ -26,10 +26,11 @@ data class SetupFacts(
 )
 
 /**
- * The ordered presentation steps (C1). The UI walks [SetupState.derive] as a
- * checklist; re-derivation after each fact change picks up exactly where the
- * flow stands (packs completing shrinks the list; a finished import lands on
- * [COMPLETE]).
+ * The ordered presentation steps (C1). The wizard walks
+ * [SetupState.derive] one step at a time (PRIVACY → DOWNLOAD_PACKS →
+ * CHOOSE_VOICE → IMPORT_BOOK on the full plan);
+ * re-derivation after each fact change picks up exactly where the flow stands
+ * (packs completing shrinks the list; a finished import lands on [COMPLETE]).
  */
 enum class StepKind {
     PRIVACY,
@@ -68,7 +69,10 @@ object SetupState {
             packsDone -> listOf(StepKind.IMPORT_BOOK)
             facts.systemTtsOptedIn && facts.bookCount > 0 -> listOf(StepKind.DEGRADED_READY)
             facts.systemTtsOptedIn -> listOf(StepKind.PRIVACY, StepKind.CHOOSE_VOICE, StepKind.IMPORT_BOOK)
-            else -> listOf(StepKind.PRIVACY, StepKind.CHOOSE_VOICE, StepKind.DOWNLOAD_PACKS, StepKind.IMPORT_BOOK)
+            // C1 reversal (decisions): voice selection moves AFTER the packs
+            // download — Preview needs the engine open, and the packs are a
+            // single 28 MB bundle, so choosing before Ready bought nothing.
+            else -> listOf(StepKind.PRIVACY, StepKind.DOWNLOAD_PACKS, StepKind.CHOOSE_VOICE, StepKind.IMPORT_BOOK)
         }
     }
 

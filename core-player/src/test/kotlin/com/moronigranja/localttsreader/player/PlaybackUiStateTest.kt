@@ -36,4 +36,28 @@ class PlaybackUiStateTest {
         val short = PlaybackUiState(generatedAheadSeconds = 45.0, timeLeftSeconds = 60.0, speed = 1.0)
         assertEquals(long.generatedAheadFraction, short.generatedAheadFraction, 0f)
     }
+
+    @Test
+    fun `passage indicator label is null when the book has no passages`() {
+        assertEquals(null, PlaybackUiState.passageIndicatorLabel(0, 0))
+        assertEquals(null, PlaybackUiState.passageIndicatorLabel(3, 0))
+    }
+
+    @Test
+    fun `passage indicator label renders one-based index and percent`() {
+        assertEquals("Passage 1/10 (0%)", PlaybackUiState.passageIndicatorLabel(0, 10))
+        assertEquals("Passage 5/10 (40%)", PlaybackUiState.passageIndicatorLabel(4, 10))
+        assertEquals("Passage 138/5012 (2%)", PlaybackUiState.passageIndicatorLabel(137, 5012))
+    }
+
+    @Test
+    fun `passage indicator percent clamps at one hundred`() {
+        // The index is 0-based so the last passage can never exceed 100; the
+        // clamp protects the label's shape however the caller feeds it.
+        // The last in-range passage is 9 (0-based) — 90%, not 100: percent
+        // is index/count, and the line renders 1-based.
+        assertEquals("Passage 10/10 (90%)", PlaybackUiState.passageIndicatorLabel(9, 10))
+        // The clamp only bites when the caller feeds an index past the end.
+        assertEquals("Passage 11/10 (100%)", PlaybackUiState.passageIndicatorLabel(10, 10))
+    }
 }

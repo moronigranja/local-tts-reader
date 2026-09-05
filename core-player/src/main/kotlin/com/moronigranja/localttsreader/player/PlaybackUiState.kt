@@ -31,6 +31,12 @@ data class PlaybackUiState(
     val authors: List<String> = emptyList(),
     val chapterIndex: Int = 0,
     val passageIndex: Int = 0,
+    /** 0-based index of the current passage across the WHOLE book (chapter
+     * prefix sums + [passageIndex]) — the reader's stable X/Y indicator,
+     * invariant under font scale, viewport width and immersive toggles. */
+    val bookPassageIndex: Int = 0,
+    /** Total passages across every chapter of the book. */
+    val bookPassageCount: Int = 0,
     val passageText: String = "",
     /** Book-time seconds the current passage's audio spans (speed-independent). */
     val passageDurationSeconds: Double = 0.0,
@@ -90,5 +96,21 @@ data class PlaybackUiState(
          * steady-state cushion sits ~37% into the segment and manual pregen
          * can overfill visibly. */
         const val PREGEN_HORIZON_SECONDS = 120.0
+
+        /** The reader's single book-wide position line (item 4):
+         * `"Passage X/Y (P%)"` — [index] is 0-based, the line is 1-based.
+         * `null` when no position is publishable (count 0); percent clamps at
+         * 100. Owned here so the regular footer, the immersive footer and the
+         * tests all render the same string (no second convention). */
+        fun passageIndicatorLabel(
+            index: Int,
+            count: Int,
+        ): String? =
+            if (count <= 0) {
+                null
+            } else {
+                val pct = (index * 100 / count).coerceIn(0, 100)
+                "Passage ${index + 1}/$count ($pct%)"
+            }
     }
 }

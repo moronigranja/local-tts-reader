@@ -1,4 +1,7 @@
 package com.moronigranja.localttsreader.featureplayer.ui
+import android.app.Activity
+import android.content.Context
+import android.content.ContextWrapper
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.awaitEachGesture
@@ -39,12 +42,15 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -54,6 +60,7 @@ import androidx.compose.ui.input.pointer.changedToUp
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.positionChange
 import androidx.compose.ui.input.pointer.positionChanged
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
@@ -64,6 +71,8 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.moronigranja.localttsreader.player.PlaybackUiState
 import com.moronigranja.localttsreader.player.PlayerPhase
@@ -74,6 +83,7 @@ import com.moronigranja.localttsreader.player.chapterMenuLabel
 import com.moronigranja.localttsreader.ui.AyvuSpacing
 import com.moronigranja.localttsreader.ui.EmptyState
 import com.moronigranja.localttsreader.ui.PlayerCard
+import com.moronigranja.localttsreader.ui.SegmentedProgress
 import kotlin.math.ceil
 
 /**
@@ -85,9 +95,10 @@ import kotlin.math.ceil
  * NOT auto-play (decisions #52); the transport or the library play button
  * start audio. The shared player card docks below (play/pause, ±30s seek,
  * chapter skip); sleep timer + undo-skip stay in the top bar.
- * Page gestures (horizontal swipe or side-zone taps turn pages;
- * a middle tap starts playback at the passage under the finger) and the
- * bookmark menu (add + jump) round it out.
+ * Page gestures (horizontal swipe or side-zone taps turn pages; a middle
+ * tap toggles the immersive chrome) and the bookmark menu (add + jump)
+ * round it out. Follow turns the page with the ACTIVE sentence, not the
+ * passage start.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -102,6 +113,29 @@ fun ReaderScreen(
     var bookmarkMenu by remember { mutableStateOf(false) }
     var voiceSheet by remember { mutableStateOf(false) }
     val voiceSelector by viewModel.voiceSelector.collectAsState()
+    // Immersive chrome (item 1): rememberSaveable so rotation keeps the
+    // choice; the system bar controller re-hides the bars on the new window.
+    var immersive by rememberSaveable { mutableStateOf(false) }
+    // System bars: hide on enter, restore on exit/dispose. One swipe brings
+    // them back transiently (BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE) — the
+    // immersive page is never soft-locked without bars.
+    val window = LocalContext.current.findActivity()?.window
+    val insetsController = window?.let { WindowInsetsControllerCompat(it, it.decorView) }
+    DisposableEffect(immersive, window) {
+        if (insetsController != null) {
+            if (immersive) {
+                insetsController.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+                insetsController.hide(WindowInsetsCompat.Type.systemBars())
+            } else {
+                insetsController.show(WindowInsetsCompat.Type.systemBars())
+            }
+        }
+        onDispose {
+            // The composable left the composition while immersive (or the
+            // window rotated): never strand the user without bars.
+            if (immersive) insetsController?.show(WindowInsetsCompat.Type.systemBars())
+        }
+    }
     // System back returns to the library, same as the top-bar arrow (the
     // reader is a top-level destination, not an exit from the app).
     BackHandler { onClose() }
@@ -120,113 +154,175 @@ fun ReaderScreen(
 
     Scaffold(
         topBar = {
-            Column(
-                modifier =
-                    Modifier
-                        .fillMaxWidth()
-                        .background(MaterialTheme.colorScheme.primaryContainer)
-                        .statusBarsPadding(),
-            ) {
-                Row(
+            // Immersive: no top bar at all — the book-title overlay draws in
+            // its place (item 1).
+            if (!immersive) {
+                Column(
                     modifier =
                         Modifier
                             .fillMaxWidth()
-                            .padding(AyvuSpacing.XS),
-                    verticalAlignment = Alignment.CenterVertically,
+                            .background(MaterialTheme.colorScheme.primaryContainer)
+                            .statusBarsPadding(),
                 ) {
-                    IconButton(onClick = onClose) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
-                    }
-                    Spacer(modifier = Modifier.weight(1f))
-                    Box {
-                        TextButton(
-                            onClick = { chapterMenu = true },
-                            enabled = state.bookId != null && state.chapters.isNotEmpty(),
-                        ) {
-                            Text("Ch ${state.chapterIndex + 1}/${state.chapters.size}")
+                    Row(
+                        modifier =
+                            Modifier
+                                .fillMaxWidth()
+                                .padding(AyvuSpacing.XS),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        IconButton(onClick = onClose) {
+                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
                         }
-                        DropdownMenu(expanded = chapterMenu, onDismissRequest = { chapterMenu = false }) {
-                            state.chapters.forEachIndexed { index, title ->
-                                DropdownMenuItem(
-                                    text = { Text(chapterMenuLabel(index, title)) },
-                                    onClick = {
-                                        chapterMenu = false
-                                        viewModel.playPosition(bookId, index, 0)
-                                    },
-                                )
+                        Spacer(modifier = Modifier.weight(1f))
+                        Box {
+                            TextButton(
+                                onClick = { chapterMenu = true },
+                                enabled = state.bookId != null && state.chapters.isNotEmpty(),
+                            ) {
+                                Text("Ch ${state.chapterIndex + 1}/${state.chapters.size}")
+                            }
+                            DropdownMenu(expanded = chapterMenu, onDismissRequest = { chapterMenu = false }) {
+                                state.chapters.forEachIndexed { index, title ->
+                                    DropdownMenuItem(
+                                        text = { Text(chapterMenuLabel(index, title)) },
+                                        onClick = {
+                                            chapterMenu = false
+                                            viewModel.playPosition(bookId, index, 0)
+                                        },
+                                    )
+                                }
                             }
                         }
-                    }
-                    Box {
-                        IconButton(onClick = { bookmarkMenu = true }, enabled = state.positioned) {
-                            Icon(Icons.Filled.Bookmark, contentDescription = "Bookmarks")
-                        }
-                        DropdownMenu(expanded = bookmarkMenu, onDismissRequest = { bookmarkMenu = false }) {
-                            DropdownMenuItem(
-                                text = { Text("Bookmark this passage") },
-                                onClick = {
-                                    bookmarkMenu = false
-                                    viewModel.bookmark()
-                                },
-                            )
-                            state.bookmarks.forEach { bookmark ->
+                        Box {
+                            IconButton(onClick = { bookmarkMenu = true }, enabled = state.positioned) {
+                                Icon(Icons.Filled.Bookmark, contentDescription = "Bookmarks")
+                            }
+                            DropdownMenu(expanded = bookmarkMenu, onDismissRequest = { bookmarkMenu = false }) {
                                 DropdownMenuItem(
-                                    text = {
-                                        Text(
-                                            bookmark.label
-                                                ?: "Ch ${bookmark.chapterIndex + 1} · P ${bookmark.passageIndex + 1}",
-                                        )
-                                    },
+                                    text = { Text("Bookmark this passage") },
                                     onClick = {
                                         bookmarkMenu = false
-                                        viewModel.playPosition(bookId, bookmark.chapterIndex, bookmark.passageIndex)
+                                        viewModel.bookmark()
                                     },
                                 )
+                                state.bookmarks.forEach { bookmark ->
+                                    DropdownMenuItem(
+                                        text = {
+                                            Text(
+                                                bookmark.label
+                                                    ?: "Ch ${bookmark.chapterIndex + 1} · P ${bookmark.passageIndex + 1}",
+                                            )
+                                        },
+                                        onClick = {
+                                            bookmarkMenu = false
+                                            viewModel.playPosition(bookId, bookmark.chapterIndex, bookmark.passageIndex)
+                                        },
+                                    )
+                                }
                             }
                         }
+                        IconButton(onClick = { voiceSheet = true }) {
+                            Icon(Icons.Filled.RecordVoiceOver, contentDescription = "Change voice")
+                        }
+                        IconButton(onClick = { viewModel.undo() }, enabled = state.canUndo) {
+                            Icon(Icons.AutoMirrored.Filled.Undo, contentDescription = "Undo")
+                        }
+                        TextButton(onClick = { viewModel.cycleSleep() }) {
+                            Text(state.sleepLabel, style = MaterialTheme.typography.labelSmall)
+                        }
                     }
-                    IconButton(onClick = { voiceSheet = true }) {
-                        Icon(Icons.Filled.RecordVoiceOver, contentDescription = "Change voice")
-                    }
-                    IconButton(onClick = { viewModel.undo() }, enabled = state.canUndo) {
-                        Icon(Icons.AutoMirrored.Filled.Undo, contentDescription = "Undo")
-                    }
-                    TextButton(onClick = { viewModel.cycleSleep() }) {
-                        Text(state.sleepLabel, style = MaterialTheme.typography.labelSmall)
-                    }
+                    Text(
+                        state.bookTitle.ifEmpty { "Reader" },
+                        modifier =
+                            Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = AyvuSpacing.LG, vertical = AyvuSpacing.SM),
+                        style = MaterialTheme.typography.titleMedium,
+                    )
                 }
-                Text(
-                    state.bookTitle.ifEmpty { "Reader" },
-                    modifier =
-                        Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = AyvuSpacing.LG, vertical = AyvuSpacing.SM),
-                    style = MaterialTheme.typography.titleMedium,
-                )
             }
         },
         // The shared app-wide player card (decisions #53): cover, progress,
         // times, −30s/◀Ch/play+spinner/Ch▶/+30s. Sleep timer + undo
         // stay in the top bar; the old transport row and footer are gone.
-        bottomBar = { PlayerCard(state, viewModel) },
+        // Immersive (item 1) drops BOTH bars: the empty top/bottom slots feed
+        // no insets, so the body grows — the reflow is accepted (item 1) and
+        // the slim title/player overlays below take their place.
+        bottomBar = { if (!immersive) PlayerCard(state, viewModel) },
     ) { padding ->
-        Column(
-            modifier =
-                Modifier
-                    .fillMaxSize()
-                    .padding(padding),
-        ) {
-            when {
-                state.failure != null -> EmptyState(state.failure!!)
-                state.chapterPassages.isEmpty() && state.phase == PlayerPhase.IDLE ->
-                    EmptyState("Tap play to start listening from this book.")
-                else ->
-                    PaginatedChapter(
-                        state = state,
-                        bookId = bookId,
-                        viewModel = viewModel,
+        Box(modifier = Modifier.fillMaxSize()) {
+            Column(
+                modifier =
+                    Modifier
+                        .fillMaxSize()
+                        .padding(padding),
+            ) {
+                when {
+                    state.failure != null -> EmptyState(state.failure!!)
+                    state.chapterPassages.isEmpty() && state.phase == PlayerPhase.IDLE ->
+                        EmptyState("Tap play to start listening from this book.")
+                    else ->
+                        PaginatedChapter(
+                            state = state,
+                            bookId = bookId,
+                            viewModel = viewModel,
+                            immersive = immersive,
+                            onToggleImmersive = { immersive = !immersive },
+                            modifier = Modifier.weight(1f),
+                        )
+                }
+            }
+            if (immersive) {
+                // Top overlay: book title drawn OVER the page — semi-
+                // transparent surface, labelLarge centered, SM margin. It
+                // never feeds reservedPx: pagination is unchanged by it.
+                Text(
+                    text = state.bookTitle.ifEmpty { "Reader" },
+                    style = MaterialTheme.typography.labelLarge,
+                    textAlign = TextAlign.Center,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    modifier =
+                        Modifier
+                            .align(Alignment.TopCenter)
+                            .fillMaxWidth()
+                            .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.85f))
+                            .padding(AyvuSpacing.SM),
+                )
+                // Bottom overlay: minimal player — play/pause, the thin
+                // two-tone progress line (readFraction + pregen cushion, the
+                // same segments as PlayerCard), and the item-4 passage
+                // indicator (the same string as the regular footer).
+                val loading = state.phase == PlayerPhase.LOADING
+                val playing = state.phase == PlayerPhase.PLAYING || loading
+                Row(
+                    modifier =
+                        Modifier
+                            .align(Alignment.BottomCenter)
+                            .fillMaxWidth()
+                            .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.85f))
+                            .padding(horizontal = AyvuSpacing.SM, vertical = AyvuSpacing.XS),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    IconButton(onClick = { if (playing) viewModel.pause() else viewModel.resume() }) {
+                        Icon(
+                            imageVector = if (playing) Icons.Filled.Pause else Icons.Filled.PlayArrow,
+                            contentDescription = if (playing) "Pause" else "Play",
+                        )
+                    }
+                    SegmentedProgress(
+                        playedFraction = state.readFraction.coerceIn(0f, 1f),
+                        generatedFraction = minOf(state.generatedAheadFraction, 1f - state.readFraction.coerceIn(0f, 1f)).coerceAtLeast(0f),
                         modifier = Modifier.weight(1f),
                     )
+                    val passageLabel = PlaybackUiState.passageIndicatorLabel(state.bookPassageIndex, state.bookPassageCount)
+                    Text(
+                        text = passageLabel ?: "",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(start = AyvuSpacing.SM),
+                    )
+                }
             }
         }
     }
@@ -282,14 +378,18 @@ private val PlaybackUiState.sleepLabel: String
  * re-wraps identically (greedy wrap breaks only depend on the line start).
  *
  * Gestures: horizontal swipe or side-zone taps turn pages; a middle tap
- * starts playback at the passage under the finger (S3). Playback turns the
- * page only when the spoken passage leaves the current one.
+ * toggles the immersive chrome (both ways). Follow turns the page with the
+ * ACTIVE sentence — a long paragraph narrated across a page break follows
+ * by sentence, and a manual page turn holds follow back for a short grace
+ * period before it resumes.
  */
 @Composable
 private fun PaginatedChapter(
     state: PlaybackUiState,
     bookId: String,
     viewModel: ReaderViewModel,
+    immersive: Boolean = false,
+    onToggleImmersive: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     if (state.chapterPassages.isEmpty()) return
@@ -308,6 +408,10 @@ private fun PaginatedChapter(
     val horizontalPadPx = with(density) { AyvuSpacing.LG.toPx() }.toInt()
     var page by remember(state.chapterIndex) { mutableIntStateOf(0) }
     var pressedPassage by remember { mutableStateOf<Int?>(null) }
+    // Manual-turn grace (item 3): when a hand turn happened, follow holds
+    // off until this + FOLLOW_GRACE_MS. Per-session, deliberately NOT
+    // rememberSaveable — a process death should not suppress follow.
+    var lastManualTurnAt by remember { mutableLongStateOf(0L) }
 
     BoxWithConstraints(modifier = modifier) {
         val viewportHeight = constraints.maxHeight
@@ -368,21 +472,37 @@ private fun PaginatedChapter(
             remember(pageWidth, indicatorStyle) {
                 textMeasurer
                     .measure(
-                        text = AnnotatedString("Page 999 of 999"),
+                        text = AnnotatedString("Passage 9999/9999 (100%)"),
                         style = indicatorStyle,
                         constraints = Constraints(maxWidth = pageWidth),
                     ).size.height
             } + 2 * with(density) { AyvuSpacing.XS.roundToPx() }
 
+        // Conservative bottom reserve: one extra line of slack past the
+        // measured footer (crop residual, open-bugs #29). OEM paint-scale
+        // drift can under-cover the measured height; one line lost on the
+        // last page beats a clipped line.
+        val bottomReservePx = indicatorReservedPx + lineHeightPx
+
         val totalLines = bodyLayout.lineCount
         val firstPageLines =
-            TextPagination.linesPerPage(
-                viewportHeight,
-                lineHeightPx,
-                reservedPx = titleHeightPx + titleGapPx + indicatorReservedPx,
-            )
-        val fullPageLines = TextPagination.linesPerPage(viewportHeight, lineHeightPx, reservedPx = indicatorReservedPx)
+            TextPagination.linesPerPage(viewportHeight, lineHeightPx, reservedPx = titleHeightPx + titleGapPx + bottomReservePx)
+        val fullPageLines = TextPagination.linesPerPage(viewportHeight, lineHeightPx, reservedPx = bottomReservePx)
         val totalPages = TextPagination.totalPages(totalLines, firstPageLines, fullPageLines)
+        // Chrome-toggle reflow (item 1): dropping the bottom PlayerCard grows
+        // the viewport, so pages re-derive. Keep the reading place by
+        // re-deriving the page from the top visible line of the OLD page
+        // (geometry remembered across the toggle).
+        var lastGeometry by remember { mutableStateOf<Pair<Int, Int>?>(null) }
+        LaunchedEffect(immersive, viewportHeight) {
+            val old = lastGeometry
+            if (old != null && old != (firstPageLines to fullPageLines)) {
+                val line = TextPagination.pageStartLine(page, old.first, old.second)
+                val targetPage = TextPagination.pageOf(line, firstPageLines, fullPageLines)
+                if (targetPage != page) page = targetPage.coerceIn(0, totalPages - 1)
+            }
+            lastGeometry = firstPageLines to fullPageLines
+        }
         val range =
             remember(page, totalLines, firstPageLines, fullPageLines) {
                 val start = TextPagination.pageStartLine(page.coerceIn(0, totalPages - 1), firstPageLines, fullPageLines)
@@ -394,17 +514,39 @@ private fun PaginatedChapter(
             }
         val startChar = if (page <= 0 || range.isEmpty()) 0 else bodyLayout.multiParagraph.getLineStart(range.first)
         val endChar = if (range.isEmpty()) startChar else bodyLayout.multiParagraph.getLineEnd(range.last)
-        // Line each passage begins on — tap-mapping + follow.
+        // Line each passage begins on — tap-mapping.
         val passageStartLines =
             remember(bodyLayout, passageOffsets, totalLines) {
                 passageOffsets.map { bodyLayout.getLineForOffset(it.coerceAtMost(maxOf(0, chapterText.length - 1))) }
             }
 
-        // Playback turns the page only when the spoken passage leaves it.
-        LaunchedEffect(state.chapterIndex, state.passageIndex, state.phase, totalPages) {
+        // The page holding the ACTIVE sentence's first char — ONE shared
+        // source for both follow effects (item 3). Null when there is no
+        // active sentence to anchor on.
+        fun activeSentencePage(): Int? {
+            val span =
+                activeSentenceRange(passageOffsets, state.passageIndex, state.passageText, state.activeSentenceIndex)
+                    ?: return null
+            val line = bodyLayout.getLineForOffset(span.first.coerceAtMost(maxOf(0, chapterText.length - 1)))
+            return TextPagination.pageOf(line.coerceAtMost(maxOf(0, totalLines - 1)), firstPageLines, fullPageLines)
+        }
+
+        // Playback turns the page when the ACTIVE SENTENCE leaves it
+        // (item 3). Manual turns hold follow back for FOLLOW_GRACE_MS — the
+        // sentence ticking forward right after a hand turn must not yank the
+        // page back.
+        LaunchedEffect(
+            state.chapterIndex,
+            state.passageIndex,
+            state.activeSentenceIndex,
+            state.phase,
+            totalPages,
+            firstPageLines,
+            fullPageLines,
+        ) {
             if (state.phase == PlayerPhase.PLAYING || state.phase == PlayerPhase.LOADING) {
-                val line = passageStartLines.getOrNull(state.passageIndex) ?: return@LaunchedEffect
-                val target = TextPagination.pageOf(line.coerceAtMost(maxOf(0, totalLines - 1)), firstPageLines, fullPageLines)
+                if (System.currentTimeMillis() - lastManualTurnAt < FOLLOW_GRACE_MS) return@LaunchedEffect
+                val target = activeSentencePage() ?: return@LaunchedEffect
                 if (target != page) page = target.coerceIn(0, totalPages - 1)
             }
         }
@@ -413,10 +555,18 @@ private fun PaginatedChapter(
         // lands on the previous chapter's LAST passage, so its ending page is
         // what the reader must open at. Chapter no-ops (book edges) change no
         // key here, so the page stays put.
-        LaunchedEffect(state.chapterIndex) {
+        LaunchedEffect(
+            state.chapterIndex,
+            state.passageIndex,
+            state.activeSentenceIndex,
+            firstPageLines,
+            fullPageLines,
+            totalPages,
+        ) {
             if (state.phase != PlayerPhase.PLAYING && state.phase != PlayerPhase.LOADING) {
-                val line = passageStartLines.getOrNull(state.passageIndex) ?: return@LaunchedEffect
-                val targetPage = TextPagination.pageOf(line.coerceAtMost(maxOf(0, totalLines - 1)), firstPageLines, fullPageLines)
+                // Follows immediately — it fires on pause/open, not while the
+                // user browses, so the grace period does not apply here.
+                val targetPage = activeSentencePage() ?: return@LaunchedEffect
                 if (targetPage != page) page = targetPage.coerceIn(0, totalPages - 1)
             }
         }
@@ -459,7 +609,8 @@ private fun PaginatedChapter(
                     .clipToBounds()
                     .pointerInput(state.bookId, totalPages, state.chapterPassages) {
                         // Passage under a y coordinate — the middle-third tap
-                        // mapping, shared by the press highlight and the tap (S3).
+                        // mapping, shared by the press highlight and the
+                        // chrome-toggle tap.
                         val pageWidthPx = size.width / 3f
                         val swipePx = SWIPE_PAGE_THRESHOLD.toPx()
 
@@ -474,7 +625,7 @@ private fun PaginatedChapter(
                         awaitEachGesture {
                             val down = awaitFirstDown()
                             // Press feedback only for middle-zone touches — the
-                            // zone whose up-action plays a passage.
+                            // zone whose up-action toggles the chrome.
                             if (down.position.x >= pageWidthPx && down.position.x <= pageWidthPx * 2f) {
                                 pressedPassage = passageAt(down.position.y)
                             }
@@ -494,6 +645,7 @@ private fun PaginatedChapter(
                             pressedPassage = null
                             if (paged) {
                                 val delta = if (dragX < 0f) 1 else -1
+                                lastManualTurnAt = System.currentTimeMillis()
                                 when {
                                     page + delta < 0 -> viewModel.openChapter(bookId, -1)
                                     page + delta > totalPages - 1 -> viewModel.openChapter(bookId, +1)
@@ -502,17 +654,19 @@ private fun PaginatedChapter(
                             } else {
                                 val x = down.position.x
                                 when {
-                                    x < pageWidthPx -> if (page <= 0) viewModel.openChapter(bookId, -1) else page = page - 1
-                                    x > pageWidthPx * 2f ->
+                                    x < pageWidthPx -> {
+                                        lastManualTurnAt = System.currentTimeMillis()
+                                        if (page <= 0) viewModel.openChapter(bookId, -1) else page = page - 1
+                                    }
+                                    x > pageWidthPx * 2f -> {
+                                        lastManualTurnAt = System.currentTimeMillis()
                                         if (page >= totalPages - 1) viewModel.openChapter(bookId, +1) else page = page + 1
+                                    }
                                     else -> {
-                                        // Middle tap: play the passage under the finger.
-                                        val passage = passageAt(down.position.y)
-                                        if (passage != null) {
-                                            viewModel.playPosition(bookId, state.chapterIndex, passage)
-                                        } else if (state.positioned) {
-                                            viewModel.playPosition(bookId, state.chapterIndex, state.passageIndex)
-                                        }
+                                        // Middle tap: toggle the immersive
+                                        // chrome (item 1). Play-from-here
+                                        // moves to the long-press menu (G2).
+                                        onToggleImmersive()
                                     }
                                 }
                             }
@@ -538,9 +692,20 @@ private fun PaginatedChapter(
                     modifier = Modifier.padding(horizontal = AyvuSpacing.LG),
                 )
             }
-            if (totalPages > 1) {
+            // Immersive hides the in-body footer — the overlay's minimal
+            // player carries the same passage indicator (item 1).
+            val passageLabel =
+                if (immersive) {
+                    null
+                } else {
+                    PlaybackUiState.passageIndicatorLabel(
+                        state.bookPassageIndex,
+                        state.bookPassageCount,
+                    )
+                }
+            if (passageLabel != null) {
                 Text(
-                    "Page ${page + 1} of $totalPages",
+                    passageLabel,
                     style = indicatorStyle,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     textAlign = TextAlign.Center,
@@ -605,3 +770,18 @@ private fun activeSentenceRange(
 
 /** Horizontal drag distance that turns a page. */
 private val SWIPE_PAGE_THRESHOLD = 64.dp
+
+/** Walks Context wrappers (ContextThemeWrapper, …) to the host [Activity] —
+ * the immersive system-bar controller needs the window (item 1). First
+ * WindowInsets use in the repo; LocalActivity-free by construction. */
+private tailrec fun Context.findActivity(): Activity? =
+    when (this) {
+        is Activity -> this
+        is ContextWrapper -> baseContext.findActivity()
+        else -> null
+    }
+
+/** A manual page turn holds follow back for this long (item 3) — long
+ * enough to read the turned page, short enough that playback does not
+ * visibly drift off the spoken sentence. */
+private const val FOLLOW_GRACE_MS = 4_000L

@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -40,10 +41,12 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import com.moronigranja.localttsreader.featurelibrary.takeReadPermission
 import com.moronigranja.localttsreader.featurelibrary.toEBookSources
 import com.moronigranja.localttsreader.player.formatBytes
+import com.moronigranja.localttsreader.tts.setup.SetupState
 import com.moronigranja.localttsreader.tts.setup.StepKind
 import com.moronigranja.localttsreader.ui.AyvuSpacing
 import com.moronigranja.localttsreader.ui.PacksPlanCard
 import com.moronigranja.localttsreader.ui.PillButton
+import com.moronigranja.localttsreader.ui.PlanPackStatus
 import com.moronigranja.localttsreader.ui.SectionHeader
 import com.moronigranja.localttsreader.ui.VoicePreviewUi
 import com.moronigranja.localttsreader.ui.VoiceRowUi
@@ -79,8 +82,13 @@ fun SetupScreen(
         if (head == StepKind.COMPLETE || head == StepKind.DEGRADED_READY) onFinished()
     }
 
-    // The gate owns dismissal; system back must not escape mid-setup.
-    BackHandler { }
+    // System back maps to wizard Back while a non-terminal, non-first step
+    // is current (item 6); on PRIVACY the gate owns dismissal — back must
+    // not escape mid-setup.
+    val currentStep = state.currentStep
+    BackHandler(enabled = currentStep != null && currentStep != StepKind.PRIVACY) {
+        viewModel.wizardBack()
+    }
 
     Scaffold(
         topBar = { TopAppBar(title = { Text("Set up Ayvu") }) },
@@ -92,33 +100,63 @@ fun SetupScreen(
                     .PaddingValues(AyvuSpacing.LG),
             verticalArrangement = Arrangement.spacedBy(AyvuSpacing.MD),
         ) {
-            for (step in state.steps) {
-                item(key = "step-$step") {
-                    when (step) {
-                        StepKind.PRIVACY -> PrivacyCard()
-                        StepKind.CHOOSE_VOICE ->
-                            ChooseVoiceCard(
-                                voiceSelector = state.voiceSelector,
-                                onSelect = viewModel::chooseVoice,
-                                onPreview = viewModel::previewVoice,
-                                onStopPreview = viewModel::stopPreview,
-                                onDownload = viewModel::downloadVoicePacks,
+            val step = state.currentStep ?: return@LazyColumn
+            item(key = "step-$step") {
+                when (step) {
+                    StepKind.PRIVACY -> PrivacyCard()
+                    StepKind.CHOOSE_VOICE ->
+                        ChooseVoiceCard(
+                            voiceSelector = state.voiceSelector,
+                            onSelect = viewModel::chooseVoice,
+                            onPreview = viewModel::previewVoice,
+                            onStopPreview = viewModel::stopPreview,
+                            onDownload = viewModel::downloadVoicePacks,
+                        )
+                    StepKind.DOWNLOAD_PACKS ->
+                        DownloadPacksCard(
+                            state = state,
+                            onDownload = viewModel::download,
+                            onCancel = viewModel::cancelDownload,
+                            onOptInSystemTts = viewModel::optInSystemTts,
+                        )
+                    StepKind.IMPORT_BOOK ->
+                        ImportBookCard(
+                            state = state,
+                            onPickBooks = { launcher.launch(IMPORT_MIME_TYPES) },
+                            onDismissSummary = viewModel::consumeImportSummary,
+                            onFinish = onFinished,
+                        )
+                    StepKind.COMPLETE, StepKind.DEGRADED_READY -> Unit // LaunchedEffect above
+                }
+            }
+            // Wizard nav (item 6): Back to the previous surviving step
+            // (disabled on PRIVACY — the gate owns dismissal), Next advances;
+            // Next on DOWNLOAD_PACKS is enabled only when the packs are Ready.
+            if (!SetupState.isTerminal(state.steps)) {
+                item(key = "wizard-nav") {
+                    val index = state.steps.indexOf(step)
+                    val isLast = index == state.steps.lastIndex
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        PillButton(
+                            "Back",
+                            onClick = viewModel::wizardBack,
+                            enabled = index > 0,
+                        )
+                        Spacer(modifier = Modifier.weight(1f))
+                        if (isLast) {
+                            PillButton("Finish", onClick = onFinished)
+                        } else if (step == StepKind.DOWNLOAD_PACKS) {
+                            PillButton(
+                                "Next",
+                                onClick = viewModel::wizardNext,
+                                enabled = state.packs.all { it.status == PlanPackStatus.Ready },
                             )
-                        StepKind.DOWNLOAD_PACKS ->
-                            DownloadPacksCard(
-                                state = state,
-                                onDownload = viewModel::download,
-                                onCancel = viewModel::cancelDownload,
-                                onOptInSystemTts = viewModel::optInSystemTts,
-                            )
-                        StepKind.IMPORT_BOOK ->
-                            ImportBookCard(
-                                state = state,
-                                onPickBooks = { launcher.launch(IMPORT_MIME_TYPES) },
-                                onDismissSummary = viewModel::consumeImportSummary,
-                                onFinish = onFinished,
-                            )
-                        StepKind.COMPLETE, StepKind.DEGRADED_READY -> Unit // LaunchedEffect above
+                        } else {
+                            PillButton("Next", onClick = viewModel::wizardNext)
+                        }
                     }
                 }
             }
