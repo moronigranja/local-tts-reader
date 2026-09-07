@@ -728,8 +728,22 @@ Acceptance: the selected passage—not merely the current narrated passage—is 
 played, including when several passages share one page.
 
 The discrimination is now three-way against B3's middle-third pressed-passage
-highlight (tap vs long-press vs page swipe); define it against the B3
+highlight (tap vs long-press vs swipe); define it against the B3
 interaction, not beside it. (decisions #96)
+
+**Landed (2026-09-06, decisions #127):** long-press any paragraph on the reader page
+opens a `DropdownMenu` anchored at the press point with **Play from here** (the same
+`ACTION_PLAY_POSITION` command as the bookmark jumps and play-from-view) and **Copy
+text** (the passage text, suspend `Clipboard.setClipEntry`). Three-way discrimination in
+the single `awaitEachGesture` loop: deadline-vs-up-vs-swipe (per-down
+`longPressTimeoutMillis`, the `detectTapGestures` deadline model). The page is inert
+while the menu is open (tap-away dismisses, never turns). Immersive `passageAt`
+top-inset mapping carried as a device watch item. Feature plan:
+`docs/features/paragraph-context-menu.md`; host gate (tests + ktlint + assemble)
+green; **device-verified S22 2026-09-07** (menu anchored at press point —
+anchor bug found+fixed in the pass — selection-accurate play, byte-exact copy
+via clipboard, tap-away/discrimination/immersive/rotation all pass; TalkBack
+deferred).
 
 ### G3 — Hardware and listening gestures — promoted from ideas
 

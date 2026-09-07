@@ -1,7 +1,10 @@
 package com.moronigranja.localttsreader.featureplayer.ui
 import android.app.Activity
+import android.content.ClipData
 import android.content.Context
 import android.content.ContextWrapper
+import android.os.SystemClock
+import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.awaitEachGesture
@@ -52,17 +55,21 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.changedToUp
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.positionChange
 import androidx.compose.ui.input.pointer.positionChanged
+import androidx.compose.ui.platform.ClipEntry
+import androidx.compose.ui.platform.LocalClipboard
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalViewConfiguration
@@ -73,6 +80,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Constraints
+import androidx.compose.ui.unit.DpOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.view.WindowInsetsCompat
@@ -89,9 +97,10 @@ import com.moronigranja.localttsreader.ui.AyvuSpacing
 import com.moronigranja.localttsreader.ui.EmptyState
 import com.moronigranja.localttsreader.ui.PlayerCard
 import com.moronigranja.localttsreader.ui.SegmentedProgress
+import kotlin.math.ceil
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-import kotlin.math.ceil
+import kotlinx.coroutines.withTimeoutOrNull
 
 /**
  * The docked reader+player (decisions #29/#52): a real paginated book page —
@@ -103,8 +112,9 @@ import kotlin.math.ceil
  * start audio. The shared player card docks below (play/pause, ±30s seek,
  * chapter skip); sleep timer + undo-skip stay in the top bar.
  * Page gestures (horizontal swipe or side-zone taps turn pages; a middle
- * double tap toggles the immersive chrome) and the bookmark menu (add +
- * jump) round it out. Follow turns the page with the ACTIVE sentence, not
+ * double tap toggles the immersive chrome; a long press opens the paragraph
+ * menu — Play from here / Copy text) and the bookmark menu (add + jump)
+ * round it out. Follow turns the page with the ACTIVE sentence, not
  * the passage start.
  */
 @OptIn(ExperimentalMaterial3Api::class)
@@ -433,11 +443,14 @@ private val PlaybackUiState.sleepLabel: String
  * re-wraps identically (greedy wrap breaks only depend on the line start).
  *
  * Gestures: horizontal swipe or side-zone taps turn pages; a middle double
- * tap toggles the immersive chrome (both ways). Follow turns the page with
- * the ACTIVE sentence — a long paragraph narrated across a page break
- * follows by sentence, and a manual page turn stops playback (item 4).
- * Follow acts only when the (chapter, passage, active sentence) triple
- * changes, so neither a chrome toggle nor a pause/turn can yank the page.
+ * tap toggles the immersive chrome (both ways); a long press opens the
+ * paragraph context menu (Play from here / Copy text, G2). Follow turns
+ * the page with the ACTIVE sentence — a long paragraph narrated across a
+ * page break follows by sentence, and a manual page turn stops playback
+ * (item 4). Follow acts only when the (chapter, passage, active sentence)
+ * triple changes, so neither a chrome toggle nor a pause/turn can yank the
+ * page. The three-way discrimination is tap vs long-press vs swipe
+ * (decisions #96), defined against the B3 middle-zone press highlight.
  */
 @Composable
 private fun PaginatedChapter(
@@ -454,6 +467,9 @@ private fun PaginatedChapter(
     val textMeasurer = rememberTextMeasurer()
     val highlightColor = MaterialTheme.colorScheme.tertiaryContainer
     val pressedColor = MaterialTheme.colorScheme.surfaceVariant
+    val context = LocalContext.current
+    val clipboard = LocalClipboard.current
+    val scope = rememberCoroutineScope()
     // Measurement constant: pagination keys on the FIXED line-height contract.
     val bodyStyle = MaterialTheme.typography.bodyLarge.copy(lineHeight = 30.sp)
     val titleStyle = MaterialTheme.typography.titleLarge
@@ -469,6 +485,11 @@ private fun PaginatedChapter(
     // only records its time — a second tap inside the double-tap window
     // toggles the immersive chrome. A single middle tap does nothing.
     var lastMiddleTapAt by remember { mutableLongStateOf(0L) }
+    // Long-press context menu (G2): the pressed passage + anchor; null =
+    // closed. While open the page gestures are inert (the pointerInput block
+    // is keyed on it) so an outside tap dismisses the menu, never turns the
+    // page.
+    var longPressTarget by remember { mutableStateOf<LongPressTarget?>(null) }
     // Follow dedupe (item 1): both follow effects re-fire whenever their
     // geometry keys (firstPageLines/fullPageLines/totalPages) change — the
     // immersive toggle re-derives them. The dedupe key is the (chapter,
@@ -486,6 +507,9 @@ private fun PaginatedChapter(
         // once here, they are stable for the session.
         val doubleTapMinMs = LocalViewConfiguration.current.doubleTapMinTimeMillis
         val doubleTapTimeoutMs = LocalViewConfiguration.current.doubleTapTimeoutMillis
+        // Long-press timeout for the paragraph menu (G2) — platform timing,
+        // same capture-once treatment as the double-tap constants.
+        val longPressTimeoutMs = LocalViewConfiguration.current.longPressTimeoutMillis
         val pageWidth = (constraints.maxWidth - horizontalPadPx * 2).coerceAtLeast(1)
         val chapterTitle = state.chapters.getOrNull(state.chapterIndex).orEmpty()
         val chapterText =
@@ -746,33 +770,60 @@ private fun PaginatedChapter(
                     // padding places it.
                     .padding(top = if (immersive) with(density) { titleOverlayReservedPx.toDp() } else 0.dp)
                     .clipToBounds()
-                    .pointerInput(state.bookId, totalPages, state.chapterPassages, immersive) {
+                    .pointerInput(state.bookId, totalPages, state.chapterPassages, immersive, longPressTarget == null) {
+                        // The context menu is open: the page is inert — an
+                        // outside tap dismisses the menu (G2), it must not
+                        // turn the page. Opening the menu restarts this block
+                        // via the key above; this early-return keeps the
+                        // gesture loop from consuming dismiss taps.
+                        if (longPressTarget != null) return@pointerInput
                         // Passage under a y coordinate — the middle-third tap
                         // mapping, shared by the press highlight and the
-                        // chrome-toggle double tap.
+                        // chrome-toggle tap. [requirePositioned] keeps the
+                        // B3 highlight's "nothing loaded" guard; the long-press
+                        // menu maps any real passage so a freshly opened,
+                        // never-played book can still "Play from here" (G2).
                         val pageWidthPx = size.width / 3f
                         val swipePx = SWIPE_PAGE_THRESHOLD.toPx()
 
-                        fun passageAt(y: Float): Int? {
+                        fun passageAt(y: Float, requirePositioned: Boolean): Int? {
                             val topInset = if (immersive) titleOverlayReservedPx else 0
                             val titleBlock = (if (page <= 0) titleHeightPx + titleGapPx else 0) + topInset
                             val lineInPage = ((y - titleBlock).toInt() / lineHeightPx).coerceAtLeast(0)
                             val globalLine = range.first + lineInPage
-                            return passageStartLines
-                                .indexOfLast { it <= globalLine }
-                                .takeIf { it >= 0 && state.positioned }
+                            val index = passageStartLines.indexOfLast { it <= globalLine }
+                            return index.takeIf { it >= 0 && (!requirePositioned || state.positioned) }
                         }
                         awaitEachGesture {
                             val down = awaitFirstDown()
                             // Press feedback only for middle-zone touches — the
-                            // zone whose double tap toggles the chrome.
+                            // zone whose double tap toggles the chrome (B3).
                             if (down.position.x >= pageWidthPx && down.position.x <= pageWidthPx * 2f) {
-                                pressedPassage = passageAt(down.position.y)
+                                pressedPassage = passageAt(down.position.y, requirePositioned = true)
                             }
+                            // Long-press race (G2): the platform long-press
+                            // deadline is measured from THIS down and captured
+                            // once, so a jittery finger inside the touch slop
+                            // cannot extend it (the detectTapGestures deadline
+                            // model). The loop races each pointer await against
+                            // the remaining time; the same loop keeps the
+                            // swipe and quick-up paths unchanged.
+                            val longPressDeadline = down.uptimeMillis + longPressTimeoutMs
+                            var timedOut = false
                             var dragX = 0f
                             var paged = false
-                            do {
-                                val event = awaitPointerEvent()
+                            while (true) {
+                                val remaining = longPressDeadline - SystemClock.uptimeMillis()
+                                if (remaining <= 0) {
+                                    timedOut = true
+                                    break
+                                }
+                                val event =
+                                    withTimeoutOrNull(remaining) { awaitPointerEvent() }
+                                        ?: run {
+                                            timedOut = true
+                                            break
+                                        }
                                 val change = event.changes.firstOrNull() ?: break
                                 if (change.positionChanged()) {
                                     dragX += change.positionChange().x
@@ -781,50 +832,80 @@ private fun PaginatedChapter(
                                         change.consume()
                                     }
                                 }
-                            } while (!event.changes.all { it.changedToUp() })
-                            pressedPassage = null
-                            if (paged) {
-                                val delta = if (dragX < 0f) 1 else -1
-                                when {
-                                    page + delta < 0 -> viewModel.openChapter(bookId, -1)
-                                    page + delta > totalPages - 1 -> viewModel.openChapter(bookId, +1)
-                                    else -> {
-                                        stopPlaybackOnManualTurn()
-                                        page = page + delta
-                                    }
+                                if (event.changes.all { it.changedToUp() }) break
+                            }
+                            // Long-press wins only if the deadline beat the
+                            // up event — a completed swipe (paged) is never
+                            // pre-empted by the deadline.
+                            val longPressed = timedOut && !paged
+                            if (longPressed) {
+                                // The menu fires at the deadline, finger still
+                                // down (anchor ready); the highlight clears —
+                                // the menu is its feedback. A middle-zone
+                                // long-press breaks out BEFORE the tap logic,
+                                // so it never records a tap time and cannot
+                                // corrupt the double-tap window. The menu
+                                // targets the passage under the finger with no
+                                // positioned guard — "Play from here" works on
+                                // an opened-but-never-played book (G2).
+                                pressedPassage = null
+                                val index = passageAt(down.position.y, requirePositioned = false)
+                                if (index != null) {
+                                    longPressTarget = LongPressTarget(index, down.position)
+                                }
+                                // Drain until every pointer lifts so the up is
+                                // not re-consumed as a tap by the restarted
+                                // block (the menu-open pointerInput restart may
+                                // cancel this early — equally safe).
+                                while (true) {
+                                    val event = awaitPointerEvent()
+                                    if (event.changes.all { it.changedToUp() }) break
                                 }
                             } else {
-                                val x = down.position.x
-                                when {
-                                    x < pageWidthPx -> {
-                                        if (page <= 0) {
-                                            viewModel.openChapter(bookId, -1)
-                                        } else {
+                                pressedPassage = null
+                                if (paged) {
+                                    val delta = if (dragX < 0f) 1 else -1
+                                    when {
+                                        page + delta < 0 -> viewModel.openChapter(bookId, -1)
+                                        page + delta > totalPages - 1 -> viewModel.openChapter(bookId, +1)
+                                        else -> {
                                             stopPlaybackOnManualTurn()
-                                            page = page - 1
+                                            page = page + delta
                                         }
                                     }
-                                    x > pageWidthPx * 2f -> {
-                                        if (page >= totalPages - 1) {
-                                            viewModel.openChapter(bookId, +1)
-                                        } else {
-                                            stopPlaybackOnManualTurn()
-                                            page = page + 1
+                                } else {
+                                    val x = down.position.x
+                                    when {
+                                        x < pageWidthPx -> {
+                                            if (page <= 0) {
+                                                viewModel.openChapter(bookId, -1)
+                                            } else {
+                                                stopPlaybackOnManualTurn()
+                                                page = page - 1
+                                            }
                                         }
-                                    }
-                                    else -> {
-                                        // Middle double tap: toggle the
-                                        // immersive chrome (item 2). A single
-                                        // middle tap does nothing; the press
-                                        // highlight above still gives
-                                        // feedback.
-                                        val now = System.currentTimeMillis()
-                                        val since = now - lastMiddleTapAt
-                                        if (since >= doubleTapMinMs && since <= doubleTapTimeoutMs) {
-                                            lastMiddleTapAt = 0L
-                                            onToggleImmersive()
-                                        } else {
-                                            lastMiddleTapAt = now
+                                        x > pageWidthPx * 2f -> {
+                                            if (page >= totalPages - 1) {
+                                                viewModel.openChapter(bookId, +1)
+                                            } else {
+                                                stopPlaybackOnManualTurn()
+                                                page = page + 1
+                                            }
+                                        }
+                                        else -> {
+                                            // Middle double tap: toggle the
+                                            // immersive chrome (item 2). A single
+                                            // middle tap does nothing; the press
+                                            // highlight above still gives
+                                            // feedback.
+                                            val now = System.currentTimeMillis()
+                                            val since = now - lastMiddleTapAt
+                                            if (since >= doubleTapMinMs && since <= doubleTapTimeoutMs) {
+                                                lastMiddleTapAt = 0L
+                                                onToggleImmersive()
+                                            } else {
+                                                lastMiddleTapAt = now
+                                            }
                                         }
                                     }
                                 }
@@ -874,6 +955,51 @@ private fun PaginatedChapter(
                             .padding(vertical = AyvuSpacing.XS),
                 )
             }
+// Long-press paragraph menu (G2): a popup anchored at the press point via
+            // DropdownMenu's dedicated [offset] (window-relative to the page);
+            // the page gestures are inert while it is open (the pointerInput
+            // key) — an outside tap dismisses, never turns the page.
+            val target = longPressTarget
+            if (target != null) {
+                val passage = state.chapterPassages.getOrNull(target.passageIndex)
+                DropdownMenu(
+                    expanded = true,
+                    onDismissRequest = { longPressTarget = null },
+                    offset =
+                        DpOffset(
+                            with(density) { target.position.x.toDp() },
+                            with(density) { target.position.y.toDp() },
+                        ),
+                ) {
+                    DropdownMenuItem(
+                        text = { Text("Play from here") },
+                        onClick = {
+                            longPressTarget = null
+                            // Same position command as the bookmark jumps and
+                            // play-from-view (item 3): starts at the PRESSED
+                            // passage, not the narrated one (G2 acceptance).
+                            if (passage != null) {
+                                viewModel.playPosition(bookId, state.chapterIndex, target.passageIndex)
+                            }
+                        },
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Copy text") },
+                        onClick = {
+                            longPressTarget = null
+                            if (passage != null) {
+                                // setClipEntry is the suspend modern clipboard
+                                // API (BOM 2026.06.01); ClipEntry wraps a
+                                // native ClipData on Android.
+                                scope.launch {
+                                    clipboard.setClipEntry(ClipEntry(ClipData.newPlainText("passage", passage)))
+                                }
+                                Toast.makeText(context, "Passage copied", Toast.LENGTH_SHORT).show()
+                            }
+                        },
+                    )
+                }
+            }
         }
     }
 }
@@ -892,6 +1018,13 @@ private fun computePassageOffsets(passages: List<String>): IntArray {
 private data class SentenceSpan(
     val offset: Int,
     val length: Int,
+)
+
+/** The open long-press context menu (G2): the passage under the finger and
+ * the press point the menu anchors at (page-content-local coordinates). */
+private data class LongPressTarget(
+    val passageIndex: Int,
+    val position: Offset,
 )
 
 /** Char spans of the sentences, split after `.!?…` and following whitespace. */

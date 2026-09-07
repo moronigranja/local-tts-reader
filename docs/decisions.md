@@ -1,5 +1,51 @@
 # Decision log
 
+## 127. G2 paragraph context menu: long-press Play from here / Copy text (2026-09-06)
+
+Play-at-passage returns as G2's long-press menu (roadmap G2, decisions #122
+superseded the middle double tap). Long-press any rendered paragraph on the
+reader page opens a `DropdownMenu` anchored at the press point with **Play from
+here** (the same `ACTION_PLAY_POSITION` command the bookmark jumps and
+play-from-view use) and **Copy text** (the passage text, via the modern suspend
+`Clipboard.setClipEntry`/`ClipEntry` surface — BOM 2026.06.01, `ClipEntry`
+wraps a native `ClipData` on Android).
+
+- **Three-way discrimination** (decisions #96, against B3, not beside it):
+  the single `awaitEachGesture` loop races `awaitPointerEvent()` against a
+  per-down long-press deadline (`LocalViewConfiguration.longPressTimeoutMillis`,
+  captured once per gesture — the `detectTapGestures` deadline model, so
+  in-slop jitter cannot extend it). Deadline wins → menu; quick up → tap
+  (side zones turn the page, middle feeds the double-tap window unchanged);
+  drag past `SWIPE_PAGE_THRESHOLD` before up/deadline → page turn. A complete
+  swipe is never pre-empted by the deadline.
+- **Menu-open page is inert**: the `pointerInput` block is keyed on the menu
+  state and early-returns while it is open, so an outside tap-away dismisses
+  the menu instead of turning the page (the classic DropdownMenu-inside-a-tap-
+  surface trap). The B3 middle-zone pressed-passage highlight is untouched;
+  the menu's own feedback replaces it on long-press.
+- **No `state.positioned` guard on the menu's passage mapping** — a freshly
+  opened, never-played book can still "Play from here"; the B3 highlight keeps
+  its guard.
+- **Watch item carried forward**: the immersive `passageAt` `topInset`
+  (decisions #125) was pixel-verified for rendering, not tap-mapping; the
+  menu shares the mapping, so boundary-adjacent long-press in immersive is
+  B3's own gauge and gets checked on the S22 pass.
+
+Host verification: Docker `testDebugUnitTest ktlintCheck assembleDebug` green
+(no behavior test — the slice is Compose gesture code with no host-testable
+surface; device pass per roadmap G2). Feature plan:
+`docs/features/paragraph-context-menu.md`.
+
+**Device-verified (S22, 2026-09-07):** long-press opens the menu anchored at
+the press point (the pass caught and fixed the anchor: the modifier
+`Modifier.offset` rendered the popup at the origin — the `offset = DpOffset`
+param is the correct anchor); Play from here starts at the pressed passage
+(top/bottom of a multi-passage page → 212 vs ~219, not the narrated passage);
+Copy text puts the exact passage on the clipboard (pasted on-device, matches
+DB passage byte-for-byte); tap-away dismisses without turning; tap / double-tap
+/ swipe discrimination intact; immersive + rotation safe. TalkBack pass
+deferred (B4).
+
 ## 126. Release distribution: GitHub Releases APK, manual local signing (2026-09-05)
 
 First public distribution decision. The app publishes as a signed APK on

@@ -35,7 +35,7 @@ playback (with read-along sentence highlighting) → share-and-resume, plus sett
 | `core-persistence` | Room schema v2 (books, cached passages, progress + offset/speed, settings, bookmarks, position_history); stores + launch-time rebuild; `BackupStore` snapshot/merge + book-file sidecars (E1) |
 | `feature-library` | SAF multi-file + folder import (F3 tree grant), external-file intake (F4: ACTION_VIEW / shared book files land on MainActivity), one import overlay with progress + stage (reading/parsing/saving/indexing) + typed failures, idempotent; library list UI |
 | `core-backup` | Versioned v1 SAF backup archive: codec + DTOs (pure JVM) — consumed by persistence + settings (E1) |
-| `feature-player` | Foreground playback service (MediaSession, focus/ducking, notification), pre-generation wiring, reader surface with sentence highlight + S3 gestures |
+| `feature-player` | Foreground playback service (MediaSession, focus/ducking, notification), pre-generation wiring, reader surface with sentence highlight + S3 gestures + long-press paragraph menu (G2) |
 | `feature-settings` | Settings screen: engine/voice/OCR pack downloads, voice picker + favorites, match threshold, OCR languages, theme, backup & restore (SAF export/import); Android HTTP transport |
 | `feature-share` | ACTION_SEND gateway (text + image, plus F4 book-file routing to the import gateway), typed resolver (found / not-found with closest hint), OpenTarget contract |
 | `feature-ocr` | TessTwoOcrEngine (tess-two 9.1.0) + tessdata stager, Hilt wiring |
@@ -85,8 +85,9 @@ PlayPositionE2e, SharePipeline (text + image OCR), OCR smoke, RealEpubImportProb
 3. **Share-and-identify** — share text or a screenshot from your Kindle app; the app
    finds which book and passage it comes from (text directly, screenshots via on-device
    OCR) and offers "Listen here" — opening the book at that passage and starting
-   playback. Reader supports the flip side: pressing Play starts from the top of
-   the current visible page; the middle double tap toggles the immersive chrome.
+   playback. Reader gestures: pressing Play starts from the top of the current visible
+   page; a middle double tap toggles the immersive chrome; long-press a paragraph for
+   **Play from here** / **Copy text** (G2).
 4. **Settings** — voice picker with favorites, engine/voice/OCR-language pack
    downloads (explicit, resumable, SHA-verified), match threshold, theme
    (system/light/dark), OCR language selection.
