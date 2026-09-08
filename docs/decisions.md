@@ -25,6 +25,19 @@ to collide once with another publisher to be permanently blocked storewide.
 - Timing: pre-release (versionCode 1, unsigned CI builds), so the rename is
   free of user-visible cost. A change after first release would orphan existing
   installs/data — that is the reason to decide it now.
+- **Follow-up (same day, release sanity pass):** the relative manifest
+  component names (`.MainActivity`, `.LocalTtsReaderApp`) resolve against
+  `applicationId`, so the renamed build failed to launch (Error type 3 —
+  `io.github.moronigranja.ayvu.MainActivity` does not exist). Both are now
+  fully-qualified (`com.moronigranja.localttsreader.MainActivity` /
+  `LocalTtsReaderApp`), decoupling manifest components from the app id for
+  good. `ExternalIntakeInstrumentedTest` composes
+  `ComponentName(targetContext.packageName, <full class>)` and needed no
+  change. On-device sanity pass of the signed 0.1.1 build (v0.1.1/code 2):
+  install, launch, pack download + checksum verify (3/3 Ready), VIEW-intent
+  import, library + reader render, playback through Kokoro (the engine
+  saturates the CPU — UI input lags during synthesis bursts and recovers
+  between passages).
 
 ## 127. G2 paragraph context menu: long-press Play from here / Copy text (2026-09-06)
 

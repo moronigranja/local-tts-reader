@@ -329,9 +329,13 @@ keytool -genkeypair -v -keystore ~/.android/ayvu-release.jks -alias ayvu \
 #    keyPassword=<your-key-password>
 # 3. Build + verify the signed APK (and optionally draft/publish the release):
 tools/release.sh                 # signed app-release.apk + signature check
-tools/release.sh --upload        # + draft GitHub release v0.1.0
-tools/release.sh --upload --publish --notes docs/release-notes-0.1.0.md
+tools/release.sh --upload        # + draft GitHub release v0.1.1
+tools/release.sh --upload --publish --notes docs/release-notes-0.1.1.md
 ```
+
+Back the release keystore + `keystore.properties` up off-machine immediately
+(oneDrive/Backup/ayvu holds the current pair): losing the keystore permanently
+locks updates on every device that installed a build signed with it.
 
 The `release` buildType is unminified for 0.1.0 (R8 needs shrink rules + a
 device pass for Hilt/JNA/ONNX; decisions #126). Upgrading over an installed

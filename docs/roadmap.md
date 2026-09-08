@@ -941,8 +941,11 @@ signed APK, manual local signing** — CI stays a gate (tag assemble only). The
 local signing pipeline ships: release keystore outside the repo, gitignored
 `keystore.properties`, unminified `release` buildType, `tools/release.sh`
 (build + apksigner verify + draft/publish release), `NOTICE.md` attribution.
-Remaining before the first public tag: write the release notes, run the
-on-device sanity pass on the SIGNED build, and press publish.
+Remaining before the first public tag: press publish — the release notes
+(`docs/release-notes-0.1.1.md`) are written and the on-device sanity pass on
+the SIGNED 0.1.1 build is done (install/launch/pack-verify/import/reader/
+playback; decisions #128 follow-up covers the manifest-component fix it
+caught).
 
 Deferred until a store listing is actually wanted: AAB + Play Data Safety,
 store privacy policy, listing/screenshots, supported-devices declaration.

@@ -1,4 +1,4 @@
-# Ayvu v0.1.0 — release notes (draft)
+# Ayvu v0.1.1 — release notes (draft)
 
 Ayvu is a fully offline text-to-speech reader for Android: import your DRM-free
 ebooks and listen to them narrated on-device.
@@ -19,10 +19,14 @@ ebooks and listen to them narrated on-device.
 
 ## Install notes
 
-- Requires Android 8.0+ (API 26). ~100 MB APK (unminified 0.1.0; the ONNX
+- Requires Android 8.0+ (API 26). ~165 MB APK (unminified 0.1.1; the ONNX
   Runtime TTS engine ships inside).
-- Upgrading over a DEBUG install requires uninstall first (different signing
-  key) — library and bookmarks can be restored via Backup & restore.
+- Pre-release installs under the old id (`com.moronigranja.localttsreader`)
+  are a separate app from this one (`io.github.moronigranja.ayvu`) — install
+  fresh; data does not carry over (decisions #128).
+- Upgrading over a DEBUG install of the same id requires uninstall first
+  (different signing key) — library and bookmarks can be restored via Backup
+  & restore.
 - First run downloads the free model/voice/OCR packs from this project's
   GitHub releases (explicit, resumable, SHA-verified); after that everything
   works offline.
