@@ -281,6 +281,7 @@ class PlaybackService : Service() {
             ACTION_PLAY -> startPlayback(intent.bookId(), explicit = false)
             ACTION_PLAY_POSITION -> startPlayback(intent.bookId(), explicit = true, intent = intent)
             ACTION_OPEN_CHAPTER -> openChapter(intent.bookId(), intent.getIntExtra(EXTRA_DIRECTION, 0))
+            ACTION_OPEN_POSITION -> openPosition(intent.bookId(), intent.getIntExtra(EXTRA_CHAPTER, 0), intent.getIntExtra(EXTRA_PASSAGE, 0))
             ACTION_RESUME -> resumePlayer(intent.bookId())
             ACTION_PAUSE -> pausePlayer(PauseReason.USER)
             ACTION_SKIP_FORWARD -> navigate { it.skipForward() }
@@ -388,6 +389,57 @@ class PlaybackService : Service() {
             machine!!.present(PlayerPosition(id, target, passage))
             refreshBookmarks()
             startPrefill(PlayerPosition(id, target, passage))
+            // CR-5: a stale load must never publish or drop the foreground.
+            if (!active(generation)) return@launchCommand
+            PlaybackStateHolder.update { it.copy(failure = null) }
+            publish()
+            ServiceCompat.stopForeground(this@PlaybackService, ServiceCompat.STOP_FOREGROUND_REMOVE)
+        }
+    }
+
+    /**
+     * Presents an explicit (chapter, passage) WITHOUT starting playback — the
+     * chapter selector and bookmark jumps route here instead of
+     * [startPlayback]'s explicit position (open ≠ auto-play, decisions #52).
+     * Mirrors [openChapter]: stops current audio, rebuilds the machine over
+     * the book, presents the target, publishes the text, drops the foreground.
+     * An empty spine slot falls to the nearest playable chapter (forward,
+     * then backward); an unreachable target is a no-op.
+     */
+    internal fun openPosition(
+        bookId: String?,
+        chapter: Int,
+        passage: Int,
+    ) {
+        val id = bookId ?: return
+        stopEverything()
+        launchCommand { generation ->
+            settings.reload()
+            val reloaded =
+                runCatching { libraryStore.cachedBooks() }
+                    .getOrNull()
+                    ?.firstOrNull { it.id == id }
+                    ?.toBook()
+            // CR-5: a superseding command cancelled us — never touch shared state.
+            if (!active(generation)) return@launchCommand
+            if (reloaded == null) return@launchCommand
+            val layout = BookLayout(reloaded)
+            val target =
+                when {
+                    layout.isValid(chapter, passage) -> PlayerPosition(id, chapter, passage)
+                    layout.isValid(chapter, 0) -> PlayerPosition(id, chapter, 0)
+                    else -> {
+                        val c = layout.nextChapter(chapter) ?: layout.previousChapter(chapter)
+                        c?.let { PlayerPosition(id, it, 0) }
+                    }
+                } ?: return@launchCommand
+            book = reloaded
+            machine = PlayerStateMachine(store, layout)
+            lastAudio = null
+            queue = buildQueue()
+            machine!!.present(target)
+            refreshBookmarks()
+            startPrefill(target)
             // CR-5: a stale load must never publish or drop the foreground.
             if (!active(generation)) return@launchCommand
             PlaybackStateHolder.update { it.copy(failure = null) }
@@ -1660,6 +1712,7 @@ class PlaybackService : Service() {
         const val ACTION_PLAY = "play"
         const val ACTION_PLAY_POSITION = "play_position"
         const val ACTION_OPEN_CHAPTER = "open_chapter"
+        const val ACTION_OPEN_POSITION = "open_position"
         const val ACTION_RESUME = "resume"
         const val ACTION_PAUSE = "pause"
         const val ACTION_SKIP_FORWARD = "skip_forward"

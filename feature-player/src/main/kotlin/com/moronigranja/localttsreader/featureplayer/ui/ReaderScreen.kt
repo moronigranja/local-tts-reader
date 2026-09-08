@@ -256,7 +256,7 @@ fun ReaderScreen(
                                         text = { Text(chapterMenuLabel(index, title)) },
                                         onClick = {
                                             chapterMenu = false
-                                            viewModel.playPosition(bookId, index, 0)
+                                            viewModel.openPosition(bookId, index, 0)
                                         },
                                     )
                                 }
@@ -284,7 +284,7 @@ fun ReaderScreen(
                                         },
                                         onClick = {
                                             bookmarkMenu = false
-                                            viewModel.playPosition(bookId, bookmark.chapterIndex, bookmark.passageIndex)
+                                            viewModel.openPosition(bookId, bookmark.chapterIndex, bookmark.passageIndex)
                                         },
                                     )
                                 }

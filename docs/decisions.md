@@ -1,5 +1,33 @@
 # Decision log
 
+## 131. Chapter selector and bookmark jumps present without auto-play (2026-09-08)
+
+User call during the "every play trigger" review (decisions #129/#130): jumping
+to a chapter or a bookmark should NOT start audio — it should only move the
+reader to that position, leaving playback to an explicit play action (the same
+open ≠ auto-play contract as decisions #52, already held by `openBook` and
+`openChapter`).
+
+- **New command `ACTION_OPEN_POSITION` → `openPosition(bookId, chapter,
+  passage)`** in `PlaybackService`, mirroring `openChapter` exactly: stop
+  current audio, rebuild the machine, `present()` the target (phase stays
+  `IDLE`, nothing committed), prefill, publish text, drop the foreground.
+- **Callers rewired** (`ReaderScreen`): the chapter dropdown and the bookmark
+  jump now call `openPosition` instead of `playPosition`. Everything else that
+  starts audio is unchanged — long-press "Play from here", play-from-view, and
+  share "Listen here" still use `ACTION_PLAY_POSITION`; the docked card's play
+  button still uses `resume`/`playFromView`.
+- **Empty-spine safety:** the target is resolved before `present`. A valid
+  `(chapter, passage)` presents as-is; a stale passage index clamps to that
+  chapter's first passage; an empty chapter falls to the nearest playable
+  chapter (forward, then backward), and a book with no playable chapter is a
+  no-op. This also removes a latent `require(isValid)` crash the old
+  `playPosition` path could hit by selecting an empty spine slot.
+- **Pre-gen note (same review):** manual "Pre-generate" always starts at
+  chapter 0 and walks the whole book in spine order (skipping cached
+  passages), independent of the playhead; the automatic playback prefill
+  (`PregenQueue.ensure`) starts from the current playhead forward.
+
 ## 130. Reader empty-state drift recovery: re-open when the service state diverges (2026-09-08)
 
 The open-bugs row "Reader shows the empty-state placeholder after screen off/on"

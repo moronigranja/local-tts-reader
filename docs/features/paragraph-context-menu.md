@@ -55,7 +55,8 @@ narrated one — is copied or played, including when several passages share one 
 - tapped-line→passage mapping (`passageStartLines`, `passageAt(y)`);
 - per-passage text (`PlaybackUiState.chapterPassages[passageIndex]`);
 - play-at-position command (`ReaderViewModel.playPosition`, the same
-  `ACTION_PLAY_POSITION` the bookmark menu and play-from-view use);
+  `ACTION_PLAY_POSITION` play-from-view uses; bookmark jumps present via
+  `ACTION_OPEN_POSITION`, decisions #131);
 - the anchored-menu surface (`DropdownMenu`/`DropdownMenuItem` already imported
   for the chapter selector).
 
@@ -103,7 +104,7 @@ threshold), with the middle-zone tap feeding the immersive double-tap detector
    press point in the same content-local coordinate space the pointer events
    use:
    - **Play from here** → `viewModel.playPosition(bookId, state.chapterIndex, passageIndex)`
-     (same command as bookmark jumps / play-from-view).
+     (same command as play-from-view; bookmark jumps present via `openPosition`).
    - **Copy text** → `LocalClipboard.current.setClipEntry(ClipEntry(passageText))`
      (BOM 2026.06.01 surface — the deprecated `LocalClipboardManager` is not
      used) + a short Toast.

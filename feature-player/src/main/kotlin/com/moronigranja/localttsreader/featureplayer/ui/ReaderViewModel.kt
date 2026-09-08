@@ -146,6 +146,18 @@ class ReaderViewModel
             command(PlaybackService.ACTION_PLAY_POSITION, bookId, chapter, passage)
         }
 
+        /** Positions the reader at (chapter, passage) WITHOUT starting
+         * playback — the chapter selector and bookmark jumps use this instead
+         * of [playPosition] (open ≠ auto-play, decisions #52). */
+        fun openPosition(
+            bookId: String,
+            chapter: Int,
+            passage: Int,
+        ) {
+            openedBookId = bookId
+            command(PlaybackService.ACTION_OPEN_POSITION, bookId, chapter, passage)
+        }
+
         fun openChapter(
             bookId: String,
             direction: Int,
@@ -180,7 +192,7 @@ class ReaderViewModel
         ) {
             val intent = Intent(context, PlaybackService::class.java).setAction(action)
             if (bookId != null) intent.putExtra(PlaybackService.EXTRA_BOOK_ID, bookId)
-            if (action == PlaybackService.ACTION_PLAY_POSITION) {
+            if (action == PlaybackService.ACTION_PLAY_POSITION || action == PlaybackService.ACTION_OPEN_POSITION) {
                 intent.putExtra(PlaybackService.EXTRA_CHAPTER, chapter)
                 intent.putExtra(PlaybackService.EXTRA_PASSAGE, passage)
             }

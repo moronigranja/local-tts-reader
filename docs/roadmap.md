@@ -733,7 +733,8 @@ interaction, not beside it. (decisions #96)
 
 **Landed (2026-09-06, decisions #127):** long-press any paragraph on the reader page
 opens a `DropdownMenu` anchored at the press point with **Play from here** (the same
-`ACTION_PLAY_POSITION` command as the bookmark jumps and play-from-view) and **Copy
+`ACTION_PLAY_POSITION` command as play-from-view; bookmark jumps present via
+`ACTION_OPEN_POSITION`, decisions #131) and **Copy
 text** (the passage text, suspend `Clipboard.setClipEntry`). Three-way discrimination in
 the single `awaitEachGesture` loop: deadline-vs-up-vs-swipe (per-down
 `longPressTimeoutMillis`, the `detectTapGestures` deadline model). The page is inert
