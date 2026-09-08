@@ -178,15 +178,21 @@ fun ReaderScreen(
     // reader is a top-level destination, not an exit from the app).
     BackHandler { onClose() }
 
-    // Opening positions the reader WITHOUT starting playback (decisions #52);
-    // an explicit share target (S3 "listen here") still starts audio there.
-    LaunchedEffect(bookId, startAt) {
-        if (state.bookId != bookId || startAt != null) {
-            if (startAt != null) {
-                viewModel.playPosition(bookId, startAt.chapterIndex, startAt.passageIndex)
-            } else {
-                viewModel.open(bookId)
-            }
+    // Opening positions the reader WITHOUT starting playback (decisions #52).
+    // Re-open whenever the service's state no longer reflects the reader's
+    // book (first open AND drift recovery: screen-off/on, process death, or a
+    // media-session STOP reset underneath — open-bugs "empty-state
+    // placeholder"). open() restores from the persisted resume row, so the
+    // reading place recovers without restarting audio.
+    LaunchedEffect(bookId, state.bookId) {
+        if (state.bookId != bookId) {
+            viewModel.open(bookId)
+        }
+    }
+    // A share target (S3 "listen here") starts audio at the passage once.
+    LaunchedEffect(startAt) {
+        if (startAt != null) {
+            viewModel.playPosition(bookId, startAt.chapterIndex, startAt.passageIndex)
         }
     }
 

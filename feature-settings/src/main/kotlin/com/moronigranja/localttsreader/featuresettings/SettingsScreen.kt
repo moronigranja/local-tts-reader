@@ -203,6 +203,21 @@ fun SettingsScreen(
                 }
 
                 item {
+                    Column {
+                        Text("Playback volume: ${"%.1f".format(state.playbackGain)}×", style = MaterialTheme.typography.bodyMedium)
+                        Text(
+                            "Multiplier applied to the generated voice on top of the device media volume.",
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                        Slider(
+                            value = state.playbackGain,
+                            onValueChange = viewModel::setPlaybackGain,
+                            valueRange = SettingsStore.PLAYBACK_GAIN_MIN..SettingsStore.PLAYBACK_GAIN_MAX,
+                        )
+                    }
+                }
+
+                item {
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         modifier =

@@ -1,5 +1,60 @@
 # Decision log
 
+## 130. Reader empty-state drift recovery: re-open when the service state diverges (2026-09-08)
+
+The open-bugs row "Reader shows the empty-state placeholder after screen off/on"
+is confirmed and fixed: the empty branch `chapterPassages.isEmpty() && phase ==
+PlayerPhase.IDLE` (ReaderScreen) was the symptom, not the root cause. The
+reader's `LaunchedEffect(bookId, startAt)` only re-opened when `bookId` changed
+or `startAt != null` — a service-state reset or process death underneath
+(`PlaybackStateHolder.reset()` / machine teardown, e.g. LMK while the screen
+was off) set `state.bookId` to null while the composable's `bookId` was
+unchanged, stranding the reader on the empty branch with no recovery.
+
+- **Split the effect.** Re-open (`open(bookId)`) now keys on `(bookId,
+  state.bookId)` and fires whenever the service's state no longer reflects the
+  reader's book — restoring the reading place from the persisted resume row
+  without starting audio (open ≠ auto-play, decisions #52). The share-target
+  `startAt` play (S3 "listen here") is a separate once-only
+  `LaunchedEffect(startAt)`, so it never replays on drift recovery.
+- **Drift sources.** Confirmed: media-session STOP (`PlaybackStateHolder.reset()`
+  in `stopPlayer`), process death (LMK), and the machine-less `publish()` path.
+  The compose state survives (rememberSaveable) but the service state
+  underneath resets; the re-open self-heals.
+- **Existing test coverage.** `PlaybackServiceRevivalTest` (machine-less resume
+  rebuild), `PlaybackServicePublishGuardTest` (holder field-set after
+  publish), and `PlaybackServiceCr2Test` (STOP capture) cover the service
+  side; the compose-side recovery is a one-line key change.
+
+## 129. Playback volume gain setting (2026-09-08)
+
+The generated voice played at unity (1.0×) on top of the device media volume
+with no in-app gain control. `AudioTrackPassageOutput.setVolume` hard-clamped
+to `[0, 1]`, so the only gain path was the ducking transition (1.0 ↔ 0.2).
+Owner: "it seems a little low."
+
+- **"Playback volume" setting** (0.5×–2.0×, default 1.0×) in Settings → Share &
+  reading, persisted as `playback_gain` in `SettingsStore`/`AppSettings` (the
+  existing key-value settings table), with a slider in `SettingsScreen` (same
+  pattern as the match threshold). The mirror is push-based: `AppSettings`
+  updates its `Snapshot` on every write, consumers read `state.value.playbackGain`.
+- **Applied as a linear gain** through the existing `PassageOutput.setVolume`
+  seam. `AudioTrack.setVolume(gain)` is a linear gain clamped by the platform
+  to `getMaxVolume()` (documented: "the word 'volume' is historical; this is
+  actually a linear gain"), so values > 1.0 amplify signal without touching
+  PCM — no per-frame copy/alloc on the hot synthesis path.
+- **Gain survives track rebuilds.** `AudioTrackPassageOutput` now stores the
+  multiplier in a private field and re-applies it in `play()` after every
+  track build/swap, so passage boundaries that rebuild the static track
+  (rate/capacity change, prearm swap) no longer reset to unity. This also
+  fixes the latent ducking-loss bug: ducking was applied to the current track
+  but silently lost on the next passage's rebuilt track.
+- **Ducking scales.** `applyPlaybackVolume()` in `PlaybackService` computes
+  `settings.playbackGain × (ducking ? DUCK_VOLUME : 1)` and is called at
+  every play-start path (`startPlayback`/`resumePlayer`/`changeVoice`) and
+  on audio-focus gain/duck transitions. The clamped `[0, 1]` guard is
+  replaced with `coerceAtLeast(0f)` (negative would throw).
+
 ## 128. applicationId `io.github.moronigranja.ayvu` (2026-09-07)
 
 Store/device identity renamed to the app name (`Ayvu`, decisions #43) under the

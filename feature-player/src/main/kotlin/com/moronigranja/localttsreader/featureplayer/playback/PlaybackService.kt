@@ -419,6 +419,7 @@ class PlaybackService : Service() {
         requestFocus()
         launchCommand { generation ->
             settings.reload() // V1: settings written by the UI apply at the next play action
+            applyPlaybackVolume()
             val activeBook =
                 runCatching { libraryStore.cachedBooks() }
                     .getOrNull()
@@ -503,6 +504,7 @@ class PlaybackService : Service() {
         launchCommand { generation ->
             settings.reload() // C2: the new voice landed before dispatch
             if (!active(generation)) return@launchCommand
+            applyPlaybackVolume()
             if (position == null || machine == null) return@launchCommand
             queue = buildQueue()
             if (wasPlaying) {
@@ -545,6 +547,7 @@ class PlaybackService : Service() {
         requestFocus()
         launchCommand { generation ->
             settings.reload() // V1: voice changes from settings apply on resume
+            applyPlaybackVolume()
             if (phase == PlayerPhase.COMPLETED) {
                 active.playFrom(PlayerPosition(active.bookId, 0, 0))
             } else if (active.resume() == null) {
@@ -1170,13 +1173,22 @@ class PlaybackService : Service() {
         audioManager.requestAudioFocus(request)
     }
 
+    /** Applies the persisted playback gain (settings) times the ducking
+     * factor to the output. Called at every play start and on focus
+     * gain/loss; [AudioTrackPassageOutput] re-applies the value to each
+     * rebuilt passage track, so the gain survives track rebuilds. */
+    private fun applyPlaybackVolume() {
+        val gain = settings.state.value.playbackGain * if (ducking) DUCK_VOLUME else 1f
+        output.setVolume(gain)
+    }
+
     private val focusListener =
         AudioManager.OnAudioFocusChangeListener { change ->
             when (change) {
                 AudioManager.AUDIOFOCUS_GAIN -> {
                     if (ducking) {
                         ducking = false
-                        output.setVolume(1f)
+                        applyPlaybackVolume()
                     }
                     if (resumeOnGain && machine?.state?.value?.phase == PlayerPhase.PAUSED) {
                         resumeOnGain = false
@@ -1190,7 +1202,7 @@ class PlaybackService : Service() {
                 AudioManager.AUDIOFOCUS_LOSS_TRANSIENT -> pausePlayer(PauseReason.FOCUS, resumeOnGain = true)
                 AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK -> {
                     ducking = true
-                    output.setVolume(DUCK_VOLUME)
+                    applyPlaybackVolume()
                 }
             }
         }

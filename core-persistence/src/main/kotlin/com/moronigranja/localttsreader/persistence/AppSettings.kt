@@ -29,6 +29,8 @@ class AppSettings @Inject constructor(
         /** The speech engine id (C1.5/decisions #102): kokoro-82m default,
          * system-tts degraded fallback. */
         val ttsEngine: String = SettingsStore.DEFAULT_TTS_ENGINE,
+        /** Linear playback gain multiplier (1.0 = unity, > 1.0 amplifies). */
+        val playbackGain: Float = SettingsStore.DEFAULT_PLAYBACK_GAIN,
         /** Realtime-capability tri-state (item 8, D2): `true` = the engine
          * generates ≥ as fast as it plays (wall ≤ audio over ≥ 10 s of
          * rendered audio), `false` = slower, `null` = unmeasured (fewer than
@@ -48,6 +50,7 @@ class AppSettings @Inject constructor(
                 theme = store.themeMode(),
                 ocrLanguages = store.ocrLanguages(),
                 ttsEngine = store.ttsEngine(),
+                playbackGain = store.playbackGain(),
                 realtimeCapable = deriveRtf(store.rtfWallMs(), store.rtfAudioMs()),
             )
     }
@@ -86,6 +89,11 @@ class AppSettings @Inject constructor(
     suspend fun setTtsEngine(value: String) {
         store.setTtsEngine(value)
         _state.value = _state.value.copy(ttsEngine = value)
+    }
+
+    suspend fun setPlaybackGain(value: Float) {
+        store.setPlaybackGain(value)
+        _state.value = _state.value.copy(playbackGain = value)
     }
 
     /** Records one synthesis sample (item 8): ACCUMULATES wall and audio

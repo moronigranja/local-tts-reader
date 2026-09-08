@@ -15,7 +15,7 @@ passage.
 
 v1 functional spine is built and verified on the S22 Ultra: import → index →
 playback (with read-along sentence highlighting) → share-and-resume, plus settings
-(voice picker, language/voice pack downloads, match threshold, theme) and OCR.
+(voice picker, language/voice pack downloads, playback volume, match threshold, theme) and OCR.
 
 **Live modules (host JVM tests, no Android SDK needed):**
 

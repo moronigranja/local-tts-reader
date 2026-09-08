@@ -25,6 +25,9 @@ interface PassageOutput {
     fun play(pcm: ByteArray, sampleRate: Int, speed: Double)
     fun stop()
     val positionSamples: Int
+    /** Linear output gain for every subsequent [play] (and re-applied when a
+     * passage rebuilds the underlying track): 1.0 = unity, > 1.0 amplifies.
+     * The platform clamps to `AudioTrack.getMaxVolume()`. */
     fun setVolume(multiplier: Float)
     /** One-shot end-of-buffer marker (decisions #81): [onReached] fires when
      * playback passes [frames]. Where MODE_STATIC markers are unreliable the
@@ -53,6 +56,9 @@ class AudioTrackPassageOutput : PassageOutput {
     private var staged: AudioTrack? = null
     private var markerCallback: (() -> Unit)? = null
     private var markerListenerAttached = false
+    /** Last gain from [setVolume] — persisted so a rebuilt track (and every
+     * new passage) re-applies it instead of resetting to unity. */
+    private var volume = 1f
 
     private val markerListener = object : AudioTrack.OnPlaybackPositionUpdateListener {
         override fun onMarkerReached(track: AudioTrack) {
@@ -107,6 +113,7 @@ class AudioTrackPassageOutput : PassageOutput {
         }
         active.write(pcm, 0, pcm.size, AudioTrack.WRITE_BLOCKING)
         runCatching { active.setPlaybackRate((sampleRate * speed.coerceAtLeast(0.1)).toInt().coerceIn(4_000, 192_000)) }
+        active.setVolume(volume)
         active.play()
     }
 
@@ -148,7 +155,8 @@ class AudioTrackPassageOutput : PassageOutput {
         get() = track?.let { if (it.playState == AudioTrack.PLAYSTATE_PLAYING) it.playbackHeadPosition else 0 } ?: 0
 
     override fun setVolume(multiplier: Float) {
-        track?.setVolume(multiplier.coerceIn(0f, 1f))
+        volume = multiplier.coerceAtLeast(0f)
+        track?.setVolume(volume)
     }
 
     override fun setCompletionMarker(frames: Int, onReached: () -> Unit) {

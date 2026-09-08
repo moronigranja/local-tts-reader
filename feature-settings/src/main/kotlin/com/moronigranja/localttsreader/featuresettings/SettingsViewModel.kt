@@ -57,6 +57,7 @@ data class SettingsUiState(
     /** The speech engine id (C1.5): kokoro-82m or the degraded system-tts. */
     val ttsEngine: String = SettingsStore.DEFAULT_TTS_ENGINE,
     val matchThreshold: Double = SettingsStore.DEFAULT_MATCH_THRESHOLD,
+    val playbackGain: Float = SettingsStore.DEFAULT_PLAYBACK_GAIN,
     val themeMode: ThemeMode = ThemeMode.SYSTEM,
     val ocrLanguages: List<String> = listOf(SettingsStore.DEFAULT_OCR_LANGUAGE),
     val espeakReady: Boolean = false,
@@ -111,6 +112,7 @@ class SettingsViewModel
                     voiceSelector = voiceSelector(packs, prefs, audition),
                     ttsEngine = prefs.ttsEngine,
                     matchThreshold = prefs.threshold,
+                    playbackGain = prefs.playbackGain,
                     themeMode = prefs.theme,
                     ocrLanguages = prefs.ocrLanguages,
                     espeakReady = espeakReady(filesDir),
@@ -246,6 +248,8 @@ class SettingsViewModel
         fun stopPreview() = voiceAudition?.stop()
 
         fun setThreshold(value: Double) = viewModelScope.launch { settings.setMatchThreshold(value) }
+
+        fun setPlaybackGain(value: Float) = viewModelScope.launch { settings.setPlaybackGain(value) }
 
         fun setTheme(mode: ThemeMode) = viewModelScope.launch { settings.setThemeMode(mode) }
 

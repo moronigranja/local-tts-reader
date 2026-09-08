@@ -67,6 +67,17 @@ class SettingsStore(private val settingsDao: SettingsDao) {
         settingsDao.put(SettingEntity(KEY_TTS_ENGINE, value))
     }
 
+    /** Linear playback gain applied to the generated voice (a multiplier on
+     * top of the device media volume): 1.0 = unity, > 1.0 amplifies. The
+     * value is clamped by the output to the platform's `AudioTrack` max. */
+    suspend fun playbackGain(): Float =
+        settingsDao.get(KEY_PLAYBACK_GAIN)?.toFloatOrNull() ?: DEFAULT_PLAYBACK_GAIN
+
+    suspend fun setPlaybackGain(value: Float) {
+        require(value in PLAYBACK_GAIN_MIN..PLAYBACK_GAIN_MAX) { "playback gain must be within ${PLAYBACK_GAIN_MIN}..${PLAYBACK_GAIN_MAX}, was $value" }
+        settingsDao.put(SettingEntity(KEY_PLAYBACK_GAIN, value.toString()))
+    }
+
     /** Accumulated wall-clock / audio-duration samples of the realtime probe
      * (item 8, D2): [rtfWallMs] is synthesis wall time, [rtfAudioMs] the
      * rendered audio duration. Realtime when wall <= audio over >= 10 s of
@@ -97,12 +108,18 @@ class SettingsStore(private val settingsDao: SettingsDao) {
         const val DEFAULT_TTS_ENGINE = "kokoro-82m"
         const val SYSTEM_TTS_ENGINE = "system-tts"
 
+        /** Playback gain bounds + default (linear multiplier, 1.0 = unity). */
+        const val DEFAULT_PLAYBACK_GAIN = 1.0f
+        const val PLAYBACK_GAIN_MIN = 0.5f
+        const val PLAYBACK_GAIN_MAX = 2.0f
+
         const val KEY_MATCH_THRESHOLD = "match_threshold"
         const val KEY_VOICE = "voice"
         const val KEY_FAVORITE_VOICES = "favorite_voices"
         const val KEY_THEME_MODE = "theme_mode"
         const val KEY_OCR_LANGUAGES = "ocr_languages"
         const val KEY_TTS_ENGINE = "tts_engine"
+        const val KEY_PLAYBACK_GAIN = "playback_gain"
         const val KEY_RTF_WALL_MS = "rtf_wall_ms"
         const val KEY_RTF_AUDIO_MS = "rtf_audio_ms"
     }
