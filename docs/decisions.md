@@ -1,5 +1,31 @@
 # Decision log
 
+## 128. applicationId `io.github.moronigranja.ayvu` (2026-09-07)
+
+Store/device identity renamed to the app name (`Ayvu`, decisions #43) under the
+namespace the owner actually controls — `io.github.moronigranja` (the GitHub
+account owning the repo) — instead of the `com.moronigranja.*` reverse-DNS of a
+domain he does not own (`moronigranja.com`). Play does not verify domain
+ownership, but the owned-identity convention is safer: an unowned ID only has
+to collide once with another publisher to be permanently blocked storewide.
+
+- **AGP split:** `applicationId` and `namespace` are decoupled. `namespace`
+  stays `com.moronigranja.localttsreader` (decisions #1) — all Kotlin packages,
+  imports, R-class paths, and the ktlint baseline are untouched, so the change
+  is one line, not a 300-file refactor. Custom action `ACTION_IMPORT_BOOK`
+  (`IntakeRouting.kt`, manifest) follows the new identity — package-qualified
+  and internal, matched on both sides.
+- **Runtime follow:** data dir, `SharedPreferences`, Room file, and the
+  `${applicationId}.androidx-startup` authority are all keyed by applicationId
+  and move with it; uninstall/reinstall only, no migration needed at v0.1.0
+  (nothing released).
+- **Alternatives:** keep `com.moronigranja.localttsreader` (fine, but not the
+  app's name and still an unowned domain); `com.moronigranja.ayvu` (unowned
+  domain). Chosen: `io.github.moronigranja.ayvu`.
+- Timing: pre-release (versionCode 1, unsigned CI builds), so the rename is
+  free of user-visible cost. A change after first release would orphan existing
+  installs/data — that is the reason to decide it now.
+
 ## 127. G2 paragraph context menu: long-press Play from here / Copy text (2026-09-06)
 
 Play-at-passage returns as G2's long-press menu (roadmap G2, decisions #122

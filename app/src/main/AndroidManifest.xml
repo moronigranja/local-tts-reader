@@ -8,7 +8,7 @@
     <uses-permission android:name="android.permission.INTERNET" />
 
     <application
-        android:name=".LocalTtsReaderApp"
+        android:name="com.moronigranja.localttsreader.LocalTtsReaderApp"
         android:icon="@mipmap/ic_launcher"
         android:label="@string/app_name"
         android:roundIcon="@mipmap/ic_launcher_round"
@@ -34,7 +34,7 @@
             android:foregroundServiceType="dataSync"
             tools:node="merge" />
         <activity
-            android:name=".MainActivity"
+            android:name="com.moronigranja.localttsreader.MainActivity"
             android:exported="true"
             android:launchMode="singleTop">
             <intent-filter>
@@ -61,7 +61,7 @@
             <!-- Forwarded book-file shares from feature-share (package-qualified
                  custom action — no feature-to-feature edge, A6). -->
             <intent-filter>
-                <action android:name="com.moronigranja.localttsreader.action.IMPORT_BOOK" />
+                <action android:name="io.github.moronigranja.ayvu.action.IMPORT_BOOK" />
                 <category android:name="android.intent.category.DEFAULT" />
             </intent-filter>
         </activity>

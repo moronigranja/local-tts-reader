@@ -354,7 +354,7 @@ adb install app/build/outputs/apk/debug/app-debug.apk
 # since #50 — settings downloads + auto-stages it; the manual path is gone):
 adb push <cache>/packs/kokoro-82m/kokoro-model /data/local/tmp/kokoro-model
 adb push <cache>/packs/kokoro-82m/kokoro-voices /data/local/tmp/kokoro-voices
-adb shell "run-as com.moronigranja.localttsreader sh -c \\
+adb shell "run-as io.github.moronigranja.ayvu sh -c \\
   'mkdir -p files/packs/kokoro-82m && cp /data/local/tmp/kokoro-model files/packs/kokoro-82m/ && \\
    cp /data/local/tmp/kokoro-voices files/packs/kokoro-82m/'"
 ```
@@ -369,7 +369,7 @@ adb push ~/.cache/local-tts-reader/tessdata/eng.traineddata /data/local/tmp/eng.
 adb push pp.epub /data/local/tmp/pp.epub
 # an entity-laden real epub (decisions #53: XML-valid &amp; in OPF metadata) for the second probe case:
 adb push nmmng.epub /data/local/tmp/nmmng.epub
-adb shell "run-as com.moronigranja.localttsreader sh -c \
+adb shell "run-as io.github.moronigranja.ayvu sh -c \
   'mkdir -p files/tesseract/tessdata files/import-probe && \
    cp /data/local/tmp/eng.traineddata files/tesseract/tessdata/eng.traineddata && \
    cp /data/local/tmp/pp.epub files/import-probe/pp.epub && \
@@ -381,11 +381,11 @@ trips Room-reopen races when classes share one process):
 ```
 adb shell settings put system volume_music 0
 tools/docker-build.sh :app:assembleDebug :app:assembleDebugAndroidTest   # one invocation:
-adb uninstall com.moronigranja.localttsreader; adb uninstall com.moronigranja.localttsreader.test
+adb uninstall io.github.moronigranja.ayvu; adb uninstall io.github.moronigranja.ayvu.test
 adb install app/build/outputs/apk/debug/app-debug.apk
 adb install -r -t app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
 # re-stage (uninstall wiped the files) then, per class:
-R=com.moronigranja.localttsreader.test/androidx.test.runner.AndroidJUnitRunner
+R=io.github.moronigranja.ayvu.test/androidx.test.runner.AndroidJUnitRunner
 adb shell am instrument -w -e class com.moronigranja.localttsreader.PlaybackE2eTest $R
 adb shell am instrument -w -e class com.moronigranja.localttsreader.VoiceSelectionE2eTest $R
 adb shell am instrument -w -e class com.moronigranja.localttsreader.PlayPositionE2eTest $R
@@ -409,8 +409,8 @@ launch. Recovery: verify the artifact's sha256 against the pinned descriptor
 (`KokoroPacks`) and write the marker the app would write:
 
 ```bash
-adb shell "run-as com.moronigranja.localttsreader sha256sum files/packs/kokoro-82m/kokoro-model"
-adb shell "run-as com.moronigranja.localttsreader sh -c \
+adb shell "run-as io.github.moronigranja.ayvu sha256sum files/packs/kokoro-82m/kokoro-model"
+adb shell "run-as io.github.moronigranja.ayvu sh -c \
   'printf \"verified:<descriptor-sha256>\\n\" > files/packs/kokoro-82m/kokoro-model.ready'"
 ```
 

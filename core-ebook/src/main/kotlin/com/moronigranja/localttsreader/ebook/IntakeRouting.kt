@@ -18,7 +18,7 @@ object IntakeRouting {
     /** Custom action used by feature-share to forward a book-file share to the
      * import gateway (package-qualified explicit intent — no feature-to-feature
      * compile edge, A6; no extra share-sheet entry). */
-    const val ACTION_IMPORT_BOOK = "com.moronigranja.localttsreader.action.IMPORT_BOOK"
+    const val ACTION_IMPORT_BOOK = "io.github.moronigranja.ayvu.action.IMPORT_BOOK"
 
     /** MIMEs the ACTION_VIEW gateway advertises. octet-stream included: file
      * managers type books as octet-stream (the extension gate is the backstop). */
