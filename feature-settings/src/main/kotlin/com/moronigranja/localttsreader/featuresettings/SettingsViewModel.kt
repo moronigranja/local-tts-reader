@@ -58,6 +58,8 @@ data class SettingsUiState(
     val ttsEngine: String = SettingsStore.DEFAULT_TTS_ENGINE,
     val matchThreshold: Double = SettingsStore.DEFAULT_MATCH_THRESHOLD,
     val playbackGain: Float = SettingsStore.DEFAULT_PLAYBACK_GAIN,
+    /** ORT intra-op threads for Kokoro synthesis (decisions #137). */
+    val ttsThreads: Int = SettingsStore.DEFAULT_TTS_THREADS,
     val themeMode: ThemeMode = ThemeMode.SYSTEM,
     val ocrLanguages: List<String> = listOf(SettingsStore.DEFAULT_OCR_LANGUAGE),
     val espeakReady: Boolean = false,
@@ -113,6 +115,7 @@ class SettingsViewModel
                     ttsEngine = prefs.ttsEngine,
                     matchThreshold = prefs.threshold,
                     playbackGain = prefs.playbackGain,
+                    ttsThreads = prefs.ttsThreads,
                     themeMode = prefs.theme,
                     ocrLanguages = prefs.ocrLanguages,
                     espeakReady = espeakReady(filesDir),
@@ -250,6 +253,9 @@ class SettingsViewModel
         fun setThreshold(value: Double) = viewModelScope.launch { settings.setMatchThreshold(value) }
 
         fun setPlaybackGain(value: Float) = viewModelScope.launch { settings.setPlaybackGain(value) }
+
+        /** #137: the generation-threads slider (fewer = snappier phone). */
+        fun setTtsThreads(value: Int) = viewModelScope.launch { settings.setTtsThreads(value) }
 
         fun setTheme(mode: ThemeMode) = viewModelScope.launch { settings.setThemeMode(mode) }
 

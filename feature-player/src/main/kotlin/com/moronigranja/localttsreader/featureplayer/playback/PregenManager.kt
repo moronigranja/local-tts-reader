@@ -17,9 +17,10 @@ import javax.inject.Singleton
  * never touches [PregenWorker] internals:
  *
  * - [pregenerate] starts a manual, unique run for one book; the optional
- *   [budgetMinutes] bounds the run to that much listening time (decisions #49
- *   overlay; null = whole book, the pre-overlay default). KEEP: a tap while
- *   one is already queued does nothing.
+ *   [budgetMinutes] bounds the run to that much listening time AND anchors it
+ *   to the book's current reading position (the next N minutes, decisions
+ *   #132; null = whole book from the spine start, the pre-overlay default).
+ *   KEEP: a tap while one is already queued does nothing.
  * - [workInfo] observes a book's manual job for the library-row progress.
  *
  * The overnight arm is gone (S1b): only [cancelOvernight] remains, to
@@ -35,16 +36,16 @@ class PregenManager @Inject constructor(
     // injection — first use is after onCreate completes.
     private val workManager: WorkManager by lazy { WorkManager.getInstance(context) }
 
-    /** Starts a manual run for one book; [budgetMinutes] bounds listening time
-     * (null = whole book, the pre-overlay default). Unique KEEP: no-op while
-     * a run is already queued. */
+    /** Starts a manual run for one book; [budgetMinutes] bounds the run to that
+     * much listening time of NEW audio (null = whole book, the pre-overlay
+     * default). Unique KEEP: no-op while a run is already queued. */
     fun pregenerate(bookId: String, budgetMinutes: Long? = null) {
         val input = workDataOf(
             PregenWorker.KEY_MODE to PregenWorker.MODE_MANUAL,
             PregenWorker.KEY_BOOK_IDS to arrayOf(bookId),
         )
         val withBudget = budgetMinutes?.let { minutes ->
-            Data.Builder().putAll(input).putLong(PregenWorker.KEY_BUDGET_TIME_MS, minutes * 60_000L).build()
+            Data.Builder().putAll(input).putLong(PregenWorker.KEY_BUDGET_MINUTES, minutes).build()
         } ?: input
         workManager.enqueueUniqueWork(
             PregenWorker.workName(bookId),
@@ -72,4 +73,9 @@ class PregenManager @Inject constructor(
 
     fun workInfo(bookId: String): LiveData<List<WorkInfo>> =
         workManager.getWorkInfosForUniqueWorkLiveData(PregenWorker.workName(bookId))
+
+    /** Flow form of [workInfo] (WorkManager 2.10 Flow API) — the service's
+     * coverage-refresh trigger for manual runs. */
+    fun workInfoFlow(bookId: String): kotlinx.coroutines.flow.Flow<List<WorkInfo>> =
+        workManager.getWorkInfosForUniqueWorkFlow(PregenWorker.workName(bookId))
 }

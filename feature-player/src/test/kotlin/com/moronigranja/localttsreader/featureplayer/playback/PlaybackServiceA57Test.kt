@@ -96,8 +96,9 @@ class PlaybackServiceA57Test {
 
     private class FakeRuntime(
         context: Context,
+        settings: AppSettings,
         private val engine: TTSEngine?,
-    ) : KokoroRuntime(context) {
+    ) : KokoroRuntime(context, settings) {
         override fun engine(): TTSEngine? = engine
         override val failureReason: String? = null
     }
@@ -146,9 +147,9 @@ class PlaybackServiceA57Test {
         this.machine = machine
         this.book = this@PlaybackServiceA57Test.book
         this.output = FakeOutput()
-        this.runtime = FakeRuntime(context, engine)
         this.libraryStore = RoomLibraryStore(database, scope)
         this.settings = AppSettings(SettingsStore(database.settingsDao()))
+        this.runtime = FakeRuntime(context, this.settings, engine)
         this.selector = EngineSelector(this.runtime, onUnusedSystemTts, this.settings)
     }
 
@@ -355,9 +356,9 @@ class PlaybackServiceA57Test {
             this.machine = machine
             this.book = turnBook
             this.output = FakeOutput()
-            this.runtime = FakeRuntime(context, null)
             this.libraryStore = RoomLibraryStore(database, scope)
             this.settings = AppSettings(SettingsStore(database.settingsDao()))
+            this.runtime = FakeRuntime(context, this.settings, null)
             this.selector = EngineSelector(this.runtime, onUnusedSystemTts, this.settings)
         }
         PlaybackStateHolder.reset()
@@ -450,9 +451,9 @@ class PlaybackServiceA57Test {
             setSession(this)
             this.store = InMemoryPlayerStore()
             this.output = FakeOutput()
-            this.runtime = FakeRuntime(context, engine)
             this.libraryStore = RoomLibraryStore(database, scope)
             this.settings = AppSettings(SettingsStore(database.settingsDao()))
+            this.runtime = FakeRuntime(context, this.settings, engine)
             this.pregenCache = PregenCache(context)
             this.selector = EngineSelector(this.runtime, onUnusedSystemTts, this.settings)
         }

@@ -46,14 +46,16 @@ import java.io.File
 /**
  * The app-wide docked player card (decisions #53, #94): cover thumb, title,
  * subtitle (authors · chapter · passage, or "Generating…" while the engine
- * loads), two-tone book-wide progress with elapsed / % / remaining-at-speed,
+ * loads), torrent-style book coverage with elapsed / % / remaining-at-speed,
  * and the transport row — −30s · play/pause (spinner while synthesizing) ·
  * +30s, all three at a uniform 48.dp height (M3 minimum touch target).
  *
- * Bar color legend ([SegmentedProgress], recolored #95, denominator retuned
- * #98): teal `primary` = listened, amber `secondary` = pregen cushion
- * fullness against the fixed 120 s horizon (audio ready ahead of the
- * playhead), `surfaceVariant` = remaining. State comes from the
+ * Bar color legend ([CoverageProgress]): teal `primary` = generated audio
+ * (on disk for the current voice+speed), `surfaceVariant` track = not
+ * generated, `outlineVariant` ticks = chapter starts, `onSurface` marker =
+ * the playhead. The amber pregen-cushion segment is gone — playback-time
+ * generation feedback is the system notification; the card keeps the spinner
+ * while the engine loads. State comes from the
  * service-published [PlaybackUiState], commands go through [PlayerCommands];
  * [topRight]/[badge] let the library add its row actions + offline usage;
  * [onOpen] makes the cover/title area open the book.
@@ -127,12 +129,10 @@ fun PlayerCard(
                     )
                 }
                 Spacer(Modifier.height(AyvuSpacing.XS))
-                SegmentedProgress(
-                    playedFraction = state.readFraction.coerceIn(0f, 1f),
-                    generatedFraction = minOf(
-                        state.generatedAheadFraction,
-                        1f - state.readFraction.coerceIn(0f, 1f),
-                    ).coerceAtLeast(0f),
+                CoverageProgress(
+                    coverageSpans = state.coverageSpans,
+                    chapterMarks = state.chapterMarks,
+                    playheadFraction = state.playheadFraction,
                 )
                 Spacer(Modifier.height(2.dp))
                 if (badge != null) badge()

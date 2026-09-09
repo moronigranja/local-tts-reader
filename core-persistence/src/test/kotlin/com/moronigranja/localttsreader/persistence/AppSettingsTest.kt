@@ -32,6 +32,7 @@ class AppSettingsTest {
         assertEquals(SettingsStore.DEFAULT_MATCH_THRESHOLD, settings.state.value.threshold, 0.0)
         assertEquals(listOf("eng"), settings.state.value.ocrLanguages)
         assertEquals(emptyList<String>(), settings.state.value.favorites)
+        assertEquals(SettingsStore.DEFAULT_TTS_THREADS, settings.state.value.ttsThreads)
     }
 
     @Test
@@ -43,6 +44,7 @@ class AppSettingsTest {
         store.setMatchThreshold(0.72)
         store.setOcrLanguages(listOf("eng", "spa"))
         store.setFavoriteVoices(listOf("af_heart", "bm_george"))
+        store.setTtsThreads(2)
 
         val settings = AppSettings(store)
         settings.reload()
@@ -51,6 +53,7 @@ class AppSettingsTest {
         assertEquals(0.72, settings.state.value.threshold, 0.0)
         assertEquals(listOf("eng", "spa"), settings.state.value.ocrLanguages)
         assertEquals(listOf("af_heart", "bm_george"), settings.state.value.favorites)
+        assertEquals(2, settings.state.value.ttsThreads)
     }
 
     @Test
@@ -71,6 +74,33 @@ class AppSettingsTest {
         assertEquals(0.5, store.matchThreshold(), 0.0)
         assertEquals(listOf("deu"), settings.state.value.ocrLanguages)
         assertEquals(listOf("deu"), store.ocrLanguages())
+    }
+
+    @Test
+    fun `tts threads write through clamped and invalid values fall back`() {
+        runBlocking {
+            val dao = FakeSettingsDao()
+            val store = SettingsStore(dao)
+            val settings = AppSettings(store)
+
+            settings.setTtsThreads(2)
+            assertEquals(2, settings.state.value.ttsThreads)
+            assertEquals(2, store.ttsThreads())
+
+            // Out-of-range writes clamp instead of storing nonsense.
+            settings.setTtsThreads(24)
+            assertEquals(SettingsStore.MAX_TTS_THREADS, settings.state.value.ttsThreads)
+            assertEquals(SettingsStore.MAX_TTS_THREADS, store.ttsThreads())
+            settings.setTtsThreads(0)
+            assertEquals(SettingsStore.MIN_TTS_THREADS, settings.state.value.ttsThreads)
+
+            // Corrupt persisted values read as the default (V1 rule: a bad value
+            // and a missing row are equivalent, user-recoverable from the UI).
+            dao.rows[SettingsStore.KEY_TTS_THREADS] = "lots"
+            assertEquals(SettingsStore.DEFAULT_TTS_THREADS, store.ttsThreads())
+            settings.reload()
+            assertEquals(SettingsStore.DEFAULT_TTS_THREADS, settings.state.value.ttsThreads)
+        }
     }
 
     @Test

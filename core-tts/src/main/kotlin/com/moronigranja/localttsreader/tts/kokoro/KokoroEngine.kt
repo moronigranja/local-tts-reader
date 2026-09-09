@@ -51,7 +51,7 @@ class KokoroEngine internal constructor(
     override suspend fun synthesize(request: SynthesisRequest): SynthesisOutcome =
         withContext(Dispatchers.IO) {
             try {
-                synthesizeBlocking(request, coroutineContext)
+                synthesizeCore(request, coroutineContext, null)
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Throwable) {
@@ -59,7 +59,43 @@ class KokoroEngine internal constructor(
             }
         }
 
-    private fun synthesizeBlocking(request: SynthesisRequest, context: CoroutineContext): SynthesisOutcome {
+    override suspend fun synthesizeStreaming(
+        request: SynthesisRequest,
+        onWindow: suspend (ByteArray) -> Unit,
+    ): SynthesisOutcome =
+        withContext(Dispatchers.IO) {
+            try {
+                synthesizeCore(request, coroutineContext, onWindow)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Throwable) {
+                SynthesisOutcome.Failed(e.message ?: "synthesis failed")
+            }
+        }
+
+    /**
+     * The single synthesis path (decisions #138): one window loop, and when
+     * [sink] is non-null each window's final PCM16 is handed to it the moment
+     * the window completes — the first audio is available long before the
+     * passage finishes. [synthesize] is the collector (sink = null) and
+     * [synthesizeStreaming] feeds a consumer; both return the identical
+     * whole-passage outcome, so a streaming consumer can never diverge from
+     * the buffered contract.
+     *
+     * Pause top-up ([KokoroTimings.insertPauses]) now runs per window over
+     * the window's own loudness floor instead of once over the merged
+     * passage. A boundary mark is already padded by [PhonemeChunker.pauseAfter]
+     * (and the model's natural gap), so it rarely top-ups; an intra-window
+     * mark's quiet run is fully inside its window. The change is cosmetic
+     * (pause lengths, bounded by the 0.15 s reach) and logged here — the
+     * on-device output is run-to-run nondeterministic at the sample level
+     * regardless (decisions #116).
+     */
+    private suspend fun synthesizeCore(
+        request: SynthesisRequest,
+        context: CoroutineContext,
+        sink: (suspend (ByteArray) -> Unit)?,
+    ): SynthesisOutcome {
         if (request.text.isBlank()) return SynthesisOutcome.Failed("nothing to synthesize")
 
         val voiceName = request.voice ?: DEFAULT_VOICE
@@ -125,26 +161,32 @@ class KokoroEngine internal constructor(
                 }
             }
 
-            if (edges != null) {
-                val shiftSeconds = offset / SAMPLE_RATE.toDouble()
-                spoken += KokoroTimings.timings(tokenizer.known(batch), edges, SAMPLE_RATE)
-                    .map { Timing(it.phoneme, it.start + shiftSeconds, it.end + shiftSeconds) }
+            // Pause top-up + timing accumulation happen per window, so the
+            // window is final the moment its inference lands.
+            var finalAudio = batchAudio
+            if (session.hasTimings && edges != null) {
+                val windowTimings = KokoroTimings.timings(tokenizer.known(batch), edges, SAMPLE_RATE)
+                val (withPauses, shifted) =
+                    KokoroTimings.insertPauses(batchAudio, windowTimings, SAMPLE_RATE, SENTENCE_PAUSE, CLAUSE_PAUSE)
+                finalAudio = withPauses
+                val startSeconds = offset / SAMPLE_RATE.toDouble()
+                spoken += shifted.map { Timing(it.phoneme, it.start + startSeconds, it.end + startSeconds) }
             }
-            parts += batchAudio
-            offset += batchAudio.size
+            parts += finalAudio
+            offset += finalAudio.size
+            sink?.invoke(pcm16(finalAudio))
         }
 
         val merged = concat(parts)
-        var withPauses = merged
-        var segments: List<SegmentAnchor>? = null
-        if (session.hasTimings && spoken.isNotEmpty()) {
-            val (audio, shifted) = KokoroTimings.insertPauses(merged, spoken, SAMPLE_RATE, SENTENCE_PAUSE, CLAUSE_PAUSE)
-            withPauses = audio
-            // Boundaries are the shifted timings, so they stay exact in the
-            // final audio regardless of pause insertion (decisions #31).
-            segments = KokoroTimings.sentenceSegments(shifted, audio.size / SAMPLE_RATE.toDouble())
-        }
-        return SynthesisOutcome.Audio(pcm16(withPauses), SAMPLE_RATE, 1, segments)
+        val segments: List<SegmentAnchor>? =
+            if (session.hasTimings && spoken.isNotEmpty()) {
+                // Boundaries are the shifted timings, so they stay exact in the
+                // final audio regardless of pause insertion (decisions #31).
+                KokoroTimings.sentenceSegments(spoken, merged.size / SAMPLE_RATE.toDouble())
+            } else {
+                null
+            }
+        return SynthesisOutcome.Audio(pcm16(merged), SAMPLE_RATE, 1, segments)
     }
 
     /**

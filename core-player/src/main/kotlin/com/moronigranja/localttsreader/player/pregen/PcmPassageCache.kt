@@ -129,6 +129,20 @@ class PcmPassageCache(
             ?: emptyMap()
     }
 
+    /**
+     * Spine keys currently on disk for one book under one voice+speed. The
+     * [recency] map is the exact valid-entry set (bootstrapped at open, CR-4,
+     * maintained by put/get/evict) — no disk walk. Legacy v1 keys parse as the
+     * default engine, so they are included naturally.
+     */
+    fun generatedKeys(bookId: String, voice: String, speed: Double): Set<PregenKey> =
+        synchronized(lock) {
+            recency.keys.filterTo(mutableSetOf()) {
+                it.bookId == bookId && it.engine == PregenKey.DEFAULT_ENGINE &&
+                    it.voice == voice && it.speed == speed
+            }
+        }
+
     fun delete(key: PregenKey) = synchronized(lock) {
         val pcmFile = pcmFile(key)
         pcmFile.delete()

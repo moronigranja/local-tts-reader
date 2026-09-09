@@ -245,6 +245,40 @@ class KokoroEngineTest {
         assertEquals(listOf(2.0), session.speeds, "speed must flow to the graph input")
     }
 
+    @Test
+    fun `streaming emits one chunk per window that reassembles to the buffered bytes`() {
+        runBlocking {
+            phonemizer.phonemes["en-us"] = "a".repeat(300) + "! " + "b".repeat(300)
+            val engine = engine()
+
+            val chunks = mutableListOf<ByteArray>()
+            val streamed = audioOf(engine.synthesizeStreaming(SynthesisRequest("hello")) { chunk -> chunks += chunk })
+            val buffered = audioOf(engine.synthesize(SynthesisRequest("hello")))
+
+            assertEquals(2, chunks.size, "one chunk per inference window")
+            val reassembled = ByteArray(chunks.sumOf { it.size })
+            var at = 0
+            for (chunk in chunks) {
+                chunk.copyInto(reassembled, at)
+                at += chunk.size
+            }
+            assertEquals(buffered.pcm.toList(), reassembled.toList(), "stream concatenates to the buffered PCM")
+            assertEquals(buffered.segments, streamed.segments, "segments agree between paths")
+        }
+    }
+
+    @Test
+    fun `streaming without graph durations emits per-window chunks and null segments`() {
+        runBlocking {
+            session = FakeSession(hasTimings = false)
+            phonemizer.phonemes["en-us"] = "a".repeat(300) + "! " + "b".repeat(300)
+            val chunks = mutableListOf<ByteArray>()
+            val outcome = audioOf(engine().synthesizeStreaming(SynthesisRequest("hello")) { chunk -> chunks += chunk })
+            assertEquals(2, chunks.size, "two windows even without timings")
+            assertEquals(null, outcome.segments)
+        }
+    }
+
     private data class PaddedCall(val tokens: IntArray, val styleRow: FloatArray)
 
     private companion object {

@@ -3,6 +3,7 @@ package com.moronigranja.localttsreader.featureplayer.playback
 import android.content.Context
 import android.content.ContextWrapper
 import android.content.pm.ApplicationInfo
+import com.moronigranja.localttsreader.persistence.AppSettings
 import com.moronigranja.localttsreader.tts.EngineSpec
 import com.moronigranja.localttsreader.tts.EngineTier
 import com.moronigranja.localttsreader.tts.SegmentAnchor
@@ -54,7 +55,13 @@ class PlaybackServiceProbesTest {
             SynthesisOutcome.Audio(ByteArray(1_000), 24_000, 1, listOf(SegmentAnchor(0.0, 1.0)))
     }
 
-    private class FakeRuntime(context: Context) : KokoroRuntime(context) {
+    private class FakeRuntime(
+        context: Context,
+        settings: AppSettings,
+    ) : KokoroRuntime(
+            context,
+            settings,
+        ) {
         override fun engine(): TTSEngine? = FakeEngine()
         override val failureReason: String? = null
     }

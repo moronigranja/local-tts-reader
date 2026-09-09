@@ -11,22 +11,21 @@ data class PregenBudget(
     val maxPassages: Int? = null,
     /** Stop after this many chapters fully walked. */
     val maxChapters: Int? = null,
-    /** Wall-clock stop for the whole run. */
-    val maxTimeMs: Long? = null,
-) {
     /**
-     * Wall-clock budget left after [elapsedMs] has been spent, or null when
-     * this budget has no deadline ([maxTimeMs] absent). CR-1: null NEVER
-     * means "expired" — an unbounded run has no deadline by construction. A
-     * caller breaks only when the result is non-null and `<= 0`.
+     * Stop after synthesizing this many listening-seconds of NEW audio. A
+     * passage already on disk is skipped and does NOT consume the budget, so
+     * a run covering an already-cached stretch keeps pre-generating past it
+     * for the same total listening time (`maxSeconds`), never re-counting it.
      */
-    fun remainingTimeMs(elapsedMs: Long): Long? = maxTimeMs?.minus(elapsedMs)
-}
+    val maxSeconds: Double? = null,
+)
 
 /**
  * Running tallies for one book; [OnProgress] fires after every passage.
- * [totalPassages] counts the full walk, so [percent] is monotonic and
- * comparable across runs.
+ * [percent] is the run's OWN work, monotonic and comparable across runs: a
+ * bounded listening-time run fills 0→100 over the slice it was asked to
+ * generate ([synthesizedSeconds] vs [budgetSeconds], decisions #136), an
+ * unbounded run fills against the whole-book walk ([totalPassages]).
  */
 data class PregenProgress(
     val chaptersDone: Int = 0,
@@ -35,6 +34,11 @@ data class PregenProgress(
     val failures: Int = 0,
     val totalChapters: Int,
     val totalPassages: Int,
+    /** Listening seconds of NEW audio synthesized this run; cache hits skip. */
+    val synthesizedSeconds: Double = 0.0,
+    /** The run's listening-time budget ([PregenBudget.maxSeconds]); null →
+     * unbounded, so [percent] falls back to the whole-book denominator. */
+    val budgetSeconds: Double? = null,
     /**
      * Why the run ended, set by [OfflinePregen.run] before it returns; null
      * only while the run is in flight (progress events before the terminal).
@@ -44,7 +48,18 @@ data class PregenProgress(
     val terminal: PregenTerminal? = null,
 ) {
     val processed: Int get() = passagesSynthesized + passagesCached + failures
-    val percent: Int get() = if (totalPassages == 0) 100 else (processed * 100 / totalPassages).coerceIn(0, 100)
+    /** 0→100 over the requested slice for bounded runs (the 30-min ask fills
+     * as those 30 min generate — never a whole-book fraction); whole-book
+     * runs keep the processed/totalPassages walk. */
+    val percent: Int
+        get() =
+            if (budgetSeconds != null && budgetSeconds > 0) {
+                (synthesizedSeconds * 100 / budgetSeconds).toInt().coerceIn(0, 100)
+            } else if (totalPassages == 0) {
+                100
+            } else {
+                (processed * 100 / totalPassages).coerceIn(0, 100)
+            }
 }
 
 /** The terminal reason an [OfflinePregen] run stopped. */
@@ -73,6 +88,10 @@ enum class PregenTerminal {
  * Contract:
  * - Walks chapters 0..n and passages 0..m; every passage already on disk is
  *   skipped without synthesis.
+ * - A non-null [run]`startAt` begins the walk AT that passage (inclusive)
+ *   instead of the spine start: the "next N minutes" bounded runs pass the
+ *   current reading position so they synthesize the audio ahead of the
+ *   listener rather than re-walking the book from chapter 0.
  * - Stops when the budget is exhausted ([PregenBudget]), when the cache is
  *   saturated (free space below the last synthesized passage's size — a put
  *   would only evict another entry), when [shouldContinue] turns false (the
@@ -92,11 +111,6 @@ class OfflinePregen(
     private val synthesize: suspend (text: String) -> SynthesisOutcome,
     private val consecutiveFailureCap: Int = 5,
     private val shouldContinue: () -> Boolean = { true },
-    /**
-     * Wall clock for [PregenBudget.maxTimeMs]; injectable so tests drive the
-     * budget with virtual time.
-     */
-    private val clock: () -> Long = System::currentTimeMillis,
     /** Engine whose voice/speed the run synthesizes — part of the [PregenKey] cache path. */
     private val engine: String = PregenKey.DEFAULT_ENGINE,
 ) {
@@ -110,13 +124,20 @@ class OfflinePregen(
         voice: String,
         speed: Double,
         budget: PregenBudget = PregenBudget(),
+        /**
+         * Inclusive spine position (dense chapter/passage list indexes) to
+         * begin at; null walks from the book's first passage. Bounded runs
+         * pass the current reading position so they pre-generate the audio
+         * ahead of the listener instead of the book's opening chapters.
+         */
+        startAt: Pair<Int, Int>? = null,
         onProgress: suspend (PregenProgress) -> Unit = {},
     ): PregenProgress {
         val context = currentCoroutineContext()
-        val startedAt = clock()
         var progress = PregenProgress(
             totalChapters = book.chapters.size,
             totalPassages = book.chapters.sumOf { it.passages.size },
+            budgetSeconds = budget.maxSeconds,
         )
         var consecutiveFailures = 0
         var lastPutBytes = 0L
@@ -138,6 +159,7 @@ class OfflinePregen(
         }
 
         PregenPlanner(book, voice, speed, engine).walk(
+            from = startAt?.let { inclusiveFrom(book, it) },
             onChapter = { chapterIndex ->
                 // Chapter-boundary gates: maxChapters and the caller's yield.
                 if (budget.maxChapters?.let { progress.chaptersDone >= it } == true) {
@@ -165,7 +187,7 @@ class OfflinePregen(
                 if (!shouldContinue()) {
                     terminal = PregenTerminal.Yielded
                     false
-                } else if (budget.maxTimeMs?.let { clock() - startedAt >= it } == true) {
+                } else if (budget.maxSeconds?.let { progress.synthesizedSeconds >= it } == true) {
                     terminal = PregenTerminal.BudgetExhausted
                     false
                 } else if (budget.maxPassages?.let { progress.processed >= it } == true) {
@@ -181,7 +203,15 @@ class OfflinePregen(
                     when (val outcome = synthesize(book.chapters[key.chapterIndex].passages[passageIndex].text)) {
                         is SynthesisOutcome.Audio -> {
                             cache.put(key, PregenAudio(outcome.pcm, outcome.sampleRateHz, outcome.segments))
-                            bump { copy(passagesSynthesized = passagesSynthesized + 1) }
+                            // 16-bit mono PCM: bytes / (rate × 2) = listening seconds
+                            // (the "next N minutes" slice counter, decisions #132/#136).
+                            val seconds = outcome.pcm.size / (outcome.sampleRateHz * 2.0)
+                            bump {
+                                copy(
+                                    passagesSynthesized = passagesSynthesized + 1,
+                                    synthesizedSeconds = synthesizedSeconds + seconds,
+                                )
+                            }
                             consecutiveFailures = 0
                             lastPutBytes = outcome.pcm.size.toLong()
                             true
@@ -207,4 +237,23 @@ class OfflinePregen(
         )
         return finished()
     }
+}
+
+/**
+ * Maps an inclusive start passage to the planner's strictly-after
+ * [PregenPlanner.walk]`from` argument — the spine position immediately before
+ * [at]. Null when [at] is the book's first passage, so the walk begins at the
+ * spine start. Empty chapters (dropped by the dense rebuild) are stepped over
+ * the same way the planner's own iteration is.
+ */
+private fun inclusiveFrom(book: Book, at: Pair<Int, Int>): Pair<Int, Int>? {
+    val (chapterIndex, passageIndex) = at
+    if (passageIndex > 0) return chapterIndex to (passageIndex - 1)
+    var previous = chapterIndex - 1
+    while (previous >= 0) {
+        val size = book.chapters[previous].passages.size
+        if (size > 0) return previous to (size - 1)
+        previous--
+    }
+    return null
 }

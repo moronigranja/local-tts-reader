@@ -1,10 +1,14 @@
 package com.moronigranja.localttsreader
 
+import android.Manifest
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.runtime.LaunchedEffect
@@ -47,8 +51,24 @@ class MainActivity : ComponentActivity() {
     /** S3 "Listen here" → { book, passage } consumed once by composition. */
     private var pendingTarget by mutableStateOf<OpenTarget?>(null)
 
+    /**
+     * POST_NOTIFICATIONS (API 33+): requested once per process at cold start —
+     * the single gate every notification consumer shares (media 42, pregen 43,
+     * generation 44). Denied → "don't ask again" governs; never nag.
+     */
+    private val notificationPermission =
+        registerForActivityResult(ActivityResultContracts.RequestPermission()) { /* denied: no nag */ }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // All notification surfaces hang off this one permission; asking at
+        // app entry beats a setup-flow coupling or a first-notification race.
+        if (
+            Build.VERSION.SDK_INT >= 33 &&
+            checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+        ) {
+            notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
+        }
         pendingTarget = consumeTarget(intent)
         dispatchExternalIntake(intent)
         // C1.4: the gate derives from durable facts (packs/books/engine) on

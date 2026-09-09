@@ -390,6 +390,12 @@ battery/thermal case ever justifies the work.
   the 0.001 oracle gate is only meaningful against a FRESH oracle (the D2/D3
   methodology), not across runs. Evidence: `docs/prints/parallel-pregen/`.
 
+  **Window-granularity follow-up (2026-09-09, decisions #139):** the same
+  question re-asked at candela's granularity — one passage's windows split
+  across W low-thread sessions (2×2, 4×1, 2×4, 4×2) vs serial 1×6. Serial wins
+  at every config (parallel 0.54–0.92× the throughput at 1.7–2.2× the RAM);
+  Kokoro-82M is not window-parallelism bound. Closed as measured.
+
 
 ### D3 — Engine comparison spike: Nano, MOSS-TTS-Nano, CosyVoice3 vs Kokoro baseline
 

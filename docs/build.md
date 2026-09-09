@@ -126,6 +126,37 @@ ORT-android CPU is run-to-run nondeterministic (serial run1-vs-run2
 max_abs_diff 0.79) — the 0.001 oracle gate only holds against a FRESH oracle.
 Evidence: `docs/prints/parallel-pregen/`, decision #116.
 
+
+## Chunk-parallel window synthesis leg (decisions #139, `spike-tts`)
+
+Follow-up to the 2-engine leg (#116) at the window granularity: does splitting
+ONE passage's inference windows across W low-thread ORT sessions (candela's
+"1–8 engine instances, each its own thread pool") beat our serial single-session
+engine? Runs `ChunkParallelRunner` + `ChunkParallelBenchmarkTest` on the S22,
+sweeping 1×6 (serial baseline), 2×2, 4×1, 2×4, 4×2 — throughput + resident
+memory per config, best-of-3 runs.
+
+```bash
+# model + voices already staged under files/models/ by the Kokoro benchmark;
+# corpus is the same host-precomputed corpus_pregen.tsv as the 2-engine leg.
+adb shell svc power stayon true   # no doze mid-benchmark
+adb logcat -c
+adb shell am instrument -w -e class \
+  com.moronigranja.localttsreader.spiketts.ChunkParallelBenchmarkTest \
+  com.moronigranja.localttsreader.spiketts.test/androidx.test.runner.AndroidJUnitRunner
+adb logcat -d -s KokoroSpike   # per-config RTF, speedup vs 1x6, DONE
+# pull results (written incrementally after every leg, so a lmkd kill on the
+# 4-session configs keeps the earlier legs):
+adb exec-out run-as com.moronigranja.localttsreader.spiketts cat \
+  /sdcard/Android/data/com.moronigranja.localttsreader.spiketts/files/kokoro_chunk_parallel.json
+```
+
+Measured verdict (2026-09-09): serial single-session wins at every config —
+1×6 RTF **0.657** (1.52 audio-s/s, 1.57 GB VmHWM) beats 2×2 (0.70×), 4×1
+(0.54×), 2×4 (0.92×), 4×2 (0.66×), each at 1.7–2.2× the RAM. Kokoro-82M is not
+window-parallelism bound — the leg is closed as measured. Evidence: decision
+#139.
+
 ## D3 engine comparison staging (decisions #92/#93, `spike-tts`)
 
 Stages the Kitten Nano + MOSS-TTS-Nano packs and the shared `d3_corpus.tsv`

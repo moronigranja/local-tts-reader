@@ -67,6 +67,19 @@ class SettingsStore(private val settingsDao: SettingsDao) {
         settingsDao.put(SettingEntity(KEY_TTS_ENGINE, value))
     }
 
+    /** ORT intra-op thread count for Kokoro synthesis (decisions #137): the
+     * size of the ONNX thread pool that saturates a phone while generating.
+     * Fewer threads leave cores free for the UI; more generate faster.
+     * Clamped to supported bounds; the value applies on the next engine open. */
+    suspend fun ttsThreads(): Int {
+        val stored = settingsDao.get(KEY_TTS_THREADS)?.toIntOrNull()
+        return stored?.coerceIn(MIN_TTS_THREADS, MAX_TTS_THREADS) ?: DEFAULT_TTS_THREADS
+    }
+
+    suspend fun setTtsThreads(value: Int) {
+        settingsDao.put(SettingEntity(KEY_TTS_THREADS, value.coerceIn(MIN_TTS_THREADS, MAX_TTS_THREADS).toString()))
+    }
+
     /** Linear playback gain applied to the generated voice (a multiplier on
      * top of the device media volume): 1.0 = unity, > 1.0 amplifies. The
      * value is clamped by the output to the platform's `AudioTrack` max. */
@@ -119,6 +132,14 @@ class SettingsStore(private val settingsDao: SettingsDao) {
         const val KEY_THEME_MODE = "theme_mode"
         const val KEY_OCR_LANGUAGES = "ocr_languages"
         const val KEY_TTS_ENGINE = "tts_engine"
+
+        /** ORT intra-op threads for Kokoro synthesis (decisions #137). Default 4
+         * (the old hardcoded 6 saturated the S22's 8 cores — decisions #116);
+         * range covers 4-core phones up to today's 8-core flagships. */
+        const val DEFAULT_TTS_THREADS = 4
+        const val MIN_TTS_THREADS = 1
+        const val MAX_TTS_THREADS = 8
+        const val KEY_TTS_THREADS = "tts_threads"
         const val KEY_PLAYBACK_GAIN = "playback_gain"
         const val KEY_RTF_WALL_MS = "rtf_wall_ms"
         const val KEY_RTF_AUDIO_MS = "rtf_audio_ms"

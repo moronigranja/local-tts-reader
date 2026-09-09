@@ -246,7 +246,7 @@ class PcmPassageCacheTest {
         assertTrue(cache.contains(PregenKey("b1", 0, 3, "af_heart", 1.0, engine = PregenKey.DEFAULT_ENGINE)))
     }
 
-    /** A put on a legacy-keyed entry overwrites its v1 slot — one file per
+    /** A put on a legacy keyed entry overwrites its v1 slot — one file per
      * logical key, so the byte cap never double-counts a migrated entry. */
     @Test
     fun `a put on a legacy key replaces its v1 slot without doubling`() {
@@ -263,6 +263,67 @@ class PcmPassageCacheTest {
         assertFalse(
             File(File(File(tempDir, "b1"), "kokoro"), "af_heart/1/c0p0.pcm").exists(),
             "no v2 twin was created",
+        )
+    }
+
+    // ------------------------------------------------------------------
+    // Coverage source (coverage-bar redo, step 1): generatedKeys
+    // ------------------------------------------------------------------
+
+    /** The exact valid-entry set the coverage bar reads: only the queried
+     * bookId+voice+speed, default engine, on-disk keys only. */
+    @Test
+    fun `generatedKeys returns only the queried book voice and speed`() {
+        val cache = PcmPassageCache(tempDir, maxBytes = Long.MAX_VALUE)
+        val wanted = PregenKey("b1", 0, 0, "af_heart", 1.0, engine = PregenKey.DEFAULT_ENGINE)
+        cache.put(wanted, audio(1))
+        cache.put(PregenKey("b1", 0, 1, "af_heart", 1.0, engine = PregenKey.DEFAULT_ENGINE), audio(2))
+        cache.put(PregenKey("b1", 0, 2, "af_sara", 1.0, engine = PregenKey.DEFAULT_ENGINE), audio(3)) // other voice
+        cache.put(PregenKey("b1", 0, 3, "af_heart", 1.5, engine = PregenKey.DEFAULT_ENGINE), audio(4)) // other speed
+        cache.put(PregenKey("b2", 0, 0, "af_heart", 1.0, engine = PregenKey.DEFAULT_ENGINE), audio(5)) // other book
+
+        assertEquals(
+            setOf(wanted, PregenKey("b1", 0, 1, "af_heart", 1.0, engine = PregenKey.DEFAULT_ENGINE)),
+            cache.generatedKeys("b1", "af_heart", 1.0),
+            "books/voices/speeds are all part of the key",
+        )
+        assertEquals(setOf<PregenKey>(), cache.generatedKeys("b1", "af_heart", 2.0), "absent speed → empty")
+        assertEquals(setOf<PregenKey>(), cache.generatedKeys("nope", "af_heart", 1.0), "absent book → empty")
+    }
+
+    /** Legacy v1 entries (no engine path segment) parse as the default
+     * engine, so the coverage source includes them naturally. */
+    @Test
+    fun `generatedKeys includes a legacy v1 layout entry`() {
+        val legacyDir = File(File(File(tempDir, "b1"), "af_heart"), "1")
+        assertTrue(legacyDir.mkdirs(), "test writes the v1 layout by hand")
+        File(legacyDir, "c0p0.pcm").writeBytes(ByteArray(2_000) { 7 })
+        File(legacyDir, "c0p0.meta").writeText("24000\n0.5;1.5")
+
+        val cache = PcmPassageCache(tempDir, maxBytes = Long.MAX_VALUE)
+
+        assertEquals(
+            setOf(PregenKey("b1", 0, 0, "af_heart", 1.0, engine = PregenKey.DEFAULT_ENGINE)),
+            cache.generatedKeys("b1", "af_heart", 1.0),
+        )
+    }
+
+    /** [generatedKeys] reflects the live recency map: an entry evicted by a
+     * cap-breaking put is no longer reported. */
+    @Test
+    fun `generatedKeys excludes a key evicted by a cap-breaking put`() {
+        val cache = PcmPassageCache(tempDir, maxBytes = 6_000) // ~2 KB per entry + meta → holds 2
+        val sameBook = { chapter: Int, passage: Int ->
+            PregenKey("b1", chapter, passage, "af_heart", 1.0, engine = PregenKey.DEFAULT_ENGINE)
+        }
+        cache.put(sameBook(0, 0), audio(0))
+        cache.put(sameBook(0, 1), audio(1))
+        cache.put(sameBook(0, 2), audio(2)) // evicts b1/0/0
+
+        assertEquals(
+            setOf(sameBook(0, 1), sameBook(0, 2)),
+            cache.generatedKeys("b1", "af_heart", 1.0),
+            "the evicted entry is not on disk anymore",
         )
     }
 }

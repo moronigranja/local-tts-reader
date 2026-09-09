@@ -50,7 +50,12 @@ data class PregenJobState(
 /** Offline pre-generation scheduling contract (A6): the WorkManager surface
  * behind [PregenManager], hidden from features behind this core contract. */
 interface PregenScheduler {
-    /** Starts a manual run for one book; null budget = whole book. */
+    /**
+     * Starts a manual run for one book. A non-null [budgetMinutes] bounds the
+     * run to that much listening time and anchors it at the book's current
+     * reading position (the next N minutes); null = the whole book from its
+     * spine start.
+     */
     fun pregenerate(
         bookId: String,
         budgetMinutes: Long? = null,

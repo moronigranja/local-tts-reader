@@ -46,6 +46,7 @@ import com.moronigranja.localttsreader.ui.PillButton
 import com.moronigranja.localttsreader.ui.PlanPackRow
 import com.moronigranja.localttsreader.ui.PlanPackStatus
 import com.moronigranja.localttsreader.ui.SectionHeader
+import kotlin.math.roundToInt
 
 /**
  * V1 settings: engines + packs (download/status), voice picker + favorites,
@@ -154,6 +155,28 @@ fun SettingsScreen(
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 )
                             }
+                        }
+                    }
+                }
+                // Decisions #137: generation threads only bound the downloaded
+                // Kokoro engine — a degraded session never touches ORT, so the
+                // row hides with it.
+                if (state.ttsEngine == SettingsStore.DEFAULT_TTS_ENGINE) {
+                    item {
+                        Column {
+                            Text(
+                                "Generation threads: ${state.ttsThreads}",
+                                style = MaterialTheme.typography.bodyMedium,
+                            )
+                            Text(
+                                "Cores used while generating audio. Fewer keep the phone snappier; more generate faster. Applies after restart.",
+                                style = MaterialTheme.typography.bodySmall,
+                            )
+                            Slider(
+                                value = state.ttsThreads.toFloat(),
+                                onValueChange = { viewModel.setTtsThreads(it.roundToInt()) },
+                                valueRange = SettingsStore.MIN_TTS_THREADS.toFloat()..SettingsStore.MAX_TTS_THREADS.toFloat(),
+                            )
                         }
                     }
                 }

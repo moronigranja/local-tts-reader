@@ -31,6 +31,7 @@ import com.moronigranja.localttsreader.persistence.AppSettings
 import com.moronigranja.localttsreader.persistence.RoomLibraryStore
 import com.moronigranja.localttsreader.player.BookLayout
 import com.moronigranja.localttsreader.player.BookProgress
+import com.moronigranja.localttsreader.player.CoverageSpan
 import com.moronigranja.localttsreader.player.PlaybackStateHolder
 import com.moronigranja.localttsreader.player.PlaybackUiState
 import com.moronigranja.localttsreader.player.PlayerEvent
@@ -41,6 +42,7 @@ import com.moronigranja.localttsreader.player.PlayerStateMachine
 import com.moronigranja.localttsreader.player.PlayerStore
 import com.moronigranja.localttsreader.player.SleepTimer
 import com.moronigranja.localttsreader.player.passageText
+import com.moronigranja.localttsreader.player.pregen.CoverageEncoder
 import com.moronigranja.localttsreader.player.pregen.PregenAudio
 import com.moronigranja.localttsreader.player.pregen.PregenKey
 import com.moronigranja.localttsreader.player.pregen.PregenQueue
@@ -91,6 +93,8 @@ class PlaybackService : Service() {
 
     @Inject lateinit var pregenCache: PregenCache
 
+    @Inject lateinit var pregenManager: PregenManager
+
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
     /** Dedicated player thread (decisions #85): the loop + ticker run on their
@@ -122,6 +126,26 @@ class PlaybackService : Service() {
     private var tickerJob: Job? = null
     private var pregenJob: Job? = null
     private var queue: PregenQueue? = null
+
+    /** Torrent-bar coverage refresh state: [coverageDirty] marks every source
+     * that changes what audio is on disk (queue rebuild, persist, manual
+     * pregen progress); the snapshot recomputes only when dirty or the
+     * book|voice|speed key changed. */
+    private var coverageDirty = true
+    private var coverageKey: String? = null
+    private var coverageCache: Pair<List<CoverageSpan>, List<Float>> = emptyList<CoverageSpan>() to emptyList<Float>()
+    private var coverageObserverJob: Job? = null
+
+    /** True while the post-STOP cushion fill runs (startPostStopPrefill): it
+     * gates the generation notification's cancel in [publish] — publishing
+     * after STOP (phase != LOADING) must not drop the notification that the
+     * fill is showing. */
+    private var postStopFill = false
+
+    /** Generation-notification throttle: in-place refresh at most once per
+     * second (the buffering loops poll at ≤50/200 ms, and each notify is an
+     * IPC to system_server). */
+    private var lastGenerationNotifyAt = 0L
 
     /** The last passage's rendered audio, keyed identically to the disk tier —
      * a seek that stays in the passage replays it with zero synthesis (decisions
@@ -281,7 +305,12 @@ class PlaybackService : Service() {
             ACTION_PLAY -> startPlayback(intent.bookId(), explicit = false)
             ACTION_PLAY_POSITION -> startPlayback(intent.bookId(), explicit = true, intent = intent)
             ACTION_OPEN_CHAPTER -> openChapter(intent.bookId(), intent.getIntExtra(EXTRA_DIRECTION, 0))
-            ACTION_OPEN_POSITION -> openPosition(intent.bookId(), intent.getIntExtra(EXTRA_CHAPTER, 0), intent.getIntExtra(EXTRA_PASSAGE, 0))
+            ACTION_OPEN_POSITION ->
+                openPosition(
+                    intent.bookId(),
+                    intent.getIntExtra(EXTRA_CHAPTER, 0),
+                    intent.getIntExtra(EXTRA_PASSAGE, 0),
+                )
             ACTION_RESUME -> resumePlayer(intent.bookId())
             ACTION_PAUSE -> pausePlayer(PauseReason.USER)
             ACTION_SKIP_FORWARD -> navigate { it.skipForward() }
@@ -570,6 +599,11 @@ class PlaybackService : Service() {
                     .state.value.position
                     ?.let { startPrefill(it) }
                 PlaybackActive.markStarted()
+                // C2: the rebuild went through stopEverything — the focus
+                // request survived it (session-scoped, decisions #135), but a
+                // prior full LOSS may have left us without the grant; re-ask
+                // so this resumed session is a focus participant again.
+                requestFocus()
                 startForeground(NOTIFICATION_ID, buildNotification())
                 publish()
                 startLoop()
@@ -804,6 +838,7 @@ class PlaybackService : Service() {
     internal fun captureAndStop(): Double {
         val finalOffset = liveOffsetSeconds()
         stopEverything()
+        releaseAudioFocus()
         finalStopJob =
             scope.launch {
                 machine?.stop(finalOffset)
@@ -881,6 +916,8 @@ class PlaybackService : Service() {
                 pendingPersists +=
                     scope.launch(Dispatchers.IO) {
                         pregenCache.cache.put(key, toCache)
+                        // A just-listened passage is now on disk — repaint the bar.
+                        coverageDirty = true
                     }
             }
             // Keep the rendered passage for same-passage seek reuse (layer 1).
@@ -892,6 +929,11 @@ class PlaybackService : Service() {
             val playStart = if (probesActive) clock() else 0L
             val sliced = sliceForSpeed(audio.pcm, baselineOffset, audio.sampleRateHz, current.speed)
             output.play(sliced, audio.sampleRateHz, current.speed)
+            // The generation notification covered the LOADING wait; audio is
+            // playing now — drop it immediately. publish() would only fire at the
+            // next passage boundary (onAudioStarted does not publish), which is a
+            // whole passage too late for "disappears when audio starts".
+            cancelGenerationNotification()
             if (probesActive) {
                 probe(
                     "AyvuPlay",
@@ -1110,6 +1152,10 @@ class PlaybackService : Service() {
             runCatching { NotificationManagerCompat.from(this).notify(NOTIFICATION_ID, buildNotification()) }
             lastNotifiedKey = notifyKey
         }
+        // Generation notification: visible exactly while (phase == LOADING) or
+        // the post-stop cushion fill runs. publish() fires on structural
+        // transitions — this cancels any lingering entry outside those windows.
+        if (state.phase != PlayerPhase.LOADING && !postStopFill) cancelGenerationNotification()
     }
 
     /** Per-second read-along/progress publish (S3, goals G1/G3): StateFlow
@@ -1132,6 +1178,12 @@ class PlaybackService : Service() {
     ): PlaybackUiState {
         val state = active.state.value
         val position = state.position
+        // Derived once per copy: the smooth char-weighted playhead (book-time
+        // elapsed/total at 1.0×) and the coverage snapshot (cached until
+        // dirty — a recompute walks the book's chars, fine at 1 Hz).
+        val elapsedSeconds = position?.let { p -> book?.let { BookProgress.elapsedSeconds(it, p) } } ?: 0.0
+        val totalSeconds = book?.let { BookProgress.totalSeconds(it) } ?: 0.0
+        val coverage = coverageSnapshot()
         return base.copy(
             bookId = active.bookId,
             bookTitle = book?.title ?: "",
@@ -1162,7 +1214,10 @@ class PlaybackService : Service() {
             segments = segments,
             offsetSeconds = liveOffsetSeconds(),
             readFraction = position?.let { p -> book?.let { BookProgress.fraction(it, p.chapterIndex, p.passageIndex) } } ?: 0f,
-            elapsedSeconds = position?.let { p -> book?.let { BookProgress.elapsedSeconds(it, p) } } ?: 0.0,
+            elapsedSeconds = elapsedSeconds,
+            playheadFraction = if (totalSeconds > 0.0) (elapsedSeconds / totalSeconds).toFloat().coerceIn(0f, 1f) else 0f,
+            coverageSpans = coverage.first,
+            chapterMarks = coverage.second,
             timeLeftSeconds =
                 position?.let { p ->
                     book?.let { BookProgress.remainingSeconds(it, p.chapterIndex, p.passageIndex, liveOffsetSeconds(), state.speed) }
@@ -1175,6 +1230,59 @@ class PlaybackService : Service() {
             canUndo = ringHasEntries,
             failure = state.failure ?: PlaybackStateHolder.state.value.failure,
         )
+    }
+
+    /**
+     * The torrent-bar snapshot for the current book/voice/speed: run-length
+     * coverage spans + chapter ticks. Recomputed only when marked dirty
+     * ([coverageDirty]) or the `bookId|voice|speed` key changed — every
+     * persist source marks dirty, so the bar tracks the disk tier without
+     * walking it per tick. Returns the empty pair when no book/machine is
+     * present (nothing publishable yet).
+     */
+    private fun coverageSnapshot(): Pair<List<CoverageSpan>, List<Float>> {
+        val activeBook = book ?: return emptyList<CoverageSpan>() to emptyList<Float>()
+        val active = machine ?: return emptyList<CoverageSpan>() to emptyList<Float>()
+        // Host-test seam: the suite's direct-constructed services may lack the
+        // Hilt-primed cache (publish runs inside command coroutines — an
+        // uninitialized field would die silently there). Hilt always injects
+        // on device; the guard is a no-op there.
+        if (!::pregenCache.isInitialized) return emptyList<CoverageSpan>() to emptyList<Float>()
+        val voice = activeVoice()
+        val speed = active.state.value.speed
+        val key = "${activeBook.id}|$voice|$speed"
+        if (!coverageDirty && coverageKey == key) return coverageCache
+        val keys = pregenCache.cache.generatedKeys(activeBook.id, voice, speed)
+        coverageCache = CoverageEncoder.spans(activeBook, keys) to CoverageEncoder.chapterMarks(activeBook)
+        coverageKey = key
+        coverageDirty = false
+        return coverageCache
+    }
+
+    /**
+     * Manual pregen progress → coverage refresh: observes the book's unique
+     * WorkInfo flow and marks the snapshot dirty + re-publishes on EVERY
+     * emission, so the bar fills teal span-by-span even while paused (no
+     * ticker runs there). Cancelled by [stopEverything] and re-armed on every
+     * queue rebuild ([buildQueue] — the same book/voice/speed lifecycle as
+     * the coverage key).
+     */
+    private fun startCoverageObserver(bookId: String) {
+        coverageObserverJob?.cancel()
+        coverageObserverJob = null
+        // Host-test seam: direct-constructed services never inject
+        // [pregenManager], and calling workInfoFlow without WorkManager init
+        // throws. Hilt injects it on device before onCreate — the guard is a
+        // no-op there; the manual-pregen bar refresh simply doesn't run in
+        // host tests (the snapshot still recomputes on every dirty source).
+        if (!::pregenManager.isInitialized) return
+        coverageObserverJob =
+            scope.launch {
+                pregenManager.workInfoFlow(bookId).collect {
+                    coverageDirty = true
+                    publishDetails()
+                }
+            }
     }
 
     /** Live playhead in book-time seconds within the passage. */
@@ -1234,6 +1342,18 @@ class PlaybackService : Service() {
         output.setVolume(gain)
     }
 
+    /** Focus loss → pause, but ONLY while actually listening: with focus now
+     * session-scoped (decisions #135) an open-but-idle/paused book also holds
+     * the request, and pausing a non-playing machine would spurious-publish
+     * PAUSED. [PlayerStateMachine.pause] sets PAUSED unconditionally once a
+     * position exists — the guard is what keeps a call during idle reading a
+     * no-op. */
+    private fun pauseForFocus(resumeOnGain: Boolean) {
+        val phase = machine?.state?.value?.phase
+        if (phase != PlayerPhase.PLAYING && phase != PlayerPhase.LOADING) return
+        pausePlayer(PauseReason.FOCUS, resumeOnGain = resumeOnGain)
+    }
+
     private val focusListener =
         AudioManager.OnAudioFocusChangeListener { change ->
             when (change) {
@@ -1249,9 +1369,11 @@ class PlaybackService : Service() {
                 }
                 AudioManager.AUDIOFOCUS_LOSS -> {
                     ducking = false
-                    pausePlayer(PauseReason.FOCUS, resumeOnGain = false)
+                    // Full loss (another app took over — music, a call): pause
+                    // and never auto-resume; the user's next play re-requests.
+                    pauseForFocus(resumeOnGain = false)
                 }
-                AudioManager.AUDIOFOCUS_LOSS_TRANSIENT -> pausePlayer(PauseReason.FOCUS, resumeOnGain = true)
+                AudioManager.AUDIOFOCUS_LOSS_TRANSIENT -> pauseForFocus(resumeOnGain = true)
                 AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK -> {
                     ducking = true
                     applyPlaybackVolume()
@@ -1280,12 +1402,14 @@ class PlaybackService : Service() {
         return "${book?.id}|${phase == PlayerPhase.PLAYING || phase == PlayerPhase.LOADING}"
     }
 
+    /** The tap target shared by both notifications: open the app. */
+    private fun openAppIntent(): PendingIntent? =
+        packageManager.getLaunchIntentForPackage(packageName)?.let {
+            PendingIntent.getActivity(this, 0, it, PendingIntent.FLAG_IMMUTABLE)
+        }
+
     private fun buildNotification(): Notification {
-        val launch = packageManager.getLaunchIntentForPackage(packageName)
-        val openApp =
-            launch?.let {
-                PendingIntent.getActivity(this, 0, it, PendingIntent.FLAG_IMMUTABLE)
-            }
+        val openApp = openAppIntent()
 
         fun action(
             intentAction: String,
@@ -1371,12 +1495,60 @@ class PlaybackService : Service() {
         manager.createNotificationChannel(
             NotificationChannel(CHANNEL_ID, "Ayvu playback", NotificationManager.IMPORTANCE_LOW),
         )
+        manager.createNotificationChannel(
+            NotificationChannel(GENERATION_CHANNEL_ID, "Audio generation", NotificationManager.IMPORTANCE_LOW),
+        )
+    }
+
+    /**
+     * Throttled (≥1 s) in-place refresh of the generation notification:
+     * indeterminate while the buffer holds 0 s (engine loading), then
+     * determinate against the fill's own 45 s target ([PREFILL_LOOKAHEAD_SECONDS]).
+     * Id 44 — deliberately NOT 43, which the pregen worker already owns: the
+     * playback-time and manual notifications must coexist (id 43 would
+     * overwrite the manual run's in place).
+     */
+    private fun showGenerationNotification(
+        bookTitle: String,
+        aheadSeconds: Double,
+    ) {
+        val now = System.currentTimeMillis()
+        if (now - lastGenerationNotifyAt < GENERATION_NOTIFY_THROTTLE_MS) return
+        lastGenerationNotifyAt = now
+        val percent = (aheadSeconds / PREFILL_LOOKAHEAD_SECONDS * 100).toInt().coerceIn(0, 100)
+        runCatching {
+            NotificationManagerCompat.from(this).notify(
+                GENERATION_NOTIFICATION_ID,
+                NotificationCompat
+                    .Builder(this, GENERATION_CHANNEL_ID)
+                    .setSmallIcon(android.R.drawable.stat_sys_download)
+                    .setContentTitle("Generating audio")
+                    // The indeterminate case (ahead == 0) reads "0%"; the bar's
+                    // determinate fill carries it to 100 as the cushion builds.
+                    .setContentText("$bookTitle — $percent%")
+                    .setUsesChronometer(true)
+                    .setOngoing(true)
+                    .setOnlyAlertOnce(true)
+                    .setProgress(100, percent, aheadSeconds <= 0.0)
+                    .setContentIntent(openAppIntent())
+                    .build(),
+            )
+        }
+    }
+
+    private fun cancelGenerationNotification() {
+        runCatching { NotificationManagerCompat.from(this).cancel(GENERATION_NOTIFICATION_ID) }
     }
 
     private fun buildQueue(): PregenQueue? {
         val active = machine ?: return null
         val activeBook = book ?: return null
         val speed = active.state.value.speed
+        // A queue rebuild is a voice/speed/book change — the coverage key
+        // changes with it; force a recompute and re-arm the manual-pregen
+        // observer on the new book (it cancels its predecessor).
+        coverageDirty = true
+        startCoverageObserver(activeBook.id)
         return PregenQueue(
             book = activeBook,
             voice = activeVoice(),
@@ -1393,6 +1565,8 @@ class PlaybackService : Service() {
                 // failure must never kill the fill; the audio still plays this session.
                 runCatching { pregenCache.cache.put(key, audio) }
                     .onFailure { android.util.Log.w("PlaybackService", "pregen persist failed for $key", it) }
+                // A passage just landed on disk — the coverage bar must repaint.
+                coverageDirty = true
             },
         )
     }
@@ -1406,6 +1580,9 @@ class PlaybackService : Service() {
      * which used to kill the in-flight synthesis cold (the 24 s gap).
      */
     private fun startPrefill(from: PlayerPosition) {
+        // A playhead-following fill supersedes the post-stop cushion: the
+        // generation notification is no longer backed by post-stop work.
+        postStopFill = false
         startFill(from, followPlayhead = true, deadlineMs = null)
     }
 
@@ -1445,6 +1622,11 @@ class PlaybackService : Service() {
                         // stale plan (the plan yields once the playhead overtakes the
                         // next planned key).
                         q.ensure(playhead) { machine?.state?.value?.position }
+                        // Post-stop arm: feed the generation notification with
+                        // the cushion's fill progress (throttled inside).
+                        if (!followPlayhead) {
+                            showGenerationNotification(book?.title ?: "Ayvu", q.aheadSeconds(playhead))
+                        }
                         if (!followPlayhead && q.aheadSeconds(playhead) >= PREFILL_LOOKAHEAD_SECONDS) {
                             android.util.Log.d("PlaybackService", "postStop: fill done ahead=${q.aheadSeconds(playhead)} self-stopping")
                             break
@@ -1497,6 +1679,7 @@ class PlaybackService : Service() {
                 // The long-lived fill job (startFill/followPlayhead) already
                 // ensures toward this same target — polling here avoids an
                 // extra contended ensure per 50 ms (QW4).
+                showGenerationNotification(book?.title ?: "Ayvu", q.aheadSeconds(position))
                 delay(50)
             }
             android.util.Log.d(
@@ -1536,6 +1719,9 @@ class PlaybackService : Service() {
      */
     private fun startPostStopPrefill(from: PlayerPosition) {
         android.util.Log.d("PlaybackService", "postStop: fill start from ${from.chapterIndex}/${from.passageIndex}")
+        // While this fill runs, publishing (phase != LOADING) must NOT cancel
+        // the generation notification the fill is feeding.
+        postStopFill = true
         startFill(from, followPlayhead = false, deadlineMs = POST_STOP_MAX_MS) {
             // G2: the session window ends when the fill completes — a yielding
             // pregen worker may resume only once post-stop synthesis is done.
@@ -1546,6 +1732,15 @@ class PlaybackService : Service() {
 
     /** The selected Kokoro voice (V1 settings); defaults to af_heart until chosen. */
     private fun activeVoice(): String = settings.state.value.voice
+
+    /** Releases the session's audio focus — the counterpart of [requestFocus].
+     * Only a true stop calls this ([captureAndStop]'s STOP path and [onDestroy]);
+     * see the [stopEverything] comment for why in-place commands do not. */
+    private fun releaseAudioFocus() {
+        focusRequest?.let { audioManager.abandonAudioFocusRequest(it) }
+        focusRequest = null
+        ducking = false
+    }
 
     internal fun stopEverything(stopFill: Boolean = true) {
         // CR-5/CR-7: supersede every in-flight command BEFORE cancelling —
@@ -1558,6 +1753,12 @@ class PlaybackService : Service() {
         loopJob = null
         tickerJob?.cancel()
         tickerJob = null
+        // The manual-pregen observer refreshes the coverage bar; it outlives
+        // nothing — cancelling here keeps a stale observer off a dead book.
+        coverageObserverJob?.cancel()
+        coverageObserverJob = null
+        postStopFill = false
+        cancelGenerationNotification()
         // D1: in-place navigation (seek/navigate/undo) keeps the long-lived
         // follow-playhead fill alive so its in-flight ensure survives the
         // move and re-arms from the new playhead — only queue rebuilds
@@ -1579,8 +1780,15 @@ class PlaybackService : Service() {
         lastNotifiedKey = null // a fresh command re-notifies with current state
         lastSessionKey = null // a fresh command re-publishes the session
         output.stop()
-        focusRequest?.let { audioManager.abandonAudioFocusRequest(it) }
-        focusRequest = null
+        // Audio focus is SESSION-scoped (decisions #135): [stopEverything] runs
+        // on EVERY command — including in-place seek/navigate/undo, whose tails
+        // restart the play loop. Abandoning here dropped focus on those paths,
+        // so playback continued WITHOUT a focus request: a Teams call or
+        // WhatsApp message could neither pause it (no LOSS callback) nor duck
+        // it (the system knows nothing about us). Keep the request alive across
+        // commands; only a true stop ([captureAndStop]/[onDestroy]) releases it.
+        // [requestFocus] re-requests on every play/resume anyway, so re-gaining
+        // after another app took the focus is automatic.
     }
 
     /**
@@ -1605,12 +1813,14 @@ class PlaybackService : Service() {
         // no fill runs (no machine) or the service dies mid-session. A fill
         // that already marked stopped makes this a harmless repeat clear.
         PlaybackActive.markStopped()
+        cancelGenerationNotification()
         runBlocking {
             // CR-2: exactly one authoritative final write — join a graceful
             // STOP's write; otherwise write the captured playhead ourselves
             // (captured before teardown).
             teardownWrite()
             stopEverything()
+            releaseAudioFocus() // the session ends with the service
             PlaybackStateHolder.reset()
         }
         session.isActive = false
@@ -1644,6 +1854,16 @@ class PlaybackService : Service() {
     companion object {
         private const val CHANNEL_ID = "playback"
         private const val NOTIFICATION_ID = 42
+
+        /** Playback-time generation progress (step 5 of the coverage-bar
+         * redo). 44, NOT 43: PregenWorker owns 43 for its manual-run
+         * notification — same id would overwrite it (the two are distinct
+         * operations that may run together). */
+        private const val GENERATION_CHANNEL_ID = "generation"
+        private const val GENERATION_NOTIFICATION_ID = 44
+
+        /** In-place refresh cadence for the generation notification. */
+        private const val GENERATION_NOTIFY_THROTTLE_MS = 1_000L
         private const val TICK_MS = 1_000L
 
         /** CR-2 live-playhead persistence cadence (roadmap A2). */

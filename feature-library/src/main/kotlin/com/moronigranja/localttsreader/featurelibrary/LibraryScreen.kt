@@ -149,6 +149,10 @@ fun LibraryScreen(
             (if (activeId != null) library.firstOrNull { it.book.id == activeId } else null)
                 ?: (if (activeId != null) recent.firstOrNull { it.book.id == activeId } else null)
         )?.book?.title.orEmpty()
+    // The active card REPLACES the book's row (and its progress bar), so it
+    // must surface the live run itself — the menu swaps to "Stop generating".
+    val activeJob by viewModel.pregenWork(activeId ?: "").collectAsState(PregenJobState())
+    val activeRunning = activeJob.running
     var cardMenuOpen by remember { mutableStateOf(false) }
     var cardBudget by remember { mutableStateOf(false) }
     var cardConfirmRemove by remember { mutableStateOf(false) }
@@ -303,20 +307,30 @@ fun LibraryScreen(
                                                 expanded = cardMenuOpen,
                                                 onDismissRequest = { cardMenuOpen = false },
                                             ) {
-                                                DropdownMenuItem(
-                                                    text = {
-                                                        Text(
-                                                            buildString {
-                                                                append("Pre-generate")
-                                                                if (activeEstimate > 0L) append(" (≈${formatBytes(activeEstimate)})")
-                                                            },
-                                                        )
-                                                    },
-                                                    onClick = {
-                                                        cardMenuOpen = false
-                                                        cardBudget = true
-                                                    },
-                                                )
+                                                if (activeRunning) {
+                                                    DropdownMenuItem(
+                                                        text = { Text("Stop generating") },
+                                                        onClick = {
+                                                            cardMenuOpen = false
+                                                            activeId?.let(viewModel::cancelPregen)
+                                                        },
+                                                    )
+                                                } else {
+                                                    DropdownMenuItem(
+                                                        text = {
+                                                            Text(
+                                                                buildString {
+                                                                    append("Pre-generate")
+                                                                    if (activeEstimate > 0L) append(" (≈${formatBytes(activeEstimate)})")
+                                                                },
+                                                            )
+                                                        },
+                                                        onClick = {
+                                                            cardMenuOpen = false
+                                                            cardBudget = true
+                                                        },
+                                                    )
+                                                }
                                                 if (activeUsage > 0L) {
                                                     DropdownMenuItem(
                                                         text = { Text("Delete offline audio") },
@@ -508,6 +522,11 @@ private fun BookRow(
                 }
             }
             Row(verticalAlignment = Alignment.CenterVertically) {
+                if (running) {
+                    TextButton(onClick = { viewModel.cancelPregen(bookId) }) {
+                        Text("Stop")
+                    }
+                }
                 IconButton(onClick = { viewModel.playBook(bookId) }) {
                     Icon(Icons.Filled.PlayArrow, contentDescription = "Play")
                 }
@@ -516,20 +535,32 @@ private fun BookRow(
                         Icon(Icons.Filled.MoreVert, contentDescription = "Book actions")
                     }
                     DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
-                        DropdownMenuItem(
-                            text = {
-                                Text(
-                                    buildString {
-                                        append("Pre-generate")
-                                        if (estimate > 0L) append(" (≈${formatBytes(estimate)})")
-                                    },
-                                )
-                            },
-                            onClick = {
-                                menuOpen = false
-                                budgetDialog = true
-                            },
-                        )
+                        if (running) {
+                            // #136: while a run is live the menu stops it — the
+                            // plain "Pre-generate" tap was a KEEP no-op anyway.
+                            DropdownMenuItem(
+                                text = { Text("Stop generating") },
+                                onClick = {
+                                    menuOpen = false
+                                    viewModel.cancelPregen(bookId)
+                                },
+                            )
+                        } else {
+                            DropdownMenuItem(
+                                text = {
+                                    Text(
+                                        buildString {
+                                            append("Pre-generate")
+                                            if (estimate > 0L) append(" (≈${formatBytes(estimate)})")
+                                        },
+                                    )
+                                },
+                                onClick = {
+                                    menuOpen = false
+                                    budgetDialog = true
+                                },
+                            )
+                        }
                         if (usage > 0L) {
                             DropdownMenuItem(
                                 text = { Text("Delete offline audio") },

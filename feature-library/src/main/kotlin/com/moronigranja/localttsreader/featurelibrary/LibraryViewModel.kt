@@ -115,6 +115,11 @@ class LibraryViewModel
             budgetMinutes: Long? = null,
         ) = pregenScheduler?.pregenerate(bookId, budgetMinutes)
 
+        /** Stops the book's running manual pre-generation at the next passage
+         * boundary — the row/card "Stop generating" control (#136); already-
+         * cached audio stays on disk. */
+        fun cancelPregen(bookId: String) = pregenScheduler?.cancel(bookId)
+
         /** The book's manual pre-generation job, for row progress (KEEP-deduplicated). */
         fun pregenWork(bookId: String): Flow<PregenJobState> = pregenScheduler?.observe(bookId) ?: flowOf(PregenJobState())
 

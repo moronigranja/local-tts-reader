@@ -127,6 +127,21 @@ class SettingsViewModelTest {
     }
 
     @Test
+    fun `setTtsThreads is observed by the state immediately`() {
+        runTest(dispatcher) {
+            val dao = FakeSettingsDao()
+            val vm = viewModel(harness(dao, pinnedBytes = byteArrayOf(1, 2, 3)), dao)
+            backgroundScope.launch { vm.state.collect {} }
+            assertEquals(SettingsStore.DEFAULT_TTS_THREADS, vm.state.value.ttsThreads)
+
+            vm.setTtsThreads(2)
+
+            assertEquals(2, vm.state.value.ttsThreads)
+            assertEquals("2", dao.rows[SettingsStore.KEY_TTS_THREADS])
+        }
+    }
+
+    @Test
     fun `download completes, clears progress and never recurses`() = runTest(dispatcher) {
         val dao = FakeSettingsDao()
         val bytes = ByteArray(4096) { (it % 251).toByte() }

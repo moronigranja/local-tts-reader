@@ -59,6 +59,16 @@ data class PlaybackUiState(
     /** Book-time seconds of pre-generated audio queued strictly ahead of the
      * playhead (`PregenQueue.aheadSeconds`); 0 when no fill runs. */
     val generatedAheadSeconds: Double = 0.0,
+    /** Torrent-style run-length coverage: spans of generated vs not-generated
+     * audio over the book spine (fractions of total chars). Empty until the
+     * service computes it. */
+    val coverageSpans: List<CoverageSpan> = emptyList(),
+    /** Chapter start fractions (first chapter omitted) — the bar's ticks. */
+    val chapterMarks: List<Float> = emptyList(),
+    /** Smooth char-weighted playhead (elapsed/total book seconds at 1.0×) —
+     * the coverage bar's static marker. Unlike readFraction (passage-granular)
+     * it moves continuously with the passage offset. */
+    val playheadFraction: Float = 0f,
     val phase: PlayerPhase = PlayerPhase.IDLE,
     /** True when the degraded system voice is the active engine (C1.5,
      * decisions #102) — the PlayerCard's static "Device voice" pill. */
@@ -114,3 +124,8 @@ data class PlaybackUiState(
             }
     }
 }
+
+/** One cumulative run-length span over the spine: [endFraction] is the
+ * span's end in [0..1] of total book chars; the span starts where the
+ * previous ended (0 for the first). */
+data class CoverageSpan(val endFraction: Float, val generated: Boolean)

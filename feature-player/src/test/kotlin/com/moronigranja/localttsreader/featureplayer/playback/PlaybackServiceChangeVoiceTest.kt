@@ -84,8 +84,9 @@ class PlaybackServiceChangeVoiceTest {
 
     private class FakeRuntime(
         context: Context,
+        settings: AppSettings,
         private val engine: TTSEngine,
-    ) : KokoroRuntime(context) {
+    ) : KokoroRuntime(context, settings) {
         override fun engine(): TTSEngine? = engine
 
         override val failureReason: String? = null
@@ -139,13 +140,13 @@ class PlaybackServiceChangeVoiceTest {
             this.machine = machine
             this.book = this@PlaybackServiceChangeVoiceTest.book
             this.output = FakeOutput()
-            this.runtime = FakeRuntime(context, engine1)
-            this.libraryStore = RoomLibraryStore(database, scope)
             this.settings = settings
+            this.runtime = FakeRuntime(context, this.settings, engine1)
+            this.libraryStore = RoomLibraryStore(database, scope)
             this.pregenCache = PregenCache(context)
             this.selector =
                 EngineSelector(
-                    FakeRuntime(context, engine1),
+                    FakeRuntime(context, this.settings, engine1),
                     object : dagger.Lazy<TTSEngine> {
                         override fun get(): TTSEngine = error("system tts unused")
                     },

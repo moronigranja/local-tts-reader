@@ -96,8 +96,9 @@ class PlaybackServiceRevivalTest {
 
     private class FakeRuntime(
         context: Context,
+        settings: AppSettings,
         private val engine: TTSEngine?,
-    ) : KokoroRuntime(context) {
+    ) : KokoroRuntime(context, settings) {
         override fun engine(): TTSEngine? = engine
         override val failureReason: String? = null
     }
@@ -150,9 +151,9 @@ class PlaybackServiceRevivalTest {
         service.machine = null // the fresh instance after a self-stop / process death
         service.book = null
         service.output = FakeOutput()
-        service.runtime = FakeRuntime(context, engine)
         service.libraryStore = RoomLibraryStore(database, scope)
         service.settings = AppSettings(SettingsStore(database.settingsDao()))
+        service.runtime = FakeRuntime(context, service.settings, engine)
         service.selector = EngineSelector(service.runtime, onUnusedSystemTts, service.settings)
         return service
     }

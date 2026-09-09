@@ -1,6 +1,10 @@
 package com.moronigranja.localttsreader.featureplayer.playback
 
 import android.content.Context
+import com.moronigranja.localttsreader.persistence.AppSettings
+import com.moronigranja.localttsreader.persistence.SettingEntity
+import com.moronigranja.localttsreader.persistence.SettingsDao
+import com.moronigranja.localttsreader.persistence.SettingsStore
 import com.moronigranja.localttsreader.tts.EngineSpec
 import com.moronigranja.localttsreader.tts.EngineTier
 import com.moronigranja.localttsreader.tts.PackCache
@@ -46,7 +50,13 @@ class KokoroRuntimeRetryTest {
     }
 
     /** Opens are counted and return the fake engine. */
-    private class RetryRuntime(context: Context) : KokoroRuntime(context) {
+    private class RetryRuntime(
+        context: Context,
+        settings: AppSettings,
+    ) : KokoroRuntime(
+            context,
+            settings,
+        ) {
         val engine = FakeEngine()
         var opens = 0
         override fun openEngine(): TTSEngine {
@@ -56,13 +66,33 @@ class KokoroRuntimeRetryTest {
     }
 
     /** Every open throws like a corrupt model would; attempts are counted. */
-    private class CorruptRuntime(context: Context) : KokoroRuntime(context) {
+    private class CorruptRuntime(
+        context: Context,
+        settings: AppSettings,
+    ) : KokoroRuntime(
+            context,
+            settings,
+        ) {
         var opens = 0
         override fun openEngine(): TTSEngine {
             opens++
             throw IllegalStateException("corrupt model: session open failed")
         }
     }
+
+    private class FakeSettingsDao : SettingsDao {
+        val rows = mutableMapOf<String, String>()
+        override suspend fun get(key: String): String? = rows[key]
+        override suspend fun put(setting: SettingEntity) {
+            rows[setting.key] = setting.value
+        }
+        override suspend fun all(): List<SettingEntity> = rows.map { (key, value) -> SettingEntity(key, value) }
+        override suspend fun putAll(settings: List<SettingEntity>) {
+            settings.forEach { rows[it.key] = it.value }
+        }
+    }
+
+    private fun settings(): AppSettings = AppSettings(SettingsStore(FakeSettingsDao()))
 
     /** Stages/unstages the model + voices packs and the espeak bundle the
      * real [KokoroRuntime.missingPrerequisites] guards probe. */
@@ -99,7 +129,7 @@ class KokoroRuntimeRetryTest {
      * opens, and the success clears the latched failure. */
     @Test
     fun `prerequisite failure retries once the packs are staged and success clears failure`() {
-        val runtime = RetryRuntime(context)
+        val runtime = RetryRuntime(context, settings())
 
         assertNull("first play before the async pack staging lands", runtime.engine())
         assertTrue(
@@ -119,7 +149,7 @@ class KokoroRuntimeRetryTest {
      * engine — the QW3 regression this path defends. */
     @Test
     fun `repeated plays during the staging window still recover once the files exist`() {
-        val runtime = RetryRuntime(context)
+        val runtime = RetryRuntime(context, settings())
         repeat(5) { assertNull(runtime.engine()) }
         assertTrue(runtime.failureReason!!.contains("model pack not ready"))
 
@@ -133,7 +163,7 @@ class KokoroRuntimeRetryTest {
     @Test
     fun `genuine open failures are capped and stay terminal with the failure reason`() {
         stagePacks(staged = true) // files present → failures are open failures, not prerequisites
-        val runtime = CorruptRuntime(context)
+        val runtime = CorruptRuntime(context, settings())
 
         repeat(6) { assertNull(runtime.engine()) }
 

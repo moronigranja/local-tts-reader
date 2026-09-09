@@ -59,9 +59,8 @@ class OfflinePregenTest {
     private fun runner(
         cache: PcmPassageCache,
         cap: Int = 5,
-        clock: () -> Long = System::currentTimeMillis,
         shouldContinue: () -> Boolean = { true },
-    ) = OfflinePregen(cache, ::fake, cap, shouldContinue, clock)
+    ) = OfflinePregen(cache, ::fake, cap, shouldContinue)
 
     private fun seed(cache: PcmPassageCache, spineIndexes: List<Int>, bytes: Int = 1_000) {
         for (spine in spineIndexes) {
@@ -121,13 +120,57 @@ class OfflinePregenTest {
     }
 
     @Test
-    fun `maxTimeMs budget stops mid-book`() = runTest {
-        var now = 0L
-        val result = runner(cache(), clock = { now += 1_000; now })
-            .run(book, voice, speed, PregenBudget(maxTimeMs = 2_500))
-        assertEquals(listOf("p0", "p1"), synthesized, "two passages fit in 2.5s of virtual time")
+    fun `maxSeconds budget stops mid-book`() = runTest {
+        // Each fake passage is 1000 bytes at 24 kHz 16-bit mono ≈ 20.8 ms of audio.
+        val result = runner(cache()).run(book, voice, speed, PregenBudget(maxSeconds = 0.03))
+        assertEquals(listOf("p0", "p1"), synthesized, "two passages exceed the 30 ms listening budget")
         assertEquals(2, result.processed)
         assertEquals(PregenTerminal.BudgetExhausted, result.terminal)
+    }
+
+    @Test
+    fun `maxSeconds skips cached passages without counting them`() = runTest {
+        val cache = cache()
+        seed(cache, listOf(1)) // 0/1 already on disk: a hole between 0/0 and 0/2
+        val result = runner(cache).run(book, voice, speed, PregenBudget(maxSeconds = 0.03))
+        assertEquals(listOf("p0", "p2"), synthesized, "the cached hole is skipped, not re-synthesized or counted")
+        assertEquals(1, result.passagesCached)
+        assertEquals(2, result.passagesSynthesized)
+        assertEquals(PregenTerminal.BudgetExhausted, result.terminal)
+    }
+
+    @Test
+    fun `bounded run percent tracks the requested slice not the whole book`() = runTest {
+        // A 30 ms budget on this 5-passage book synthesizes ~2 passages — a
+        // whole-book denominator would read 40%; the bar must read the slice
+        // (0→100 across the 30 ms of NEW audio).
+        val events = mutableListOf<PregenProgress>()
+        val result = runner(cache()).run(book, voice, speed, PregenBudget(maxSeconds = 0.03)) { events += it }
+        assertEquals(PregenTerminal.BudgetExhausted, result.terminal)
+        assertEquals(
+            100,
+            result.percent,
+            "the asked-for slice is fully generated -> 100%, never a whole-book fraction",
+        )
+        val percents = events.map { it.percent }
+        assertEquals(percents.sorted(), percents, "percent never decreases")
+        // First passage ≈ 20.8 ms of the 30 ms budget → 69%; the second crosses the budget.
+        assertEquals(69, events.first().percent, "the first passage fills ~69% of the slice")
+        assertEquals(100, events.last().percent)
+    }
+
+    @Test
+    fun `bounded run percent ignores cached skips - the slice fills by new audio only`() = runTest {
+        // p1 cached: the slice still fills by synthesized seconds alone — the
+        // skipped passage neither moves nor dilutes the percent.
+        val cache = cache()
+        seed(cache, listOf(1))
+        val events = mutableListOf<PregenProgress>()
+        val result = runner(cache).run(book, voice, speed, PregenBudget(maxSeconds = 0.03)) { events += it }
+        assertEquals(PregenTerminal.BudgetExhausted, result.terminal)
+        assertEquals(100, result.percent)
+        val percents = events.map { it.percent }
+        assertEquals(percents.sorted(), percents, "percent never decreases")
     }
 
     @Test
@@ -142,6 +185,30 @@ class OfflinePregenTest {
         assertEquals(3, second.passagesSynthesized)
         assertEquals(100, second.percent)
         assertEquals(PregenTerminal.Completed, second.terminal)
+    }
+
+    @Test
+    fun `startAt begins the walk at that passage inclusively`() = runTest {
+        val result = runner(cache()).run(book, voice, speed, PregenBudget(), startAt = 0 to 1)
+        assertEquals(listOf("p1", "p2", "p3", "p4"), synthesized, "the start passage is visited; the prefix is not")
+        assertEquals(4, result.passagesSynthesized)
+    }
+
+    @Test
+    fun `startAt at the first passage walks the whole book`() = runTest {
+        val result = runner(cache()).run(book, voice, speed, PregenBudget(), startAt = 0 to 0)
+        assertEquals(listOf("p0", "p1", "p2", "p3", "p4"), synthesized)
+        assertEquals(5, result.passagesSynthesized)
+    }
+
+    @Test
+    fun `startAt skips the already-cached passages ahead`() = runTest {
+        val cache = cache()
+        seed(cache, listOf(1, 2)) // 0/1 and 0/2 already on disk
+        val result = runner(cache).run(book, voice, speed, PregenBudget(), startAt = 0 to 1)
+        assertEquals(listOf("p3", "p4"), synthesized, "cached start/cushion skipped; synthesis begins at the first gap")
+        assertEquals(2, result.passagesCached)
+        assertEquals(2, result.passagesSynthesized)
     }
 
     @Test
@@ -221,7 +288,7 @@ class OfflinePregenTest {
     @Test
     fun `progress events are monotonic and end at the final state`() = runTest {
         val events = mutableListOf<PregenProgress>()
-        val result = runner(cache()).run(book, voice, speed, PregenBudget(), events::add)
+        val result = runner(cache()).run(book, voice, speed, PregenBudget(), onProgress = events::add)
         assertTrue(events.isNotEmpty())
         assertEquals(result, events.last())
         assertEquals(PregenTerminal.Completed, events.last().terminal, "the final event carries the terminal")

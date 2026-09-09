@@ -1,5 +1,350 @@
 # Decision log
 
+## 139. Chunk-parallel window synthesis measured — serial single-session wins (2026-09-09)
+
+Closes the #138 spike. Question: does splitting one passage's inference windows
+across W low-thread ORT sessions (candela's "1–8 engine instances, each its own
+thread pool") beat our serial single-session engine? **No — serial wins on
+throughput AND memory at every config.**
+
+Measured on the S22 (SM-S908U1, SDK 36, `ChunkParallelRunner`, 16-passage
+corpus = 374.3 s audio, 3 runs, best wall per leg):
+
+| Config (W×T) | total threads | wall (best) | RTF | audio-s/s | VmHWM | PSS |
+|---|---|---|---|---|---|---|
+| 1×6 | 6 | 245.9 s | **0.657** | **1.52** | 1.57 GB | 1.46 GB |
+| 2×2 | 4 | 353.6 s | 0.945 | 1.06 | 2.72 GB | 2.69 GB |
+| 4×1 | 4 | 451.7 s | 1.207 | 0.83 | 3.32 GB | 3.33 GB |
+| 2×4 | 8 | 267.9 s | 0.716 | 1.40 | 3.32 GB | 2.69 GB |
+| 4×2 | 8 | 372.7 s | 0.996 | 1.00 | 3.37 GB | 3.31 GB |
+
+Speedup vs 1×6: 2×2 **0.70×**, 4×1 **0.54×**, 2×4 **0.92×**, 4×2 **0.66×**.
+
+**Why it loses.** Kokoro-82M is not window-parallelism bound: mlas intra-op
+multi-threading *within* one session scales better than splitting windows
+across sessions. Even 8 total threads (2×4) is 8% slower than 6 while doubling
+the session count, and every 4-session config is ~35–46% slower at ~2.2× the
+RAM. Confirms #116 at the window granularity.
+
+**Thermal caveat (honest):** legs ran coldest→hottest (1×6 first, 4×2 last); the
+1×6 leg itself climbed 0.657→0.696→0.742 over its own ~13 min, so later legs
+are slightly penalized. The 2×2-vs-1×6 gap (0.945 vs 0.657, run second) far
+exceeds the observed ~13% thermal drift, and the memory cost is
+thermal-independent — the verdict stands.
+
+**Answer to the candela question:** candela is not synthesizing faster. Same
+model (hexgrad-82M fp32), same ORT backend, and their parallel-engine
+architecture is *slower* on our hardware. Their perceived speed is
+pre-generation + fat-buffer playback pipelining (audio already rendered before
+you feel the wait), not raw throughput. The levers that actually matter for us
+are the ones already shipped: emit-early per-window streaming (#138) for
+first-audio latency, and the thread-count setting (#137) for responsiveness.
+
+## 138. Emit-early synthesis — per-window streaming seam (2026-09-09)
+
+Follow-up to the candela/sherpa speed review. The "slower than candela" gap is
+pipeline latency (whole-passage synthesis before playback), not the model:
+sherpa's Kokoro is the same hexgrad-82M fp32 export family (taylorchu v0.2.0;
+ours thewh1teagle v1.1 with the `duration` output) and our port already measures
+RTF 0.66–0.77 on the S22 (decisions #25, #93). sherpa has no streaming TTS —
+candela's speed is window-level parallel synthesis + eager pregen (its README).
+
+- **`TTSEngine.synthesizeStreaming(request, onWindow)`** — a defaulted interface
+  method that buffers then emits one chunk, so the system engine and every test
+  fake compile unchanged. `KokoroEngine` overrides it.
+- **`KokoroEngine` single core** (`synthesizeCore`): `synthesize` is the
+  collector (sink = null); `synthesizeStreaming` hands each window's final
+  PCM16 to the sink the moment inference lands — first audio is available long
+  before the passage finishes. Both paths return the identical whole-passage
+  outcome, so a streaming consumer cannot diverge from the buffered contract.
+- **Pause top-up runs per window** (`KokoroTimings.insertPauses` over the
+  window's own loudness floor) instead of once over the merged passage. A
+  boundary mark is already padded by `PhonemeChunker.pauseAfter` + the model's
+  natural gap; an intra-window mark's quiet run is self-contained. The change
+  is pause-length-cosmetic (bounded by the 0.15 s reach); on-device output is
+  run-to-run nondeterministic at the sample level regardless (decisions #116).
+
+**No playback consumer yet — deliberate.** The output edge is MODE_STATIC
+whole-passage (decisions #84); incremental feed was the MODE_STREAM FIFO,
+measured inert on the S22 (decisions #83). Emit-early to the ears needs an
+incremental-output decision the spike below informs — the seam is the
+foundation, not a stub.
+
+**Spike task written (not run):** `ChunkParallelRunner` +
+`ChunkParallelBenchmarkTest` (spike-tts) measure candela's actual lever — one
+passage's inference windows across W low-thread ORT sessions (1×6 baseline,
+2×2, 4×1, 2×4, 4×2) for pregen throughput + resident memory. No oracle gate:
+differing intra-op thread counts change mlas reduction order (decisions #116
+nondeterminism), so cross-config PCM drift is expected, not machinery.
+
+Evidence: `:core-tts:test` (2 new streaming tests: per-window reassembly ==
+buffered bytes + equal segments; no-timings per-window chunks + null segments),
+`:feature-player:compileDebugKotlin :app:compileDebugKotlin` green,
+`:spike-tts:compileDebugKotlin :spike-tts:compileDebugAndroidTestKotlin` green.
+
+## 137. Configurable synthesis thread count — the phone stops freezing during generation (2026-09-08)
+
+User ask: "Can we limit the audio generating to only some cores? Or somehow
+make it not slow down the phone so much?"
+
+Root cause found in the code: `OrtKokoroSession.open` hardcodes an ORT
+`intra_op_num_threads` pool of **6** threads. ONNX Runtime's intra-op pool
+spins at full priority on every logical core it owns, and playoffs are
+second-class: `PregenWorker` runs as a foreground dataSync coroutine while
+each passage's inference saturates 6 of the S22's 8 cores (decisions #116)
+for minutes-to-hours per run. The UI thread, storage writes and the
+`AyvuPlayer` boundary thread all queue behind it.
+
+- **The knob lives in Settings, not code:** a new `tts_threads` setting
+  (`SettingsStore`, `AppSettings.Snapshot`, Clamped 1–8, default **4**) drives
+  the ORT intra-op pool size. 4 leaves at least half of an 8-core flagship
+  free while still generating well past realtime (the S22's RTF is 1.16–1.20
+  at 6 threads — Kokoro is throughput-luxurious, trading speed for
+  responsiveness is honest). Supported bounds match the measured devices:
+  4-core phones (HiBreak MT6765, 8×A53) down to 1; today's 8-core flagships
+  up to 8.
+- **Applied at open, not live:** the session's pool is fixed when the ORT
+  session is created (once per process — `KokoroRuntime` caches the open
+  engine). `KokoroRuntime.openEngine` passes the configured count through the
+  existing `sessionFactory` seam, which overrides the core-tts default of 6;
+  core-tts's default is untouched so harness benchmarks and tests keep the
+  device-baseline setting. Settings copy explains "Applies after restart"
+  (the engine opens again after a restart; the PLAN is deliberately not
+  over-engineered with session rebuilds).
+- **UI:** a "Generation threads" slider in the Settings Speech engine
+  section, rendered only while the downloaded Kokoro engine is selected (a
+  degraded system-TTS session never touches ORT, so the row hides with it).
+  Writes flow through `AppSettings.setTtsThreads` → store → hot-path mirror;
+  out-of-range values clamp; corrupt persisted values read as the default
+  (the V1 bad-value rule).
+- feature-player gained `compileOnly(libs.onnxruntime.jvm)` — the first
+  `OrtSession.SessionOptions` reference outside core-tts; the runtime AAR
+  still ships app-side only.
+
+Evidence: `AppSettingsTest` (`tts threads write through clamped and invalid
+values fall back` plus default/reload assertions), `SettingsViewModelTest`
+(`setTtsThreads is observed by the state immediately` — mirrors the existing
+theme-radio regression pair);
+`./tools/docker-build.sh :core-persistence:test :feature-settings:testDebugUnitTest
+:feature-player:testDebugUnitTest :app:compileDebugKotlin` → BUILD SUCCESSFUL.
+On-device impact re-measurement (S22, threads 4 vs 6, UI-latency + generation
+throughput) is the acceptance, pending the next device session.
+
+## 136. Pre-generation progress is slice-relative; library Stop control (2026-09-08)
+
+User report: the pre-generating notification looks stuck at a small percent for
+long stretches — "I think the 3% is actually the playback position. If I ask for
+30 min, it should go 0 to 100% while the 30 min is generated. Also a stop
+generating button would be useful."
+
+Root cause: `PregenProgress.percent` was `processed / totalPassages` — a
+WHOLE-BOOK denominator. A 30-min bounded run is a small fraction of a long
+book (~3% for an hour of audio in a 30+ h book), so the bar crawled through
+the entire run no matter what slice was asked for, and cached-passage skips
+moved it without any visible synthesis.
+
+- **`PregenProgress` gains `synthesizedSeconds`** (listening seconds of NEW
+  audio this run; cache hits skip) **and `budgetSeconds`** (the run's
+  `PregenBudget.maxSeconds`). **`percent` is slice-relative for bounded
+  runs**: `synthesizedSeconds / budgetSeconds` → the 30-min ask fills 0→100%
+  as those 30 min generate. Unbounded (whole-book) runs keep the
+  processed/totalPassages walk; the `totalPassages == 0` edge is unchanged.
+- **`OfflinePregen.run`** records the seconds on the progress struct (the
+  local `synthesizedSeconds` var is gone). The worker's notification and the
+  library row consume `progress.percent` unchanged — both now show the slice
+  fill, and the notification's `percent <= 0` indeterminate bar still covers
+  the first passage's synthesis.
+- **Stop generating** — `LibraryViewModel.cancelPregen(bookId)` →
+  `PregenScheduler.cancel` (unique-work cancel; already-cached audio stays).
+  Surfaced on the library row (inline Stop button beside the running bar; the
+  row menu's "Pre-generate" item swaps to "Stop generating" while a run is
+  live — the plain tap was a KEEP no-op anyway) and on the active player
+  card's overflow menu, which must carry the stop itself: the card replaces
+  the book's row (decisions #55/#56), so the row's Stop is not visible there.
+  The budget dialog's "cancel anytime" promise (decisions #132) is now true.
+
+Evidence: `OfflinePregenTest` (`bounded run percent tracks the requested
+slice not the whole book` — first passage ≈ 69% of a 30 ms budget, 100% at
+exhaustion, monotonic; `bounded run percent ignores cached skips`),
+`PregenWorkerTest` (`bounded run notification percent is slice-relative` —
+15/30 min reads "(50%)" on a 5,000-passage book);
+`./tools/docker-build.sh :core-player:test :feature-player:testDebugUnitTest
+:feature-library:testDebugUnitTest` → BUILD SUCCESSFUL.
+
+## 135. Audio focus is session-scoped — in-place commands must not drop it (2026-09-08)
+
+Device-reported: "playback doesn't pause for other audio (Teams call, WhatsApp
+messages)". Root cause found in the code: `PlaybackService.stopEverything` abandoned
+audio focus on EVERY command, and the in-place seek/navigate/undo tails restart the
+play loop WITHOUT re-requesting — so after the first ±30 s seek or chapter skip the
+app played with NO audio-focus request. The system then never delivered the
+LOSS/LOSS_TRANSIENT callback to pause (or the CAN_DUCK callback to duck) the book;
+it streamed at full volume over the call.
+
+- **`stopEverything` no longer abandons audio focus.** The request is
+  session-scoped: created at play/resume, held across every command (the loop
+  re-requests on each play/resume anyway, so a focus owner that took the grant
+  — a real call — is re-requested against when the user resumes).
+- **True-stop paths release it** — `captureAndStop` (the STOP command) and
+  `onDestroy` call a new `releaseAudioFocus()`; nothing else does.
+- **`changeVoice`'s resumed arm re-requests focus** (its rebuild also went
+  through `stopEverything`; a prior full LOSS must be re-asked-against).
+- **Focus loss only pauses while actually listening** — new `pauseForFocus`
+  guards on PLAYING/LOADING. With the request held while the reader is open
+  but idle/paused (open-book mode), the old unguarded `pausePlayer` would have
+  spurious-published PAUSED from an IDLE machine (the machine's `pause` sets
+  PAUSED unconditionally once a position exists).
+- Behavior: calls (Teams/WhatsApp calls+voice notes = full/transient loss) now
+  pause the book; message-chime notifications (MAY_DUCK) duck it to 20%. The
+  transient-loss auto-resume (`resumeOnGain`) also works now — before, the
+  focus-loss pause abandoned the request, so the GAIN callback (and the
+  resume) never came back.
+
+Tests: `PlaybackServiceFocusTest` — an in-place seek while playing keeps the
+focus request registered (fails pre-fix: the shadow AudioManager records the
+abandon), then a simulated LOSS_TRANSIENT pauses the machine; focus loss while
+the machine is idle is a no-op. All host suites green.
+
+Same device pass found a second pregen-notification defect: `PregenWorker`'s
+terminal notification ("Ayvu — offline audio ready" / "pre-generation stopped")
+was posted synchronously from `doWork`, and WorkManager's `SystemFgDispatcher`
+removes the FGS notification (same id 43) immediately after the worker returns —
+the removal cancelled the terminal in place (observed in `dumpsys notification`
++ logcat). The terminal post is now deferred 500 ms past the teardown
+(`TERMINAL_POST_DELAY_MS`).
+
+Device-validated: the terminal now appears ("Ayvu — offline audio ready —
+25 passages cached (…)"), the generation notification (44) coexists with the
+manual run (43), and 44 cancels the moment audio starts. Same pass + UX ask:
+the generation notification's shade text is now `"<book> — <percent>%"` and it
+shows a live elapsed timer (`setUsesChronometer(true)`) — "how long it's
+taking" — alongside the determinate 45 s-target bar. Dismissibility by design:
+44 has no `NO_CLEAR` (swipe-dismissible, re-posted while the wait runs); the
+ongoing 43 is a foreground notification (not dismissible, progress stays on
+the shade); the terminal auto-cancels.
+
+## 134. Player card coverage bar redo: torrent-style generated/not bar + generation notification (2026-09-08)
+
+User ask: the card's progress bar should look like a torrent download manager — every
+span of the book colored by whether its audio is generated, chapter boundary ticks, a
+static playhead marker — and playback-time generation feedback should leave the card
+(the amber 120 s cushion segment, decisions #94/#98) for a determinate system
+notification. Root-cause hunt for the never-seen pregen notification found the
+missing half: the manifest never declared `POST_NOTIFICATIONS`, so on API 33+ every
+`notify()` was silently dropped (the request could never be granted).
+
+- **Coverage source of truth is the disk tier** — new `PcmPassageCache.generatedKeys`
+  (bookId, default engine, voice, speed) reads the in-process `recency` map — the
+  exact valid-entry set (CR-4 bootstrap), no disk walk; legacy v1 paths parse as
+  the default engine and are included naturally.
+- **`CoverageEncoder`** (core-player) walks the spine once, weighting by passage
+  text length (the chars/15 model shared with `BookProgress` — NOT equal widths),
+  and emits run-length `CoverageSpan`s; `chapterMarks` lists each non-empty
+  chapter's start fraction, first mark and duplicates omitted.
+- **`PlaybackUiState`** gains `coverageSpans`, `chapterMarks`, `playheadFraction`
+  (smooth char-weighted book-time playhead — moves continuously inside a passage,
+  unlike passage-granular `readFraction`). `generatedAheadSeconds`/`Fraction` stay
+  (the notification progress feeds on them; `PlaybackUiStateTest` pins the contract).
+- **Service publication** — `stateCopy` computes the snapshot once per copy,
+  cached until dirty. Dirty sources: queue rebuild (`buildQueue`, covers
+  voice/speed/book — the coverage key changes with it), every persist
+  (`onSynthesized` hook + first-listen disk write), and manual pregen via a new
+  `PregenManager.workInfoFlow` observer (`getWorkInfosForUniqueWorkFlow`) that
+  re-publishes the bar on every WorkInfo emission — the bar fills while paused,
+  where no ticker runs.
+- **`CoverageProgress`** (core-ui, replaces `SegmentedProgress`, deleted): 6.dp
+  single `Canvas` — `surfaceVariant` track = not generated, `primary` teal spans =
+  generated, `outlineVariant` 1.5.dp ticks = chapter starts, `onSurface` 2.dp
+  marker = playhead. Static by construction (reduced-motion safe, decisions #98
+  pattern). The listened position is the marker only — binary generated/not, per
+  the user's torrent analogy.
+- **Generation notification** — new `generation` channel (IMPORTANCE_LOW) + id
+  44 (**not 43, which `PregenWorker` owns** — the plan draft collided: 43 would
+  have overwritten the manual run's in-place; two notifications must coexist).
+  Throttled ≥1 s in-place refresh: indeterminate while the buffer holds 0 s
+  (engine loading), then determinate against the 45 s fill target. Shown in the
+  cold-seek `bufferForPlayback` wait and the post-STOP cushion fill (gated by
+  `postStopFill`); cancelled at `output.play` (audio start — the plan draft's
+  publish-site-only cancel would have lingered a whole passage: `onAudioStarted`
+  does not publish), in `publish`'s backstop (`phase != LOADING && !postStopFill`),
+  in `stopEverything` and `onDestroy`.
+- **Notification permission (root cause)** — `POST_NOTIFICATIONS` declared in the
+  manifest (it was not — see above; without the declaration a request can never be
+  granted) and requested once per process at `MainActivity.onCreate` on API 33+,
+  no nag on deny. The single gate every notification surface shares (media 42,
+  pregen 43, generation 44).
+- **Dead code** — `PregenWorker.doWork`'s local `suspend fun notify` (never
+  called; `runBooks`'s parameter shadows it) deleted.
+
+Tests: `CoverageEncoderTest` (char-weighted spans, cross-book-key isolation, empty
+book, deduplicated ticks, zero-length passages), `PcmPassageCacheTest` +
+`generatedKeys` (voice/speed/book filtering, legacy v1 inclusion, eviction
+exclusion). Host suites green (`:core-player:test :core-ui:test
+:feature-player:test`), `:app:compileDebugKotlin` green, baseline-gated
+`ktlintCheck` green (baseline regenerated for PlayerCard/ReaderScreen line shifts).
+
+## 133. Manual pre-generation budget is listening time, not wall-clock (2026-09-08)
+
+Follow-up to #132 (same review): the picker's "30 min / 1 h / …" was computed as a
+wall-clock synthesis cap (`PregenBudget.maxTimeMs`), while the dialog labels it in
+listening minutes and bytes (`BYTES_PER_MINUTE`, 24 kHz 16-bit mono). At Kokoro
+RTF ≈ 0.7 a "30 min" run produced ~42 min of audio — the label and the cap
+disagreed. The user also asked whether already-generated spans are skipped.
+
+- **Budget is now `PregenBudget.maxSeconds`** — listening seconds of NEW audio.
+  `OfflinePregen.run` measures each synthesized passage's duration from its PCM
+  (`pcm.size / (sampleRateHz × 2.0)`, 16-bit mono) and stops when the total
+  reaches `maxSeconds`. A passage already on disk is skipped by `shouldVisit` and
+  adds nothing to the accumulator — so a run crossing an already-cached stretch
+  keeps generating the same total *new* listening time past it.
+- **Hole semantics:** reading position 0:00 with 0:10–0:20 already cached and a
+  30-min ask synthesizes 0:00–0:10, skips 0:10–0:20 (not counted), then
+  0:20–0:40 — exactly 30 minutes of new audio, covering book-time 0:00→0:40.
+- **Wall-clock machinery removed:** `maxTimeMs`, `remainingTimeMs`, the injected
+  `clock`, and the worker's `startedAt`/`elapsed`/`remaining` checks are gone —
+  the overnight arm that needed a wall-clock cap was already removed (S1b), so
+  wall-clock had no remaining producer. `PregenBudgetTest` (which tested
+  `remainingTimeMs`) is deleted.
+- **Input re-encoded:** `PregenManager` now writes `KEY_BUDGET_MINUTES` (a whole
+  minute count) and the worker maps it to `maxSeconds = minutes * 60.0`. The
+  dialog needs no copy change — its labels were already listening-time.
+
+Tests: `OfflinePregenTest` gains `maxSeconds budget stops mid-book` and
+`maxSeconds skips cached passages without counting them` (the hole). 
+`PregenWorkerTest` replaces the expired-deadline cases with `a finite listening
+budget bounds how much is synthesized` and `an unbounded budget runs the whole
+book`. core-player and feature-player unit suites green; app compiles.
+
+## 132. Manual pre-generation time budgets anchor at the reading position (2026-09-08)
+
+User-reported: “generate 30 min” was expected to be the next 30 min from the
+current reading/playing location (or the first not-yet-generated point), but the
+bounded manual run always walked the book from chapter 0 and synthesized the
+opening audio instead. Decision #131's pre-gen note documented that behavior;
+this reverses it for the bounded arms only.
+
+- **`OfflinePregen.run` gains `startAt: Pair<Int, Int>?`** — an inclusive spine
+  position. The planner's `walk`/`plan` `from` is strictly-after by contract
+  (PregenPlannerTest pins it), so a private `inclusiveFrom` maps `startAt` to
+  the spine predecessor before the walk; `startAt = null` walks the spine start
+  unchanged. Because `shouldVisit` still skips cached passages, an inclusive
+  start that is already on disk advances naturally to the first real gap.
+- **`PregenWorker` resolves the anchor** — it now injects `ProgressDao` and, for
+  a bounded run (`budget.maxSeconds != null`), reads the book's `progress` row and
+  rewires its `chapterIndex` (the player's `chapter.index` domain) into the
+  planner's dense list position via `chapters.indexOfFirst { it.index == … }`.
+  Unbounded (“Whole book”, null budget) still covers the spine from the start.
+- **Inclusive, not exclusive:** the resume passage can be uncached after an
+  open-book/bookmark jump that presents without auto-play (decisions #131). An
+  exclusive start (strictly after the resume point) would strand one passage at
+  the exact anchor; inclusive start + cache skip cannot.
+
+Tests: `OfflinePregenTest` gained three cases — `startAt` walks inclusively, the
+first-passage start equals the whole-book walk, and a cached start/cushion is
+skipped. `PregenWorkerTest` gained `a bounded budget anchors the run at the
+persisted reading position` (resume at 0/1 → synthesizes p1..p4, never p0).
+Host suites: core-player and feature-player unit tests all green.
+
 ## 131. Chapter selector and bookmark jumps present without auto-play (2026-09-08)
 
 User call during the "every play trigger" review (decisions #129/#130): jumping

@@ -31,6 +31,10 @@ class AppSettings @Inject constructor(
         val ttsEngine: String = SettingsStore.DEFAULT_TTS_ENGINE,
         /** Linear playback gain multiplier (1.0 = unity, > 1.0 amplifies). */
         val playbackGain: Float = SettingsStore.DEFAULT_PLAYBACK_GAIN,
+        /** ORT intra-op thread count for Kokoro synthesis (decisions #137):
+         * fewer cores generating = a snappier phone while pre-generating;
+         * more = faster generation. Applied on the next engine open. */
+        val ttsThreads: Int = SettingsStore.DEFAULT_TTS_THREADS,
         /** Realtime-capability tri-state (item 8, D2): `true` = the engine
          * generates ≥ as fast as it plays (wall ≤ audio over ≥ 10 s of
          * rendered audio), `false` = slower, `null` = unmeasured (fewer than
@@ -51,6 +55,7 @@ class AppSettings @Inject constructor(
                 ocrLanguages = store.ocrLanguages(),
                 ttsEngine = store.ttsEngine(),
                 playbackGain = store.playbackGain(),
+                ttsThreads = store.ttsThreads(),
                 realtimeCapable = deriveRtf(store.rtfWallMs(), store.rtfAudioMs()),
             )
     }
@@ -94,6 +99,12 @@ class AppSettings @Inject constructor(
     suspend fun setPlaybackGain(value: Float) {
         store.setPlaybackGain(value)
         _state.value = _state.value.copy(playbackGain = value)
+    }
+
+    suspend fun setTtsThreads(value: Int) {
+        store.setTtsThreads(value)
+        _state.value =
+            _state.value.copy(ttsThreads = value.coerceIn(SettingsStore.MIN_TTS_THREADS, SettingsStore.MAX_TTS_THREADS))
     }
 
     /** Records one synthesis sample (item 8): ACCUMULATES wall and audio

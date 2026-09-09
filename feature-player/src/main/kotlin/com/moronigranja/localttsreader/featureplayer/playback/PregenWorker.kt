@@ -5,6 +5,8 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.content.Context
 import android.content.pm.ServiceInfo
+import android.os.Handler
+import android.os.Looper
 import androidx.core.app.NotificationCompat
 import androidx.hilt.work.HiltWorker
 import androidx.work.CoroutineWorker
@@ -13,6 +15,7 @@ import androidx.work.WorkerParameters
 import androidx.work.workDataOf
 import com.moronigranja.localttsreader.model.CachedBook
 import com.moronigranja.localttsreader.persistence.AppSettings
+import com.moronigranja.localttsreader.persistence.ProgressDao
 import com.moronigranja.localttsreader.persistence.RoomLibraryStore
 import com.moronigranja.localttsreader.player.pregen.OfflinePregen
 import com.moronigranja.localttsreader.player.pregen.PregenBudget
@@ -31,10 +34,14 @@ import kotlinx.coroutines.delay
  *
  * Single-mode manual worker: one book (`KEY_BOOK_IDS`), unbounded time — the
  * run ends when the book is fully cached, the tier saturates, or the user
- * cancels. The run YIELDS at passage boundaries while playback HOLDS the
- * shared engine ([PlaybackActive.engineInUse], item 5 — the G2 blanket
- * session yield is superseded): a cache-fed session leaves the engine free,
- * so a manual run advances; a cold seek's fill or buffer synthesis pauses
+ * cancels. A bounded `KEY_BUDGET_MINUTES` (listening minutes of NEW audio)
+ * anchors the run to the book's persisted reading position (the next N
+ * minutes ahead of the listener, decisions #132/#133); an unbounded run
+ * covers the spine from its start. The run
+ * YIELDS at passage boundaries while playback HOLDS the shared engine
+ * ([PlaybackActive.engineInUse], item 5 — the G2 blanket session yield is
+ * superseded): a cache-fed session leaves the engine free, so a manual run
+ * advances; a cold seek's fill or buffer synthesis pauses
  * it at the next boundary. After an engine-touch burst it waits and
  * resumes, never aborting the run.
  *
@@ -57,6 +64,7 @@ class PregenWorker @AssistedInject constructor(
     private val selector: EngineSelector,
     private val libraryStore: RoomLibraryStore,
     private val settings: AppSettings,
+    private val progressDao: ProgressDao,
     private val pregenCache: PregenCache,
 ) : CoroutineWorker(appContext, params) {
     private var lastNotifyAt = 0L
@@ -69,9 +77,12 @@ class PregenWorker @AssistedInject constructor(
             ?: return Result.failure(workDataOf(KEY_ERROR to (selector.failureReason ?: "engine unavailable")))
 
         // The run takes the library row's chosen listening-time budget
-        // (KEY_BUDGET_TIME_MS); absent → whole book (the pre-budget default).
-        val budget = inputData.getLong(KEY_BUDGET_TIME_MS, -1L).takeIf { it > 0 }
-            ?.let { PregenBudget(maxTimeMs = it) } ?: MANUAL_BUDGET
+        // (KEY_BUDGET_MINUTES, whole listening minutes); absent → whole book
+        // (the pre-budget default). The budget is listening time of NEW audio —
+        // the worker hands it to OfflinePregen, which measures synthesized
+        // PCM seconds and skips cached passages without counting them.
+        val budget = inputData.getLong(KEY_BUDGET_MINUTES, -1L).takeIf { it > 0 }
+            ?.let { PregenBudget(maxSeconds = it * 60.0) } ?: MANUAL_BUDGET
         val voice = inputData.getString(KEY_VOICE) ?: settings.state.value.voice
         val speed = inputData.getDouble(KEY_SPEED, 1.0)
 
@@ -81,36 +92,6 @@ class PregenWorker @AssistedInject constructor(
 
         val synthesize: suspend (String) -> SynthesisOutcome = { text ->
             engine.synthesize(SynthesisRequest(text, voice, speed))
-        }
-        var chapterNotified = -1
-
-        suspend fun notify(bookTitle: String, progress: PregenProgress) {
-            val percent = progress.percent
-            setProgress(
-                workDataOf(
-                    KEY_PROGRESS_PERCENT to percent,
-                    KEY_PROGRESS_CHAPTER to progress.chaptersDone,
-                    KEY_PROGRESS_TOTAL_CHAPTERS to progress.totalChapters,
-                    KEY_PROGRESS_BOOK to bookTitle,
-                ),
-            )
-            if (progress.chaptersDone != chapterNotified) {
-                chapterNotified = progress.chaptersDone
-                setForeground(
-                    ForegroundInfo(
-                        NOTIFICATION_ID,
-                        pregenNotification(
-                            bookTitle = bookTitle,
-                            chapter = progress.chaptersDone,
-                            totalChapters = progress.totalChapters,
-                            percent = percent,
-                        ),
-                        // Explicit type: implicit MANIFEST resolution is rejected
-                        // on some API-34 devices even with the manifest set (#42).
-                        ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC,
-                    ),
-                )
-            }
         }
 
         return runBooks(
@@ -177,32 +158,37 @@ class PregenWorker @AssistedInject constructor(
                 .setAutoCancel(true)
                 .setOngoing(false)
                 .setOnlyAlertOnce(true)
-        when (result) {
-            is Result.Success ->
-                manager.notify(
-                    NOTIFICATION_ID,
+        val terminal =
+            when (result) {
+                is Result.Success ->
                     base
                         .setContentTitle("Ayvu — offline audio ready")
                         .setContentText(
                             "Offline audio ready — $totalSynthesized passages cached (${lastBookTitle ?: "Ayvu"})",
-                        ).build(),
-                )
-            is Result.Failure ->
-                manager.notify(
-                    NOTIFICATION_ID,
+                        ).build()
+                is Result.Failure ->
                     base
                         .setContentTitle("Ayvu — pre-generation stopped")
                         .setContentText(result.outputData.getString(KEY_ERROR) ?: "pre-generation stopped")
-                        .build(),
-                )
-            is Result.Retry -> Unit // the worker never returns Retry; nothing to trace
-        }
+                        .build()
+                is Result.Retry -> return // the worker never returns Retry; nothing to trace
+                else -> return // defensive: unknown subclass, nothing to trace
+            }
+        // Device-observed (2026-09-08): a synchronous post here is cancelled —
+        // WorkManager's SystemFgDispatcher removes the foreground notification
+        // (same id 43) immediately after doWork returns, racing the terminal.
+        // Defer past that teardown so the "ready/stopped" notification lands.
+        Handler(Looper.getMainLooper()).postDelayed(
+            { manager.notify(NOTIFICATION_ID, terminal) },
+            TERMINAL_POST_DELAY_MS,
+        )
     }
 
     /**
      * The book loop over [OfflinePregen], separated from [doWork]'s engine
-     * open so host tests can drive it with a virtual [clock] (CR-1:
-     * whole-book runs are unbounded and failure terminals fail the job).
+     * open so host tests drive it against a faked engine. A bounded
+     * [PregenBudget.maxSeconds] anchors each book at its persisted reading
+     * position; an unbounded budget walks the whole spine.
      */
     internal suspend fun runBooks(
         books: List<CachedBook>,
@@ -210,25 +196,16 @@ class PregenWorker @AssistedInject constructor(
         voice: String,
         speed: Double,
         synthesize: suspend (String) -> SynthesisOutcome,
-        clock: () -> Long = System::currentTimeMillis,
         notify: suspend (String, PregenProgress) -> Unit = { _, _ -> },
     ): Result {
-        val startedAt = clock()
         var bookIndex = 0
         for (book in books) {
             // Conditional yield (item 5): the run continues while playback
             // is fully cache-fed (engineInUse false) and waits at the book
-            // boundary when playback needs the shared engine. The budget
-            // clock keeps running through the wait.
+            // boundary when playback needs the shared engine.
             while (PlaybackActive.engineInUse) {
                 delay(1000)
             }
-            val elapsed = clock() - startedAt
-            // CR-1: an absent deadline (whole-book manual) is NOT an expired
-            // one. remaining == null → unbounded; break only when non-null and
-            // exhausted.
-            val remaining = budget.remainingTimeMs(elapsed)
-            if (remaining != null && remaining <= 0L) break
             val runner = OfflinePregen(
                 cache = pregenCache.cache,
                 synthesize = synthesize,
@@ -245,11 +222,28 @@ class PregenWorker @AssistedInject constructor(
                     ),
                 )
             }
+            val fullBook = book.toBook()
+            // Bounded ("next N minutes") runs resume from the book's current
+            // reading position so they pre-generate the audio ahead of the
+            // listener, not the book's opening chapters. Whole-book runs
+            // (null maxSeconds) still cover the spine from the start — the
+            // per-passage cache skip keeps every run resume-friendly.
+            val startAt = if (budget.maxSeconds != null) {
+                progressDao.get(book.id)?.let { progress ->
+                    // progress.chapterIndex is the player's chapter.index; the
+                    // planner walks dense list positions, so resolve its slot.
+                    val chapter = fullBook.chapters.indexOfFirst { it.index == progress.chapterIndex }
+                    chapter.takeIf { it >= 0 }?.let { it to progress.passageIndex }
+                }
+            } else {
+                null
+            }
             val result = runner.run(
-                book = book.toBook(),
+                book = fullBook,
                 voice = voice,
                 speed = speed,
-                budget = budget.copy(maxTimeMs = remaining),
+                budget = budget,
+                startAt = startAt,
             ) { notify(book.title, it) }
             // CR-1: failure terminals must not settle as success. Engine
             // conditions (missing packs, a synthesis meltdown) are global —
@@ -335,7 +329,7 @@ class PregenWorker @AssistedInject constructor(
         const val KEY_BOOK_IDS = "bookIds"
         const val KEY_VOICE = "voice"
         const val KEY_SPEED = "speed"
-        const val KEY_BUDGET_TIME_MS = "budgetTimeMs"
+        const val KEY_BUDGET_MINUTES = "budgetMinutes"
         const val KEY_ERROR = "error"
         const val KEY_PROGRESS_SYNTHESIZED = "progressSynthesized"
         const val KEY_PROGRESS_CACHED = "progressCached"
@@ -348,11 +342,15 @@ class PregenWorker @AssistedInject constructor(
         const val NOTIFICATION_ID = 43
         /** Throttle for the in-place notification refresh (item 5). */
         internal const val NOTIFY_THROTTLE_MS = 1_000L
+        /** Grace period after which the terminal notification is posted — past
+         * WorkManager's FGS-notification teardown (device-observed race). */
+        private const val TERMINAL_POST_DELAY_MS = 500L
         private const val CHANNEL_ID = "pregen"
         /**
-         * Manual: whole book by default, or bounded by a KEY_BUDGET_TIME_MS
-         * input (the library's pre-generate overlay); a run always ends when
-         * the tier saturates at its byte cap or the user cancels.
+         * Manual: whole book by default, or bounded by a KEY_BUDGET_MINUTES
+         * input (the library's pre-generate overlay) of listening time; a run
+         * always ends when the tier saturates at its byte cap or the user
+         * cancels.
          */
         val MANUAL_BUDGET = PregenBudget()
         fun workName(bookId: String) = "offline-pregen-$bookId"

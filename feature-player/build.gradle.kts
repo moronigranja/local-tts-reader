@@ -67,6 +67,10 @@ dependencies {
     // the AAR supplies jnidispatch per ABI and flows to the app from here.
     implementation("net.java.dev.jna:jna:${libs.versions.jna.get()}@aar")
     implementation(project(":core-tts")) { exclude(group = "net.java.dev.jna") }
+    // KokoroRuntime's sessionFactory lambda names OrtSession.SessionOptions
+    // (decisions #137). Same contract as core-tts: the platform AAR ships
+    // app-side; feature-player compiles against the API jar only.
+    compileOnly(libs.onnxruntime.jvm)
     implementation(project(":core-persistence"))
     implementation(project(":core-player"))
     implementation(project(":core-ui")) // shared PlayerCard composable (A6)
@@ -80,6 +84,11 @@ dependencies {
     testImplementation(libs.vintage.engine)
     testImplementation(libs.kotlinx.coroutines.test)
     testImplementation(libs.work.testing)
+    // Robolectric discovery loads the FakeRuntime subclasses, whose
+    // KokoroRuntime superclass signature names OrtSession.SessionOptions
+    // (decisions #137) — the JVM jar satisfies the class reference; the
+    // AAR's natives still ship app-side only and are never loaded in tests.
+    testImplementation(libs.onnxruntime.jvm)
 
     androidTestImplementation(libs.junit4)
     androidTestImplementation(libs.androidx.test.runner)

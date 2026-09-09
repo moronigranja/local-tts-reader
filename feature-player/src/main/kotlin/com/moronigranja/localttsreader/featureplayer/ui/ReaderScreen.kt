@@ -36,7 +36,6 @@ import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
@@ -94,9 +93,9 @@ import com.moronigranja.localttsreader.player.SleepTimer
 import com.moronigranja.localttsreader.player.TextPagination
 import com.moronigranja.localttsreader.player.chapterMenuLabel
 import com.moronigranja.localttsreader.ui.AyvuSpacing
+import com.moronigranja.localttsreader.ui.CoverageProgress
 import com.moronigranja.localttsreader.ui.EmptyState
 import com.moronigranja.localttsreader.ui.PlayerCard
-import com.moronigranja.localttsreader.ui.SegmentedProgress
 import kotlin.math.ceil
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -381,9 +380,10 @@ fun ReaderScreen(
                             contentDescription = if (playing) "Pause" else "Play",
                         )
                     }
-                    SegmentedProgress(
-                        playedFraction = state.readFraction.coerceIn(0f, 1f),
-                        generatedFraction = minOf(state.generatedAheadFraction, 1f - state.readFraction.coerceIn(0f, 1f)).coerceAtLeast(0f),
+                    CoverageProgress(
+                        coverageSpans = state.coverageSpans,
+                        chapterMarks = state.chapterMarks,
+                        playheadFraction = state.playheadFraction,
                         modifier = Modifier.weight(1f),
                     )
                     val passageLabel = PlaybackUiState.passageIndicatorLabel(state.bookPassageIndex, state.bookPassageCount)

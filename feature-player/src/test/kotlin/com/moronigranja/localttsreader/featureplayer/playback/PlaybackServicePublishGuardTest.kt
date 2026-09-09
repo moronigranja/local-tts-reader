@@ -106,8 +106,9 @@ class PlaybackServicePublishGuardTest {
 
     private class FakeRuntime(
         context: Context,
+        settings: AppSettings,
         private val engine: TTSEngine?,
-    ) : KokoroRuntime(context) {
+    ) : KokoroRuntime(context, settings) {
         override fun engine(): TTSEngine? = engine
         override val failureReason: String? = null
     }
@@ -184,9 +185,10 @@ class PlaybackServicePublishGuardTest {
         this.machine = machine
         this.book = this@PlaybackServicePublishGuardTest.book
         this.output = FakeOutput()
-        this.runtime = FakeRuntime(context, engine)
         this.libraryStore = RoomLibraryStore(database, scope)
         this.settings = AppSettings(SettingsStore(database.settingsDao()))
+        this.runtime = FakeRuntime(context, this.settings, engine)
+        this.pregenCache = PregenCache(context)
         this.selector = EngineSelector(this.runtime, onUnusedSystemTts, this.settings)
     }
 

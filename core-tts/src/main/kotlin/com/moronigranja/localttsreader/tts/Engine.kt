@@ -74,6 +74,23 @@ interface TTSEngine {
 
     /** Synthesizes [request] into audio. Cancellable; expects a ready pack set. */
     suspend fun synthesize(request: SynthesisRequest): SynthesisOutcome
+
+    /**
+     * Streaming variant of [synthesize] (decisions #138): hands each piece of
+     * the result to [onWindow] the moment it is final — PCM16 bytes, in play
+     * order — and returns the same whole-passage [SynthesisOutcome.Audio].
+     * The default buffers the whole passage first (one emit), the behavior
+     * every non-streaming engine and test fake already has; engines whose
+     * pipeline is naturally windowed override it to emit early.
+     */
+    suspend fun synthesizeStreaming(
+        request: SynthesisRequest,
+        onWindow: suspend (ByteArray) -> Unit = {},
+    ): SynthesisOutcome {
+        val outcome = synthesize(request)
+        if (outcome is SynthesisOutcome.Audio) onWindow(outcome.pcm)
+        return outcome
+    }
 }
 
 data class SynthesisRequest(

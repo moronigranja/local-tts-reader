@@ -7,6 +7,14 @@
          and the DNS layer throws unchecked (crash, observed 2026-08-27). -->
     <uses-permission android:name="android.permission.INTERNET" />
 
+    <!-- Notification permission (API 33+, enforced at targetSdk 33+): the
+         request in MainActivity.onCreate can only ever be granted if the
+         permission is DECLARED here — without this line checkSelfPermission
+         stays denied forever and every notify() lands silently in the void
+         (the never-seen pregen/terminal notification, coverage-bar redo
+         step 6). Media 42, pregen 43 and generation 44 all hang off it. -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
     <application
         android:name="com.moronigranja.localttsreader.LocalTtsReaderApp"
         android:icon="@mipmap/ic_launcher"

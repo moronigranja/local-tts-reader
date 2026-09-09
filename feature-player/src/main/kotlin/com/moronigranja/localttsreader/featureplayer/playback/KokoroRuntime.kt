@@ -1,6 +1,7 @@
 package com.moronigranja.localttsreader.featureplayer.playback
 
 import android.content.Context
+import com.moronigranja.localttsreader.persistence.AppSettings
 import com.moronigranja.localttsreader.tts.DefaultEngines
 import com.moronigranja.localttsreader.tts.PackCache
 import com.moronigranja.localttsreader.tts.TTSEngine
@@ -29,6 +30,7 @@ import javax.inject.Singleton
 @Singleton
 open class KokoroRuntime @Inject constructor(
     @ApplicationContext private val context: Context,
+    private val settings: AppSettings,
 ) {
     @Volatile private var engine: TTSEngine? = null
     @Volatile private var failure: String? = null
@@ -89,6 +91,7 @@ open class KokoroRuntime @Inject constructor(
      */
     protected open fun openEngine(): TTSEngine {
         val (model, voices, espeakLib, espeakData) = prerequisites()
+        val threads = settings.state.value.ttsThreads
         return KokoroEngine.open(
             spec = DefaultEngines.kokoro,
             packs = KokoroPacks.all,
@@ -98,6 +101,12 @@ open class KokoroRuntime @Inject constructor(
                 libraryPath = espeakLib.absolutePath,
                 dataPath = espeakData.absolutePath,
             )),
+            // Decisions #137: the ORT intra-op pool is what saturates a phone
+            // during generation (6 threads on the S22's 8 cores — #116). The
+            // engine's default stays the harness-baseline 6; the app caps it
+            // to the user's setting so the UI/storage threads keep cores.
+            // Fixed at open: the session's pool is sized once per process.
+            sessionFactory = { it.setIntraOpNumThreads(threads) },
         )
     }
 
