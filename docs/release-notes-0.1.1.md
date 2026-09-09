@@ -33,8 +33,9 @@ ebooks and listen to them narrated on-device.
 
 ## Known blockers for this build
 
-- Roadmap A8 (Samsung install-time data handling may delete Room data) —
-  mitigated by quarantine + clean rebuild; investigations continue.
+None. The one prior open item (roadmap A8 — Room-data durability across reinstall)
+was classified and fixed 2026-09-01 (decisions #107): the anomaly was the E2E
+teardowns deleting the live DB, not Samsung install-time handling.
 
 ## Licenses
 

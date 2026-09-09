@@ -1,4 +1,4 @@
-# Module layout — LIVE modules as of #41; add modules only when a cycle or build isolation forces it
+# Module layout — LIVE modules as of #118; add modules only when a cycle or build isolation forces it
 
 ```
 core-model/       Book, Chapter/Section, TextPassage, LibraryEntry (no Android deps)

@@ -110,7 +110,7 @@ feature-ocr/       tess-two adapter + stager
 app/          Hilt composition root (Library / Reader / Settings routes)
 spike-tts/    measurement harnesses (benchmark, grain spike, device spikes)
 tools/        docker-build.sh (containerized Android toolchain), gen_mobi_fixtures.py
-docs/         decisions (#1–#41), roadmap, conventions, build, module layout, ideas, brand
+docs/         decisions (#1–#139), roadmap, conventions, build, module layout, ideas, brand
 .github/      CI: JVM tests + Docker Android build + unit tests every push; tag-gated assemble
 agents.md     Entry point for AI agents working in this repo — read first
 ```
@@ -141,10 +141,10 @@ tools/docker-build.sh :app:assembleDebug :app:assembleDebugAndroidTest
 
 - [docs/hard-facts.md](docs/hard-facts.md) — domain constraints (ebook formats, sync, TTS engines, offline-first)
 - [docs/conventions.md](docs/conventions.md) — tech stack, do's and don'ts, definition of done
-- [docs/modules.md](docs/modules.md) — module layout (LIVE as of #41)
+- [docs/modules.md](docs/modules.md) — module layout (LIVE as of #118)
 - [docs/landscape.md](docs/landscape.md) — sherpa-onnx / candela boundary and validated patterns
-- [docs/decisions.md](docs/decisions.md) — the decision ledger (#1–#59)
-- [docs/roadmap.md](docs/roadmap.md) — active stabilization and post-v1 sequencing
+- [docs/decisions.md](docs/decisions.md) — the decision ledger (#1–#139)
+- [docs/roadmap.md](docs/roadmap.md) — forward sequencing; shipped work reference-only, open work active
 - [docs/build.md](docs/build.md) — build/run/test, Docker toolchain, device staging
 - [docs/features/share-and-identify.md](docs/features/share-and-identify.md) — the share-and-identify feature plan
 
