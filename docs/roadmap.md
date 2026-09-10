@@ -7,17 +7,22 @@ until they are promoted here.
 
 ## Current state
 
-v0.1.1 has shipped — GitHub Releases signed unminified APK,
-`io.github.moronigranja.ayvu` (decisions #126, #128). The v1 capability spine is
-complete and device-verified: import → index → local TTS playback with read-along →
-share-and-resume, plus settings, OCR, offline pre-generation, storage controls,
-backup & restore, and the app-wide player card. The current module and test snapshot
-lives in the [README](../README.md#status).
+v0.1.1 is release-ready but **not published**. The signed-APK pipeline, the on-device
+sanity pass on the signed build and `docs/release-notes-0.1.1.md` are all done
+(decisions #126, #128); the one remaining step is publishing the GitHub release — no
+`v0.1.1` tag exists on the remote (see "Release readiness" below). The v1 capability
+spine is complete and device-verified: import → index → local TTS playback with
+read-along → share-and-resume, plus settings, OCR, offline pre-generation, storage
+controls, backup & restore, and the app-wide player card. The current module and test
+snapshot lives in the [README](../README.md#status).
 
-Remaining work is ordered around narration quality (Phase G) and measured
-performance (Phase D), then stats, gestures and the recorded review subjects. Open
-defects and their acceptance criteria are authoritative in
-[open-bugs.md](open-bugs.md).
+Queue order (dependency-first): the **owner's G0 listening pass** → **D1** seek horizon →
+**D4** (Piper adoption, which unblocks K2) → **K5** per-book voice plus the
+settings-surface defect → **Phase H** stats → **D5** high-end engine choice with the ORT
+int4 reference. G1's rule set and D5 are gated on G0; H is independent, so its position
+is preference rather than dependency. This order, the release-state correction and the
+D6 closure are recorded in decisions #145. Open defects and their acceptance criteria are
+authoritative in [open-bugs.md](open-bugs.md).
 
 ## Planning rules
 
@@ -95,6 +100,19 @@ numbers live in the cited decisions.
 | Supertonic 3 | 3.92 | DEFER — duration introspection passes |
 | Audio8 0.1B INT8 | N/A | DROP — slow-AR 5.8 s/token |
 
+### D6 — cross-runtime spike (closed, decisions #140)
+
+The llama.cpp question is answered, so the item leaves the active queue. No audited
+llama.cpp path runs CosyVoice3-class flow TTS — no CFM/DiT/vocoder ops, no multi-GGUF
+loading, and the GGUFs target an unaudited CrispASR whisper.cpp fork — so decisions #97's
+one-convention rule is evidence-backed rather than assumed. The method caveat survives the
+closure: GGUF vs ORT-int4 confounds runtime with quantization, so any future re-run must
+state which axis it isolates. TFLite/ExecuTorch stays "gated — no tracked TTS export
+ships one".
+
+The one remaining leg was never a cross-runtime question: an ORT int4 reference against
+the fp32 Kokoro baseline belongs to whichever engine D5 adopts, and is recorded there.
+
 ### Phase J — offline NMT (decisions #114)
 
 | Model | Verdict |
@@ -135,50 +153,7 @@ Integrate `PiperEngine : TTSEngine` behind the existing seam, pin per-language v
 packs + hashes, and complete the es-IT/de/ko coverage check. Ships passage-level
 read-along only (stock Piper export exposes no word timestamps — #30b).
 
-#### D5 — High-end cloning: Chatterbox vs CosyVoice3 — gated on G0
-
-- Candidates: **CosyVoice3** (incumbent — 9 langs incl. es/it, zero-shot + cross-lingual
-  cloning, pinned pack, measured 3.22 GB VmHWM on the S22) vs **Chatterbox Multilingual
-  ONNX** (MIT, 23 langs incl. es/it/pt/de/ko, zero-shot cloning, 0.5B AR Llama backbone).
-- Provenance gate first: the only ONNX export is community
-  (`onnx-community/chatterbox-multilingual-ONNX`); `textagent/…` is a mirror of the same
-  export, NOT a pin candidate. Pin revision + sha256 and verify output parity against the
-  PyTorch reference before measurement (the #86 fp16-stub lesson). The official
-  `ResembleAI/chatterbox-turbo-ONNX` is English-only — fails multilingual.
-- Measurement (pregen-budget terms on the S22): per-passage wall time, peak/resident PSS
-  through an AR KV-cache decode (the MOSS lesson — memory, not speed, kills weak RAM),
-  and the G0 blind gate against CosyVoice3's #93 quality flag.
-- Integration-cost audit: HF BPE tokenizer (new tokenization path vs espeak-ng; the
-  advertised set en/es/it/pt/de needs no external normalizer, zh/ja/he do); 24 kHz output
-  vs `lastSampleRateHz`; watermark off by default.
-
-#### D6 — Cross-runtime inference spike: ORT vs GGUF/llama.cpp (TFLite gated)
-
-Closes the evidence gap that ORT was chosen by path-of-least-resistance and never
-benchmarked against an alternative runtime. Runs in the `spike-tts` harness only — no
-second in-app inference convention, and decisions #97 stands until a measured decision
-overturns it.
-
-| Leg | Graph | Role |
-|---|---|---|
-| ORT-android 1.29.0 | shipped Kokoro-82M fp32 | Known-good baseline |
-| ORT-android 1.29.0 | CosyVoice3-0.5B int4 (#49) | ORT reference on a quantized DiT |
-| ~~llama.cpp / GGUF~~ | ~~`cstr/cosyvoice3-0.5b-2512-GGUF`~~ | Dropped — decision #140: no audited llama.cpp path runs CosyVoice3-class flow TTS (no CFM/DiT/vocoder ops, no multi-GGUF loading); the GGUFs target the unaudited CrispASR whisper.cpp fork, also dropped |
-| TFLite / ExecuTorch | gated | No tracked TTS export ships one; recorded untestable |
-
-Required evidence per leg: cold engine-open time-to-first-audio, steady-state RTF,
-peak/resident PSS + VmHWM, and the #67 PCM oracle (`max_abs_diff`) against the fp32
-Kokoro baseline — S22 and HiBreak, same corpus/voice as D2/D3.
-
-Method caveat: GGUF vs ORT-int4 confounds runtime with quantization, so each number
-states which axis it actually isolates. The llama.cpp leg is closed by the host-side
-feasibility probe (decisions #140, 2026-09-09): the #97 one-convention rule is now
-evidence-backed — no audited on-device runtime other than ORT runs this class — with
-the typed keep/drop recorded there. Remaining acceptance: the ORT legs comparison
-(Kokoro fp32 baseline vs CosyVoice3 int4 reference — cold engine-open
-time-to-first-audio, steady-state RTF, peak/resident PSS + VmHWM, #67 PCM oracle,
-S22 and HiBreak, same corpus/voice as D2/D3). The Android leg (plan Step 3) is not
-built; the Step-2 fallback applies per #140.
+### Phase G — narration quality
 
 #### G0 — Narration-quality listening corpus — bounds G1
 
@@ -197,6 +172,11 @@ Status: corpus (377 entries, 9 languages × 15 categories) built and synthesized
 end-to-end on the S22; device corpus, WAVs and measurements complete
 ([g0-findings.md](g0-findings.md)). Roman-language mispronunciation classes await the
 owner's listening pass; ja/cmn/hi are recorded as a non-native-ear limitation.
+
+**Gates:** G1's built-in rule set (bounded by the typed findings) and D5's engine choice
+(its quality gate is the G0 blind read, and the pt-BR blind read decides whether
+SMaLL-100-class quality carries into the translation slice). The next action is human,
+not code: **the owner's listening pass** over the Roman-language classes.
 
 #### G1 — TTS pronunciation replacements — promoted from ideas
 
@@ -223,6 +203,32 @@ Add the narrow useful subset before building a configurable gesture editor:
 
 Configurable tap-zone maps remain in the idea pool until the fixed reader interactions
 have device evidence and an accessibility review.
+
+### Sequenced after G0 — D5 high-end engine choice
+
+A Phase D item whose gate lives in Phase G: it does not start until G0's typed findings
+and blind read exist.
+
+#### D5 — High-end cloning: Chatterbox vs CosyVoice3
+
+- Candidates: **CosyVoice3** (incumbent — 9 langs incl. es/it, zero-shot + cross-lingual
+  cloning, pinned pack, measured 3.22 GB VmHWM on the S22) vs **Chatterbox Multilingual
+  ONNX** (MIT, 23 langs incl. es/it/pt/de/ko, zero-shot cloning, 0.5B AR Llama backbone).
+- Provenance gate first: the only ONNX export is community
+  (`onnx-community/chatterbox-multilingual-ONNX`); `textagent/…` is a mirror of the same
+  export, NOT a pin candidate. Pin revision + sha256 and verify output parity against the
+  PyTorch reference before measurement (the #86 fp16-stub lesson). The official
+  `ResembleAI/chatterbox-turbo-ONNX` is English-only — fails multilingual.
+- Measurement (pregen-budget terms on the S22): per-passage wall time, peak/resident PSS
+  through an AR KV-cache decode (the MOSS lesson — memory, not speed, kills weak RAM),
+  and the G0 blind gate against CosyVoice3's #93 quality flag.
+- **ORT int4 reference (absorbed from the closed D6):** Kokoro-82M fp32 baseline vs the
+  adopted candidate at int4, in the `spike-tts` harness — cold engine-open
+  time-to-first-audio, steady-state RTF, peak/resident PSS + VmHWM, and the #67 PCM
+  oracle (`max_abs_diff`) — S22 and HiBreak, same corpus/voice as D2/D3.
+- Integration-cost audit: HF BPE tokenizer (new tokenization path vs espeak-ng; the
+  advertised set en/es/it/pt/de needs no external normalizer, zh/ja/he do); 24 kHz output
+  vs `lastSampleRateHz`; watermark off by default.
 
 ### Phase H — TODAY reading and listening stats
 
@@ -271,6 +277,10 @@ concrete improvements:
    backup archive and is dropped with the book. An override applies only when the active
    engine exposes that voice id; otherwise the global default plays and the selector row
    reads unavailable. Full contract: decisions #144.
+6. **Settings-surface defect cleanup.** The open-bugs row "Offline-audio usage row is
+   stale on return to a live Settings screen" (decisions #144) is a refresh-trigger fix on
+   this phase's own surface: re-read `PregenStorage.usageByBook()` when the section
+   becomes visible instead of only in `SettingsViewModel.init` and after a delete.
 
 Acceptance: settings are grouped and navigable without losing any existing knob or its
 persistence; adding an engine adds its packs without a settings-screen change; an
@@ -282,7 +292,9 @@ when the active engine lacks the voice.
 Status: items 1, 3 and 4 landed (decisions #142, #144) — sections Speech / Reading &
 sharing / Storage & data / Appearance, arbitrary listening-time entry in the pregen
 dialog, per-book speed deferred to the #71 revisit and per-book voice kept as item 5.
-Item 2 stays gated on a second engine.
+Item 2 stays gated on a second engine: **D4 (Piper adoption) is the near-term one**, D5's
+outcome the other — its pack rows are the first non-Kokoro shape the settings surface
+must ingest. Item 6 is a tracked open defect (see open-bugs.md), not a new feature.
 
 ## Later — strategic and dependency-gated work
 
@@ -290,7 +302,7 @@ Item 2 stays gated on a second engine.
 |---|---|
 | Pitch-preserving speed | WSOLA/phase-vocoder DSP and cache-key compatibility; measure CPU/battery before replacing hardware rate conversion. |
 | Translate-then-read (`core-translate`) | Engine and scope already decided: SMaLL-100 int8, one 916 MB pack for all languages (decisions #114, Phase J verdict below), any advertised target language, output-side only, degrades to the original text on failure (decisions #101). Not blocked on any active phase — remaining work is the SMaLL-100 tokenizer port, on-device SentencePiece, and pack integration behind the pre-gen queue; the spike's export/parity/chr-F tooling and manifest pins are the reproduction path. The gate is appetite: the 916 MB download plus the accepted chr-F trade against the per-pair pt-BR specialist. |
-| CosyVoice pre-generation + voice cloning | DiT-gated (decisions #21/#23) and D3-quality-flagged (duplicated honorific probes; RTF 12.5–31.1); disk-only playback. A1/A4 long satisfied. |
+| High-end cloned-voice pre-generation (engine chosen by D5) | Ships only after D5 (Active work) picks the engine and clears the G0 blind read — Chatterbox Multilingual or CosyVoice3; the incumbent is DiT-gated (decisions #21/#23) and D3-quality-flagged (duplicated honorific probes; RTF 12.5–31.1), disk-only playback. A1/A4 long satisfied. Distinct from D5 itself: that item *selects*, this row *ships*. |
 | Kindle official export/API sync | External API/export contract and account UX; manual share/resume already covers the core use case. |
 | Word-level highlighting | Requires a stable word/phoneme timing contract beyond current sentence anchors. |
 | Auto language detection and voice routing | Needs per-language voice mappings, mixed-language policy and pack-availability UX. The manual single-book case is covered earlier by Phase K item 5 (per-book voice, decisions #144). |
@@ -326,10 +338,16 @@ Distribution decision made (decisions #126, 2026-09-05): **GitHub Releases signe
 manual local signing** — CI stays a gate (tag assemble only). The local signing pipeline
 ships: release keystore outside the repo, gitignored `keystore.properties`, unminified
 `release` buildType, `tools/release.sh` (build + apksigner verify + draft/publish
-release), `NOTICE.md` attribution. Remaining before the first public tag: press publish —
-the release notes (`docs/release-notes-0.1.1.md`) are written and the on-device sanity
-pass on the SIGNED 0.1.1 build is done (decisions #128 follow-up covers the
-manifest-component fix it caught).
+release), `NOTICE.md` attribution.
+
+**v0.1.1 is not published.** Everything except the publish step is done: the signed build
+passed its on-device sanity pass (install, launch, pack download + checksum verify,
+VIEW-intent import, library/reader render, playback — decisions #128 follow-up covers the
+manifest-component fix it caught), `docs/release-notes-0.1.1.md` is written (still headed
+"draft"), and no `v0.1.1` tag exists on the remote. Publishing is the one action that
+makes the "shipped" framing true; nothing else in the queue depends on it, and the
+roadmap therefore records release-ready/unpublished rather than shipped. The next release
+after that increments `versionCode` (2 → 3, v0.1.2).
 
 Deferred until a store listing is actually wanted: AAB + Play Data Safety, store privacy
 policy, listing/screenshots, supported-devices declaration. Native crash symbols and
@@ -356,8 +374,9 @@ player state machinery.
 
 ## Outstanding verification and tooling debt
 
-- Verify Android Auto controls on real or emulator-backed Auto hardware; MediaSession
-  wiring alone is not device evidence.
+- Android Auto controls: tracked as an **Open** product bug in
+  [open-bugs.md](open-bugs.md) — that list is authoritative, so this roadmap keeps no
+  separate row for it.
 - Continue physical-device acceptance on the S22 and HiBreak for behavior or performance
   claims affecting playback.
 

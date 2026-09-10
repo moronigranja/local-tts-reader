@@ -4,6 +4,46 @@ The rationale behind load-bearing decisions. New decisions get an entry here wit
 context, alternatives considered, and consequences. Keep entries short — this is a log,
 not a spec (specs live in architecture.md / feature docs).
 
+## 145. Roadmap reconciliation — release state corrected, active work put in dependency order, D6 closed (2026-09-10)
+
+Owner asked whether the roadmap's order still made sense. The tiering was sound and the
+"Later" table already respected its dependencies (habit-driven pre-gen after Phase H,
+auto-routing after the manual per-book voice case); the active queue did not. Five
+corrections, all in `docs/roadmap.md`:
+
+- **Release state was overstated.** Current state claimed "v0.1.1 has shipped — GitHub
+  Releases signed unminified APK" while the same file's Release-readiness section still
+  said "press publish", and decisions #128 said "nothing released". Ground truth checked:
+  `git ls-remote --tags origin` carries only `espeak-ng-1.52.0`, the GitHub releases API
+  returns only `espeak-ng-1.52.0` (2026-08-27), `docs/release-notes-0.1.1.md` is headed
+  "draft", and `versionCode = 2`/`versionName = "0.1.1"` is built and device-verified but
+  untagged. Recorded as **release-ready, not published**, with the publish step named as
+  the one owner action that makes the framing true (nothing in the queue depends on it).
+- **Phase G was structurally inside Phase D.** G0/G1/G3 were `####` subsections under
+  `### Phase D`, contradicting the intro that pairs narration quality (G) with measured
+  performance (D). A `### Phase G — narration quality` heading now carries them.
+- **D5 preceded its own gate.** D5's heading says "gated on G0" and sat 45 lines above G0.
+  It now lives in a `### Sequenced after G0 — D5 high-end engine choice` section below
+  Phase G, and G0's block states what it gates (G1's rule set, D5's engine choice, the
+  pt-BR blind read for the translation slice).
+- **D6 closed rather than left half-open.** Its own evidence said the llama.cpp question
+  was answered (#97's one-convention rule is now evidence-backed, decisions #140) and the
+  remaining "ORT legs comparison" was never a cross-runtime question — it measured
+  Kokoro fp32 against CosyVoice3 int4, an engine that D5 may replace. D6 moved to the
+  measured-verdicts section as closed, and the int4 reference became an acceptance bullet
+  of D5.
+- **The real critical path is human.** G0's status is a corpus built and synthesized with
+  the Roman-language classes awaiting the owner's listening pass — that pass gates G1 and
+  D5, so the queue order is now stated explicitly (owner listening pass → D1 → D4, which
+  unblocks K2 → K5 → H → D5), instead of reading as if code were the blocker.
+
+Also folded in: Phase K gains item 6 (the settings-surface refresh defect filed in
+open-bugs.md, decisions #144) and item 2's "second engine" gate now names D4 as the
+near-term engine; Android Auto verification is tracked only in the authoritative
+open-bugs.md row (it was duplicated across the shipped table, ideas.md and the roadmap
+debt list); the "Later" row for cloned-voice pre-generation is retitled to distinguish
+*shipping* that slice from D5 *selecting* its engine.
+
 ## 144. Phase K item 4 — per-book overrides: speed deferred to the #71 revisit, voice kept as a per-book override (2026-09-10)
 
 Item 4 asked for an explicit keep/defer per override instead of a silent global-only
