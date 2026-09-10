@@ -267,6 +267,11 @@ persistence; adding an engine adds its packs without a settings-screen change; a
 arbitrary pre-gen duration works alongside the presets; the per-book-override decision
 is recorded.
 
+Status: items 1 and 3 landed (decisions #58) — sections Speech / Reading &
+sharing / Storage & data / Appearance, arbitrary listening-time entry in the
+pregen dialog. Item 4's keep/defer decision still owed; item 2 stays gated on a
+second engine.
+
 ## Later — strategic and dependency-gated work
 
 | Item | Gate / reason for position |

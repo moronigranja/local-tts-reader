@@ -629,15 +629,19 @@ private fun rememberCoverBitmap(
     return bitmap
 }
 
-/** The pre-generation budget picker: listening-time options, each with the
+/** The pre-generation budget picker: listening-time presets, each with the
  * exact linear byte cost of the estimate model (1 min at the 24 kHz 16-bit
- * mono rate ≈ 2.88 MB; the whole-book estimate matches #44). */
+ * mono rate ≈ 2.88 MB; the whole-book estimate matches #44), plus a
+ * free-form entry for arbitrary durations (Phase K item 3 — the backend
+ * already accepts any listening-minute budget). */
 @Composable
 private fun PregenBudgetDialog(
     estimate: Long,
     onPick: (Long?) -> Unit,
     onDismiss: () -> Unit,
 ) {
+    var custom by remember { mutableStateOf("") }
+    val parsed = parseListeningMinutes(custom)
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("Pre-generate: how much listening time?") },
@@ -652,9 +656,28 @@ private fun PregenBudgetDialog(
                 PregenBudgetOption("2 h (≈${formatBytes(BYTES_PER_MINUTE * 120)})") { onPick(120) }
                 PregenBudgetOption("3 h (≈${formatBytes(BYTES_PER_MINUTE * 180)})") { onPick(180) }
                 PregenBudgetOption("Whole book (≈${formatBytes(estimate)})") { onPick(null) }
+                OutlinedTextField(
+                    value = custom,
+                    onValueChange = { custom = it },
+                    label = { Text("Custom listening time") },
+                    placeholder = { Text("45m, 1h30, 1.5h") },
+                    singleLine = true,
+                    isError = custom.isNotBlank() && parsed == null,
+                    supportingText = {
+                        when {
+                            custom.isBlank() -> Unit
+                            parsed != null -> Text("≈${formatBytes(BYTES_PER_MINUTE * parsed)} of audio")
+                            else -> Text("Minutes or h/m units — try 45m, 1h30 or 1.5h")
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                )
             }
         },
-        confirmButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+        confirmButton = {
+            TextButton(enabled = parsed != null, onClick = { parsed?.let(onPick) }) { Text("Generate") }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
     )
 }
 

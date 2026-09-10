@@ -4835,3 +4835,42 @@ espeak-ng zip re-downloaded from the release URL, sha256 `6b2edca…` matching t
 pin, extracted bundle + `.ready` markers under `files/packs/kokoro-82m/`). The 185 s
 wall confirms the 90 s window was genuinely too tight: the 60 s buffer burn is real
 device behavior, not test-host slack.
+
+## 58. Phase K items 1+3: settings information-architecture regroup + arbitrary pregen budget (2026-09-10)
+
+**Item 1 — grouping.** The settings surface grew by accretion since B3 with
+incoherent sections (packs split from the engine that owns them, playback volume
+under "Share & reading", storage topics unmarked). Regrouped into four concern
+sections (`SettingsScreen`): **Speech** (engine radios, the three kokoro packs +
+espeak status, generation threads, the degraded-engine install plan card, voice
+selector, playback volume), **Reading & sharing** (match threshold, OCR languages),
+**Storage & data** (offline audio + Backup & restore), **Appearance** (theme). No
+knob moved to a different ViewModel call — pure view restructure; B4's a11y bar
+(radio rows, 48 dp targets) untouched. Restart-knob copy review: `ttsThreads`
+already states "Applies after restart" and is kept; `realtimeCapable` resolved as
+NOT a user knob — it is the D2 RTF lazy-measurement tri-state (decisions #137's
+item 8), measured from real synthesis, surfaced nowhere (and nowhere it should be).
+
+**Item 3 — arbitrary pre-generation budget.** The backend has accepted any
+listening-minute budget since A1 (`PregenBudget.maxSeconds`, `KEY_BUDGET_MINUTES` =
+Long); the dialog shipped only the five presets. Added a free-form entry to
+`PregenBudgetDialog`: `parseListeningMinutes` (pure, host-tested in
+`ListeningTimeTest`) accepts plain integer minutes ("90"), unit forms ("90m",
+"1h", "1h30", "1h30m", "1.5h", "1 hour 30 minutes", comma decimals), and rejects
+ambiguities (empty, garbled, unitless fractions, zero/negative) — a typo must
+never start a silent whole-book run. Live byte estimate under the field
+(2.88 MB/min model); "Generate" enables only on a parse. UI-only: no
+`PregenBudget`/worker change.
+
+Verification: ktlint gate green (baseline re-keyed for line shifts only); full host
+suite green. Device (S22, fresh-install APK): settings sections visually confirmed
+in order Speech → Reading & sharing → Storage & data → Appearance → Backup &
+restore; dialog confirmed end-to-end — "45x" rejected with helper text and a
+disabled Generate, "1h30" showed "≈247.2 MB of audio" (90 min at the 2.88 MB/min
+model) and enabled Generate; tapping it enqueued the worker, which anchored at the
+book's 100% playhead, synthesized the single remaining passage ahead
+(c1p0.pcm, 174 KB), and settled SUCCESS in ~5 s. Offline-audio row appeared under
+Storage & data and was deleted through it (tier empty again). Device note: the
+offline-usage row only refreshes when the settings screen (re)creates its
+ViewModel — an in-place return to a live instance can show a stale empty state;
+pre-existing behavior, not a Phase K regression, recorded for the item-4 review.

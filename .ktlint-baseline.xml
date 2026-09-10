@@ -2408,9 +2408,9 @@
         <error line="90" column="1" source="standard:spacing-between-declarations-with-annotations" />
         <error line="92" column="5" source="standard:function-naming" />
         <error line="417" column="13" source="standard:function-naming" />
-        <error line="636" column="13" source="standard:function-naming" />
-        <error line="662" column="13" source="standard:function-naming" />
-    </file>
+        <error line="638" column="13" source="standard:function-naming" />
+        <error line="685" column="13" source="standard:function-naming" />
+</file>
     <file name="feature-library/src/test/kotlin/com/moronigranja/localttsreader/ebook/EpubFixture.kt">
         <error line="14" column="1" source="standard:no-empty-first-line-in-class-body" />
         <error line="41" column="24" source="standard:multiline-expression-wrapping" />
@@ -2888,11 +2888,11 @@
         <error line="38" column="5" source="standard:function-naming" />
     </file>
     <file name="feature-settings/src/main/kotlin/com/moronigranja/localttsreader/featuresettings/SettingsScreen.kt">
-        <error line="60" column="5" source="standard:function-naming" />
-        <error line="343" column="13" source="standard:function-naming" />
-        <error line="378" column="13" source="standard:function-naming" />
-        <error line="425" column="13" source="standard:function-naming" />
-    </file>
+        <error line="62" column="5" source="standard:function-naming" />
+        <error line="341" column="13" source="standard:function-naming" />
+        <error line="376" column="13" source="standard:function-naming" />
+        <error line="423" column="13" source="standard:function-naming" />
+</file>
     <file name="feature-settings/src/main/kotlin/com/moronigranja/localttsreader/featuresettings/SettingsViewModel.kt">
         <error line="330" column="23" source="standard:property-naming" />
     </file>

@@ -49,8 +49,10 @@ import com.moronigranja.localttsreader.ui.SectionHeader
 import kotlin.math.roundToInt
 
 /**
- * V1 settings: engines + packs (download/status), voice picker + favorites,
- * share match threshold, OCR languages, theme. Every row maps directly to a
+ * Settings, grouped by concern (Phase K item 1): Speech (engine, packs,
+ * generation threads, voice, playback volume), Reading & sharing (match
+ * threshold, OCR languages), Storage & data (offline audio, backup &
+ * restore), Appearance (theme). Every row maps directly to a
  * [SettingsViewModel] call — no logic in the view.
  */
 private enum class SettingsPane { Root, OcrLanguages }
@@ -91,22 +93,8 @@ fun SettingsScreen(
                         .PaddingValues(AyvuSpacing.LG),
                 verticalArrangement = Arrangement.spacedBy(AyvuSpacing.SM),
             ) {
-                item { SectionHeader("Engine", Modifier.padding(top = AyvuSpacing.LG, bottom = AyvuSpacing.XS)) }
-                items(
-                    state.packs.filter { it.packId == "kokoro-model" || it.packId == "kokoro-voices" || it.packId == "espeak-ng" },
-                ) { row ->
-                    PackRow(row, onDownload = { viewModel.download(row.packId) })
-                }
                 item {
-                    Text(
-                        "espeak-ng: ${state.espeakDetail}",
-                        style = MaterialTheme.typography.bodySmall,
-                        modifier = Modifier.padding(horizontal = AyvuSpacing.XS, vertical = AyvuSpacing.XS),
-                    )
-                }
-
-                item {
-                    SectionHeader("Speech engine", Modifier.padding(top = AyvuSpacing.LG, bottom = AyvuSpacing.XS))
+                    SectionHeader("Speech", Modifier.padding(top = AyvuSpacing.LG, bottom = AyvuSpacing.XS))
                 }
                 item {
                     Column {
@@ -158,6 +146,18 @@ fun SettingsScreen(
                         }
                     }
                 }
+                items(
+                    state.packs.filter { it.packId == "kokoro-model" || it.packId == "kokoro-voices" || it.packId == "espeak-ng" },
+                ) { row ->
+                    PackRow(row, onDownload = { viewModel.download(row.packId) })
+                }
+                item {
+                    Text(
+                        "espeak-ng: ${state.espeakDetail}",
+                        style = MaterialTheme.typography.bodySmall,
+                        modifier = Modifier.padding(horizontal = AyvuSpacing.XS, vertical = AyvuSpacing.XS),
+                    )
+                }
                 // Decisions #137: generation threads only bound the downloaded
                 // Kokoro engine — a degraded session never touches ORT, so the
                 // row hides with it.
@@ -194,7 +194,6 @@ fun SettingsScreen(
                     }
                 }
 
-                item { SectionHeader("Voice", Modifier.padding(top = AyvuSpacing.LG, bottom = AyvuSpacing.XS)) }
                 // C2 shared selector: persistent "Selected voice:" summary, one
                 // radio indicator, favorites independent, per-row Preview/Stop,
                 // missing packs → the explicit download action.
@@ -208,23 +207,6 @@ fun SettingsScreen(
                         onDownload = { viewModel.downloadKokoroPacks() },
                     )
                 }
-
-                item { SectionHeader("Share & reading", Modifier.padding(top = AyvuSpacing.LG, bottom = AyvuSpacing.XS)) }
-                item {
-                    Column {
-                        Text("Match threshold: ${"%.2f".format(state.matchThreshold)}", style = MaterialTheme.typography.bodyMedium)
-                        Text(
-                            "How closely a shared snippet must match a book passage.",
-                            style = MaterialTheme.typography.bodySmall,
-                        )
-                        Slider(
-                            value = state.matchThreshold.toFloat(),
-                            onValueChange = { viewModel.setThreshold(it.toDouble()) },
-                            valueRange = 0.3f..0.9f,
-                        )
-                    }
-                }
-
                 item {
                     Column {
                         Text("Playback volume: ${"%.1f".format(state.playbackGain)}×", style = MaterialTheme.typography.bodyMedium)
@@ -236,6 +218,22 @@ fun SettingsScreen(
                             value = state.playbackGain,
                             onValueChange = viewModel::setPlaybackGain,
                             valueRange = SettingsStore.PLAYBACK_GAIN_MIN..SettingsStore.PLAYBACK_GAIN_MAX,
+                        )
+                    }
+                }
+
+                item { SectionHeader("Reading & sharing", Modifier.padding(top = AyvuSpacing.LG, bottom = AyvuSpacing.XS)) }
+                item {
+                    Column {
+                        Text("Match threshold: ${"%.2f".format(state.matchThreshold)}", style = MaterialTheme.typography.bodyMedium)
+                        Text(
+                            "How closely a shared snippet must match a book passage.",
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                        Slider(
+                            value = state.matchThreshold.toFloat(),
+                            onValueChange = { viewModel.setThreshold(it.toDouble()) },
+                            valueRange = 0.3f..0.9f,
                         )
                     }
                 }
@@ -258,7 +256,7 @@ fun SettingsScreen(
                     }
                 }
 
-                item { SectionHeader("Offline audio", Modifier.padding(top = AyvuSpacing.LG, bottom = AyvuSpacing.XS)) }
+                item { SectionHeader("Storage & data", Modifier.padding(top = AyvuSpacing.LG, bottom = AyvuSpacing.XS)) }
                 if (offlineRows.isEmpty()) {
                     item {
                         Text(
