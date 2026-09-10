@@ -4761,3 +4761,33 @@ Tests: `PlaybackServiceA57Test.backward openChapter lands on the previous
 chapter's last passage` (Robolectric, real service, multi-chapter book with
 an empty spine slot) and `OpenChapterE2eTest` — chapter 0 gained a second
 passage so the backward landing assert is passage 1, not vacuously 0.
+
+## 56. D6 cross-runtime spike: llama.cpp cannot run CosyVoice3-class flow TTS — #97 one-runtime rule evidence-backed (2026-09-09)
+
+Host-only feasibility probe (no Android): inspected `cstr/cosyvoice3-0.5b-2512-GGUF`
+(HF revision `aa0ea5eb7279bcf54668bcbaa7348019de7d7178`, sha256 per file in
+`docs/prints/d6/feasibility.json`) with the `gguf` python package — 1510 tensors dumped.
+
+The repo is not one GGUF but six per-component files, each its own
+`general.architecture`: `cosyvoice3-llm` (Qwen2-0.5B frontend + speech-token head,
+q4_k), `cosyvoice3-flow` (22-block DiT flow-matching, q8_0), `cosyvoice3-hift`
+(HiFT vocoder with NSF sine source, f16), `cosyvoice3-voices` (8 baked voices),
+plus cloning-only campplus/s3tok. Together the four synthesis files (745 MB) cover
+the full text → speech-token → flow-matching DiT → HiFT pipeline.
+
+Verdict `llama_op_support: none`: no cosyvoice3 arch in llama.cpp, no
+flow-matching/DiT-CFM iterative ODE sampling, no vocoder op set, no multi-GGUF
+companion loading. The GGUFs target **CrispASR** (github.com/CrispStrobe/CrispASR) —
+an unaudited *whisper.cpp* fork carrying its own ggml `cosyvoice3-tts` backend
+(model card: ASR-roundtrip WER 0%, byte-exact s3tok vs ONNX); it also ships GGUF
+backends for Kokoro and 60+ TTS engines.
+
+Keep/drop: **llama.cpp mainline — drop** (would need CFM sampling, a DiT family,
+a vocoder, and multi-file orchestration upstream — a runtime project, not a spike).
+**ggml forks (CrispASR) — drop** (technically capable but unaudited; adopting it
+swaps one audited runtime for a fork plus a second ecosystem). Precise #97
+statement: NOT "no runtime can run this class" — the weights ARE runnable on
+ggml-family code — but "no audited on-device runtime other than ORT runs this
+class." D6 Android leg (plan Step 3) not built; the Step-2 fallback applies. ORT
+legs remain Kokoro fp32 (#67/#86) and CosyVoice3 int4 (#49). Evidence:
+`docs/prints/d6/feasibility.json`, conclusion: `docs/prints/d6/d6-conclusion.md`.
