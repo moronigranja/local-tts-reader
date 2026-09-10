@@ -15,7 +15,7 @@ passage.
 
 v1 functional spine is built and verified on the S22 Ultra: import → index →
 playback (with read-along sentence highlighting) → share-and-resume, plus settings
-(voice picker, language/voice pack downloads, playback volume, match threshold, theme) and OCR.
+(voice picker, language/voice pack downloads, playback volume, match threshold, theme, offline pre-generation audio, synthesis thread count) and OCR.
 
 **Live modules (host JVM tests, no Android SDK needed):**
 
@@ -35,8 +35,8 @@ playback (with read-along sentence highlighting) → share-and-resume, plus sett
 | `core-persistence` | Room schema v2 (books, cached passages, progress + offset/speed, settings, bookmarks, position_history); stores + launch-time rebuild; `BackupStore` snapshot/merge + book-file sidecars (E1) |
 | `feature-library` | SAF multi-file + folder import (F3 tree grant), external-file intake (F4: ACTION_VIEW / shared book files land on MainActivity), one import overlay with progress + stage (reading/parsing/saving/indexing) + typed failures, idempotent; library list UI |
 | `core-backup` | Versioned v1 SAF backup archive: codec + DTOs (pure JVM) — consumed by persistence + settings (E1) |
-| `feature-player` | Foreground playback service (MediaSession, focus/ducking, notification), pre-generation wiring, reader surface with sentence highlight + S3 gestures + long-press paragraph menu (G2) |
-| `feature-settings` | Settings screen: engine/voice/OCR pack downloads, voice picker + favorites, match threshold, OCR languages, theme, backup & restore (SAF export/import); Android HTTP transport |
+| `feature-player` | Foreground playback service (MediaSession, focus/ducking, notification), pre-generation wiring, reader surface with sentence highlight + S3 gestures + long-press paragraph menu (G2) + full-screen immersive mode (overlay title, minimal player, chrome toggle) |
+| `feature-settings` | Settings screen: engine/voice/OCR pack downloads, voice picker + favorites, match threshold, OCR languages, theme, offline pre-generation audio, playback volume, synthesis thread count, backup & restore (SAF export/import); Android HTTP transport |
 | `feature-share` | ACTION_SEND gateway (text + image, plus F4 book-file routing to the import gateway), typed resolver (found / not-found with closest hint), OpenTarget contract |
 | `feature-ocr` | TessTwoOcrEngine (tess-two 9.1.0) + tessdata stager, Hilt wiring |
 | `app` | Hilt composition root: Library / Reader / Settings routes, S3 open-target intent handling |
