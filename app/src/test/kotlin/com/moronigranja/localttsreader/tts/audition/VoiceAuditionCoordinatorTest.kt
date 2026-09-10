@@ -78,7 +78,7 @@ class VoiceAuditionCoordinatorTest {
         VoiceAuditionCoordinator(
             selector =
                 EngineSelector(
-                    FakeRuntime(context, engine),
+                    FakeRuntime(context, engine, settings),
                     object : dagger.Lazy<TTSEngine> {
                         override fun get(): TTSEngine = error("system tts unused")
                     },
@@ -94,7 +94,8 @@ class VoiceAuditionCoordinatorTest {
     private class FakeRuntime(
         context: Context,
         private val engine: TTSEngine,
-    ) : KokoroRuntime(context) {
+        settings: AppSettings,
+    ) : KokoroRuntime(context, settings) {
         override fun engine(): TTSEngine? = engine
 
         override val failureReason: String? = null

@@ -1,7 +1,6 @@
 package com.moronigranja.localttsreader
 
 import android.content.Intent
-import androidx.room.Room
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import androidx.work.OneTimeWorkRequestBuilder
@@ -14,17 +13,12 @@ import com.moronigranja.localttsreader.model.Book
 import com.moronigranja.localttsreader.model.Chapter
 import com.moronigranja.localttsreader.model.LibraryEntry
 import com.moronigranja.localttsreader.model.TextPassage
-import com.moronigranja.localttsreader.persistence.LibraryDatabase
-import com.moronigranja.localttsreader.persistence.MIGRATION_1_2
-import com.moronigranja.localttsreader.persistence.RoomLibraryStore
 import com.moronigranja.localttsreader.player.PlayerPhase
 import com.moronigranja.localttsreader.player.pregen.PcmPassageCache
 import com.moronigranja.localttsreader.player.pregen.PregenKey
 import com.moronigranja.localttsreader.player.pregen.PregenSpaceEstimator
 import java.io.File
 import java.util.concurrent.TimeUnit
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -50,10 +44,7 @@ import org.junit.runner.RunWith
 class PregenE2eTest {
 
     private val context = InstrumentationRegistry.getInstrumentation().targetContext
-    private lateinit var database: LibraryDatabase
-    private lateinit var store: RoomLibraryStore
     private lateinit var cache: PcmPassageCache
-    private val scope = CoroutineScope(Dispatchers.IO)
 
     /** The engine the worker synthesizes with (decisions #54); part of the
      * [PregenKey] path, so the in-test keys must carry it. */
@@ -114,12 +105,15 @@ class PregenE2eTest {
     @Before
     fun setUp() {
         runBlocking {
-            database = Room.databaseBuilder(context, LibraryDatabase::class.java, "local-tts-reader.db")
-                .addMigrations(MIGRATION_1_2)
-                .allowMainThreadQueries()
-                .build()
-            store = RoomLibraryStore(database, scope)
-            store.add(LibraryEntry(book, importedAtEpochMillis = 1L))
+            // The fixture is written through the APP'S Hilt singleton store —
+            // the exact RoomLibraryStore instance PregenWorker reads. A second
+            // Room instance on the same file raced the worker's snapshot (the
+            // WAL/instance race seen in the 2026-09-08 device pass): the
+            // worker's `cachedBooks()` saw no book and settled SUCCESS with an
+            // empty cache. Same-instance write/read removes the race by
+            // construction.
+            val app = context.applicationContext as LocalTtsReaderApp
+            app.libraryStore.add(LibraryEntry(book, importedAtEpochMillis = 1L))
             cache = PcmPassageCache(File(context.filesDir, "pregen")) // read-only handle to the worker's tier
             File(context.filesDir, "pregen").deleteRecursively()
         }
@@ -128,10 +122,9 @@ class PregenE2eTest {
     @After
     fun tearDown() {
         context.stopService(Intent(context, PlaybackService::class.java))
-        database.close()
-        // No deleteDatabase: the app's Hilt Room singleton (worker + service)
-        // keeps a live connection to this file; unlinking it would silently
-        // starve the worker (see PlaybackE2eTest note, decisions #42 device pass).
+        // Remove the fixture row so the app library stays clean. The live
+        // Room file is the app singleton's — never unlink the file itself.
+        runBlocking { (context.applicationContext as LocalTtsReaderApp).libraryStore.delete(book.id) }
         File(context.filesDir, "pregen").deleteRecursively()
     }
 

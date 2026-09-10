@@ -413,4 +413,16 @@ class PregenWorkerTest {
         val result = worker(manualInput(book.id), null).doWork()
         assertTrue(result is ListenableWorker.Result.Failure)
     }
+
+    @Test
+    fun `requested books absent from the library fail instead of a false success`() = runBlocking {
+        val engine = FakeEngine()
+        val result = worker(manualInput("not-in-the-library"), engine).doWork()
+
+        assertTrue(result is ListenableWorker.Result.Failure)
+        val output = (result as ListenableWorker.Result.Failure).outputData
+        val error = output.getString(PregenWorker.KEY_ERROR)
+        assertTrue("error names the missing books: $error", error != null && "library" in error.lowercase())
+        assertTrue("nothing was synthesized", engine.synthesized.isEmpty())
+    }
 }

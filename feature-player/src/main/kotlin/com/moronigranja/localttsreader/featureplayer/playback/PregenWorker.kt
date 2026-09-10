@@ -54,8 +54,8 @@ import kotlinx.coroutines.delay
  * CR-1: only safely bounded terminals ([PregenTerminal.Completed],
  * [PregenTerminal.BudgetExhausted], [PregenTerminal.CacheSaturated] and the
  * playback yield) settle as success. Engine failure terminals
- * ([PregenTerminal.Unavailable], [PregenTerminal.FailureCap]) fail the job
- * with a typed error and the run's progress counts.
+ * ([PregenTerminal.Unavailable], [PregenTerminal.FailureCap]) and a run whose
+ * requested books are absent from the library fail the job with a typed error.
  */
 @HiltWorker
 class PregenWorker @AssistedInject constructor(
@@ -88,7 +88,18 @@ class PregenWorker @AssistedInject constructor(
 
         val wantedIds = inputData.getStringArray(KEY_BOOK_IDS)?.toSet()
         val books = libraryStore.cachedBooks().filter { wantedIds == null || it.id in wantedIds }
-        if (books.isEmpty()) return Result.success()
+        if (books.isEmpty()) {
+            // CR-1 class: a run for requested-but-absent books must not settle
+            // as a false "offline audio ready" success. The manual scheduler
+            // only sends library IDs, so an empty filtered set means the book
+            // was deleted while the run sat queued — fail with a typed error.
+            // A whole-library run (no IDs sent) over an empty library has no
+            // work by definition and still succeeds.
+            if (wantedIds != null) {
+                return Result.failure(workDataOf(KEY_ERROR to "No requested books are in the library"))
+            }
+            return Result.success()
+        }
 
         val synthesize: suspend (String) -> SynthesisOutcome = { text ->
             engine.synthesize(SynthesisRequest(text, voice, speed))

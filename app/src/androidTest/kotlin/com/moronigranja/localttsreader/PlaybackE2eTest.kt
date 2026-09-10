@@ -104,7 +104,12 @@ class PlaybackE2eTest {
         // Wait for the full run: LOADING → PLAYING → … → COMPLETED.
         var sawPlaying = false
         var sawSegments = false
-        val deadline = System.currentTimeMillis() + 90_000
+        // The cold open cannot reach PREFILL_LOOKAHEAD_SECONDS (45 s) on an
+        // ~18 s fixture book, so the first passage pays the full
+        // PLAY_BUFFER_TIMEOUT_MS (60 s) buffer wait before playing; the whole
+        // run is 60 s burn + engine open + ~18 s playback. 90 s sat on the
+        // edge; 180 s covers the burn plus real-time headroom.
+        val deadline = System.currentTimeMillis() + 180_000
         while (System.currentTimeMillis() < deadline) {
             val state = PlaybackStateHolder.state.value
             Thread.sleep(250)

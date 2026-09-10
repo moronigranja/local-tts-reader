@@ -4791,3 +4791,40 @@ ggml-family code — but "no audited on-device runtime other than ORT runs this
 class." D6 Android leg (plan Step 3) not built; the Step-2 fallback applies. ORT
 legs remain Kokoro fp32 (#67/#86) and CosyVoice3 int4 (#49). Evidence:
 `docs/prints/d6/feasibility.json`, conclusion: `docs/prints/d6/d6-conclusion.md`.
+
+## 57. E2E fixture repair: PlaybackE2e window, PregenE2e singleton-store fixture, worker false-success terminal (2026-09-10)
+
+Device pass 2026-09-08 surfaced two pre-existing instrumented-test defects (open-bugs
+row "PlaybackE2eTest/PregenE2eTest device failures"):
+
+1. **PlaybackE2eTest.playsThroughTheBookAndCompletes timeout.** The 2-passage fixture
+   (~18 s of audio) can never reach `PREFILL_LOOKAHEAD_SECONDS = 45`, so the cold open
+   burns the full `PLAY_BUFFER_TIMEOUT_MS` (60 s) before playback; 60 s burn + engine
+   open + ~18 s playback sat right on the 90 s test window. Fix: window 90 s → 180 s
+   (`PlaybackE2eTest`). The production constants are untouched — the wait is correct
+   for real books; the fixture is just small.
+2. **PregenE2eTest WAL/instance race.** The test wrote its fixture through a SECOND
+   Room instance on the production DB file while `PregenWorker` reads the app's Hilt
+   singleton `RoomLibraryStore`; the worker could see no book and settle SUCCESS with
+   an empty cache. Fix: the fixture is written through the app singleton store itself
+   (`(applicationContext as LocalTtsReaderApp).libraryStore`) — same-instance
+   write/read removes the race by construction. Teardown now also deletes the fixture
+   row so the device library stays clean.
+
+Found while tracing (2): `PregenWorker.doWork()` settled a run for
+requested-but-absent books as SUCCESS ("offline audio ready", zero work) — the CR-1
+false-success class. A manual run only sends library IDs, so an empty filtered set
+means the book was deleted while queued; the worker now fails with a typed
+KEY_ERROR. A whole-library run over an empty library still succeeds (no work by
+definition). Host regression test:
+`PregenWorkerTest.requested books absent from the library fail instead of a false
+success`.
+
+Also fixed en route: `VoiceAuditionCoordinatorTest.FakeRuntime` still built
+`KokoroRuntime(context)` after a3a41ad added the `settings` parameter — the app host
+unit suite did not compile on main.
+
+Verification: `./gradlew ktlintCheck` green (baseline re-keyed for the touched
+files — line-number shifts, no new rule classes; G0 corpus files from fe97818
+formatted to the gate); full host `./gradlew test` green. Device instrumented
+re-run pending (S22 not attached at fix time).
