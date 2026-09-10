@@ -163,7 +163,7 @@ overturns it.
 |---|---|---|
 | ORT-android 1.29.0 | shipped Kokoro-82M fp32 | Known-good baseline |
 | ORT-android 1.29.0 | CosyVoice3-0.5B int4 (#49) | ORT reference on a quantized DiT |
-| llama.cpp / GGUF | `cstr/cosyvoice3-0.5b-2512-GGUF` | Only tracked dual-export model — isolates runtime |
+| ~~llama.cpp / GGUF~~ | ~~`cstr/cosyvoice3-0.5b-2512-GGUF`~~ | Dropped — decision #56: no audited llama.cpp path runs CosyVoice3-class flow TTS (no CFM/DiT/vocoder ops, no multi-GGUF loading); the GGUFs target the unaudited CrispASR whisper.cpp fork, also dropped |
 | TFLite / ExecuTorch | gated | No tracked TTS export ships one; recorded untestable |
 
 Required evidence per leg: cold engine-open time-to-first-audio, steady-state RTF,
@@ -171,12 +171,14 @@ peak/resident PSS + VmHWM, and the #67 PCM oracle (`max_abs_diff`) against the f
 Kokoro baseline — S22 and HiBreak, same corpus/voice as D2/D3.
 
 Method caveat: GGUF vs ORT-int4 confounds runtime with quantization, so each number
-states which axis it actually isolates. Acceptance: a comparison table in decisions.md
-(all legs, both devices) plus a typed keep/drop per non-ORT runtime, and an explicit
-statement of whether #97's one-convention rule is now evidence-backed or still rests on
-ecosystem/licensing grounds alone.
-
-### Phase G — narration and reader controls
+states which axis it actually isolates. The llama.cpp leg is closed by the host-side
+feasibility probe (decisions #56, 2026-09-09): the #97 one-convention rule is now
+evidence-backed — no audited on-device runtime other than ORT runs this class — with
+the typed keep/drop recorded there. Remaining acceptance: the ORT legs comparison
+(Kokoro fp32 baseline vs CosyVoice3 int4 reference — cold engine-open
+time-to-first-audio, steady-state RTF, peak/resident PSS + VmHWM, #67 PCM oracle,
+S22 and HiBreak, same corpus/voice as D2/D3). The Android leg (plan Step 3) is not
+built; the Step-2 fallback applies per #56.
 
 #### G0 — Narration-quality listening corpus — bounds G1
 
