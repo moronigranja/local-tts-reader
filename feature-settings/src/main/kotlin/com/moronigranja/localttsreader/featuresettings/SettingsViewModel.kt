@@ -87,6 +87,11 @@ class SettingsViewModel
         private val settings: AppSettings,
         private val voiceCatalog: VoiceCatalog,
         @Named("app_files_dir") private val filesDir: File,
+        // About seams (release 0.1.1): the composition root supplies the build
+        // identity and the browser dispatch — this module has neither. The
+        // defaults keep the pure-JVM harness constructing this VM directly.
+        private val appInfo: AppInfo = AppInfo(versionName = ""),
+        private val linkOpener: LinkOpener = LinkOpener { },
         // Default null: pure-JVM tests skip the offline-audio section (Hilt supplies it).
         private val repository: LibraryStore? = null,
         private val storage: OfflineStorage? = null,
@@ -129,6 +134,14 @@ class SettingsViewModel
 
         val state: StateFlow<SettingsUiState> = core
 
+        /** About footer (release 0.1.1): the app's `versionName`, injected from
+         * the composition root — this module has no `BuildConfig`. */
+        val appVersion: String = appInfo.versionName
+
+        /** About links (source, third-party notices): the composition root's
+         * browser dispatch; a device with no handler silently does nothing. */
+        fun openLink(url: String) = linkOpener.open(url)
+
         /** One settings row: how much pre-generated audio a book holds (decisions #44). */
         data class OfflineAudioRow(
             val bookId: String,
@@ -166,7 +179,10 @@ class SettingsViewModel
             if (cache.isVerified(pack)) stageEspeak(pack.id)
         }
 
-        /** Re-reads the disk tier (IO) — called at open and after every delete. */
+        /** Re-reads the disk tier (IO) — called at open, on every screen resume
+         * (open-bugs "Offline-audio usage row is stale on return to a live
+         * Settings screen", decisions #144) and after every delete. Idempotent:
+         * one background read, never a poll. */
         fun refreshOfflineUsage() {
             val storage = storage ?: return
             viewModelScope.launch {

@@ -2888,13 +2888,13 @@
         <error line="38" column="5" source="standard:function-naming" />
     </file>
     <file name="feature-settings/src/main/kotlin/com/moronigranja/localttsreader/featuresettings/SettingsScreen.kt">
-        <error line="62" column="5" source="standard:function-naming" />
-        <error line="341" column="13" source="standard:function-naming" />
-        <error line="376" column="13" source="standard:function-naming" />
-        <error line="423" column="13" source="standard:function-naming" />
+        <error line="65" column="5" source="standard:function-naming" />
+        <error line="359" column="13" source="standard:function-naming" />
+        <error line="394" column="13" source="standard:function-naming" />
+        <error line="441" column="13" source="standard:function-naming" />
 </file>
     <file name="feature-settings/src/main/kotlin/com/moronigranja/localttsreader/featuresettings/SettingsViewModel.kt">
-        <error line="330" column="23" source="standard:property-naming" />
+        <error line="346" column="23" source="standard:property-naming" />
     </file>
     <file name="feature-settings/src/test/kotlin/com/moronigranja/localttsreader/featuresettings/SettingsViewModelTest.kt">
         <error line="3" column="1" source="standard:import-ordering" />

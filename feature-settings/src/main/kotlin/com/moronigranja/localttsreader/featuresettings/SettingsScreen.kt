@@ -35,6 +35,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LifecycleEventEffect
 import com.moronigranja.localttsreader.persistence.SettingsStore
 import com.moronigranja.localttsreader.persistence.ThemeMode
 import com.moronigranja.localttsreader.player.formatBytes
@@ -52,7 +54,8 @@ import kotlin.math.roundToInt
  * Settings, grouped by concern (Phase K item 1): Speech (engine, packs,
  * generation threads, voice, playback volume), Reading & sharing (match
  * threshold, OCR languages), Storage & data (offline audio, backup &
- * restore), Appearance (theme). Every row maps directly to a
+ * restore), Appearance (theme), About (build identity, license, third-party
+ * notices, privacy). Every row maps directly to a
  * [SettingsViewModel] call — no logic in the view.
  */
 private enum class SettingsPane { Root, OcrLanguages }
@@ -65,6 +68,12 @@ fun SettingsScreen(
 ) {
     val state by viewModel.state.collectAsState()
     val offlineRows by viewModel.offlineRows.collectAsState()
+    // Open-bugs "Offline-audio usage row is stale on return to a live Settings
+    // screen" (decisions #144): the tier was read only in init and after a
+    // delete, so a live instance kept showing an empty row after a book was
+    // pre-generated behind it. Re-read on every resume — idempotent, one IO
+    // read on the ViewModel's background dispatcher, never a poll.
+    LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { viewModel.refreshOfflineUsage() }
     var pane by remember { mutableStateOf(SettingsPane.Root) }
     // System back mirrors the top-bar arrow: OCR subpane collapses first,
     // then the settings screen closes back to the library (not app exit).
@@ -310,6 +319,15 @@ fun SettingsScreen(
                 }
 
                 item { BackupSection() }
+
+                // Release 0.1.1: build identity + license/notices + the
+                // on-device claim, last in the list.
+                item {
+                    aboutSection(
+                        versionName = viewModel.appVersion,
+                        onOpenLink = viewModel::openLink,
+                    )
+                }
             }
         } else {
             LazyColumn(

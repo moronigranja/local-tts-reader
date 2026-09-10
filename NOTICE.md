@@ -18,15 +18,27 @@ components (revisited at each release — decisions #126):
 
 ## Downloaded at runtime (packs; never embedded in the APK)
 
-Packs are fetched from this project's GitHub releases into the app's internal
-storage (decision #7: no model data is bundled):
+Nothing here is bundled — no model data ships in the APK (decision #7). The app
+downloads these packs at first run, into its internal storage, from **three different
+hosts**; only the espeak-ng bundle is served from this project's own releases:
 
-- **Kokoro-82M TTS** model + voices — Apache-2.0 —
-  <https://github.com/hexgrad/kokoro>
-- **espeak-ng** phonemizer bundle (`libespeak-ng.so` + `espeak-ng-data`) —
-  GPL-3.0-or-later with the espeak-ng toolchain exception —
+- **Kokoro-82M TTS** model `kokoro-v1.0.onnx` (325,505,369 B) and voices
+  `voices-v1.0.bin` (28,214,398 B) — Apache-2.0 (upstream model by hexgrad) —
+  served from the `thewh1teagle/kokoro-onnx` release `model-files-v1.1`:
+  <https://github.com/thewh1teagle/kokoro-onnx/releases/tag/model-files-v1.1>
+  (upstream project: <https://github.com/hexgrad/kokoro>)
+- **espeak-ng** phonemizer bundle (`libespeak-ng.so` + `espeak-ng-data`, 1.52.0,
+  9,857,162 B) — GPL-3.0-or-later with the espeak-ng toolchain exception —
+  served from this project's `espeak-ng-1.52.0` release:
   <https://github.com/espeak-ng/espeak-ng>
-- **Tesseract OCR** data (tessdata) — Apache-2.0 —
+- **Tesseract OCR** data (tessdata, one file per OCR language) — Apache-2.0 — served
+  from the upstream `tesseract-ocr/tessdata` repository (tag `3.04.00`, legacy
+  non-LSTM models; see the README's OCR limitation):
   <https://github.com/tesseract-ocr/tessdata>
+
+Every pack is SHA-256-verified against a value pinned in the source before it is used.
+Because two of the three hosts are third-party repositories, a deleted or re-tagged
+upstream release would break first-run downloads — the pinned hashes turn that into a
+typed download failure, never a silent bad install.
 
 Full license texts accompany their upstream distributions.

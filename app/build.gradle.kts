@@ -63,10 +63,18 @@ android {
             signingConfig = signingConfigs.getByName("debug")
         }
         getByName("release") {
-            // Unminified for 0.1.0 (decisions #123): R8 needs shrink rules +
+            // Unminified for 0.1.x (decisions #123): R8 needs shrink rules +
             // a device pass (Hilt/JNA/ONNX reflection); the first release
             // trades size for a crash-proof runtime.
             isMinifyEnabled = false
+            // arm64-v8a only (release 0.1.1): the espeak-ng phonemizer bundle is
+            // an arm64-only libespeak-ng.so (decisions #32, verified: ELF aarch64),
+            // so the other ABIs' native libs are ~114 MB of dead weight AND would
+            // install an app that cannot synthesize speech. Debug stays unfiltered
+            // so an x86_64 emulator can still run the UI.
+            ndk {
+                abiFilters += "arm64-v8a"
+            }
             if (keystorePropertiesFile.exists()) {
                 signingConfig = signingConfigs.getByName("release")
             }
@@ -86,6 +94,10 @@ android {
 
     buildFeatures {
         compose = true
+        // Release 0.1.1 About group: BuildConfig.VERSION_NAME is the app's
+        // version fact, bound into feature-settings through the AppInfo seam
+        // (di/AboutModule); no other module reads BuildConfig.
+        buildConfig = true
     }
 }
 

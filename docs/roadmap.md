@@ -332,6 +332,11 @@ unknown sections; pack archives; temporary-file cleanup; and disk-full behavior 
 import, restore and pre-generation. Existing XXE hardening is a baseline, not the whole
 resource-exhaustion contract.
 
+Partially closed 2026-09-10 (decisions #146): container/entry/per-entry/cumulative-expanded
+ceilings on the EPUB/KF8 path plus OOM containment at the per-file parse boundary. Still
+open: proactive MOBI `HuffCdic`/`PalmDoc` expansion ceilings, backup-archive limits, pack
+archive limits and disk-full behavior.
+
 ### Release readiness
 
 Distribution decision made (decisions #126, 2026-09-05): **GitHub Releases signed APK,
@@ -340,14 +345,22 @@ ships: release keystore outside the repo, gitignored `keystore.properties`, unmi
 `release` buildType, `tools/release.sh` (build + apksigner verify + draft/publish
 release), `NOTICE.md` attribution.
 
-**v0.1.1 is not published.** Everything except the publish step is done: the signed build
-passed its on-device sanity pass (install, launch, pack download + checksum verify,
-VIEW-intent import, library/reader render, playback — decisions #128 follow-up covers the
-manifest-component fix it caught), `docs/release-notes-0.1.1.md` is written (still headed
-"draft"), and no `v0.1.1` tag exists on the remote. Publishing is the one action that
-makes the "shipped" framing true; nothing else in the queue depends on it, and the
-roadmap therefore records release-ready/unpublished rather than shipped. The next release
-after that increments `versionCode` (2 → 3, v0.1.2).
+**v0.1.1 is not published.** The artifact is now prepared at HEAD (decisions #146): the
+signed release build is **arm64-v8a only** (the espeak-ng phonemizer is an arm64 native
+library, so the other ABIs' libs were ~114 MB of dead weight and would have installed a
+non-functional app) — 165.2 MB → 50.8 MB payload, the notes carry the SHA-256 and the
+signing-certificate fingerprint, and the import path now has resource ceilings + OOM
+containment (a zip bomb fails one file instead of killing the process).
+
+Remaining before publishing, in order:
+
+1. **Device smoke on the signed 0.1.1 APK** — the previously verified signed build
+   predates 21 commits; no device was attached during the prep session, so this is owed.
+2. **Publish:** `tools/release.sh --upload --publish --notes docs/release-notes-0.1.1.md`
+   (the script defaults to **draft** — `--publish` is required). Publishing creates tag
+   `v0.1.1`, which fires the CI `assemble-on-tag` gate.
+
+The next release after that increments `versionCode` (2 → 3, v0.1.2).
 
 Deferred until a store listing is actually wanted: AAB + Play Data Safety, store privacy
 policy, listing/screenshots, supported-devices declaration. Native crash symbols and

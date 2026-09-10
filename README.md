@@ -35,7 +35,7 @@ playback (with read-along sentence highlighting) → share-and-resume, plus sett
 | `core-persistence` | Room schema v2 (books, cached passages, progress + offset/speed, settings, bookmarks, position_history); stores + launch-time rebuild; `BackupStore` snapshot/merge + book-file sidecars (E1) |
 | `feature-library` | SAF multi-file + folder import (F3 tree grant), external-file intake (F4: ACTION_VIEW / shared book files land on MainActivity), one import overlay with progress + stage (reading/parsing/saving/indexing) + typed failures, idempotent; library list UI |
 | `core-backup` | Versioned v1 SAF backup archive: codec + DTOs (pure JVM) — consumed by persistence + settings (E1) |
-| `feature-settings` | Settings screen: engine/voice/OCR pack downloads, voice picker + favorites (collapsible by language, display names + upstream grades, decisions #143), match threshold, OCR languages, theme, offline pre-generation audio, playback volume, synthesis thread count, backup & restore (SAF export/import); Android HTTP transport |
+| `feature-settings` | Settings screen: engine/voice/OCR pack downloads, voice picker + favorites (collapsible by language, display names + upstream grades, decisions #143), match threshold, OCR languages, theme, offline pre-generation audio, playback volume, synthesis thread count, backup & restore (SAF export/import), About (version, GPL-3.0 source link, NOTICE, privacy); Android HTTP transport |
 | `feature-share` | ACTION_SEND gateway (text + image, plus F4 book-file routing to the import gateway), typed resolver (found / not-found with closest hint), OpenTarget contract |
 | `feature-ocr` | TessTwoOcrEngine (tess-two 9.1.0) + tessdata stager, Hilt wiring |
 | `app` | Hilt composition root: Library / Reader / Settings routes, S3 open-target intent handling |
@@ -46,8 +46,35 @@ PlaybackE2e (full-book completion + pre-generation fast path), VoiceSelectionE2e
 PlayPositionE2e, SharePipeline (text + image OCR), OCR smoke, RealEpubImportProbe
 (a real 24.8 MiB Gutenberg epub), PtVoiceE2e — all passing.
 
+## Install
+
+Ayvu ships as a signed APK on this repository's [Releases](../../releases) page.
+
+1. Download the release APK (signed release build, unminified, **≈51 MB** — ONNX Runtime
+   and JNA are inside). Requires **a 64-bit ARM device (arm64-v8a) on Android 8.0+
+   (API 26)**: the build is arm64-only because the espeak-ng phonemizer it ships is an
+   arm64 native library, so 32-bit and x86 installs are not supported.
+2. Install it, allowing "install unknown apps" for your browser or file manager.
+3. First run downloads the free packs — Kokoro model + voices, the espeak-ng phonemizer
+   bundle and (optionally) OCR languages — explicitly, resumably and SHA-256-verified.
+   After the TTS packs land the app is fully offline.
+
+**Updating:** the signing key is stable across releases, so a newer APK installs straight
+over this one — no uninstall, and your library, progress, bookmarks and settings are kept.
+There is no in-app update check; watch the Releases page. Pre-release builds under the old
+id `com.moronigranja.localttsreader` are a **different app** from
+`io.github.moronigranja.ayvu` — export a backup there and restore it here. Installing over
+a DEBUG build of the same id needs an uninstall first (different signing key).
+
+**Verifying a download:** compare the APK against the SHA-256 and the signing-certificate
+fingerprint published with the release, and see
+[`NOTICE.md`](NOTICE.md) for the packs' upstream hosts and licenses.
+
 ## Limitations (current)
 
+- **Device support:** this release is **64-bit ARM (arm64-v8a) only** — the espeak-ng
+  phonemizer is an arm64 native library, so 32-bit and x86 devices are unsupported (the
+  APK does not install there). Android 8.0+ (API 26).
 - **Formats:** `.epub`, `.azw3`/`.kf8`, `.mobi`/`.azw`, `.txt`, `.md`/`.markdown`,
   **DRM-free files only**. `.kfx` (closed container) is detected and rejected with
   guidance. DRM removal is never performed in-app; encrypted files are refused up

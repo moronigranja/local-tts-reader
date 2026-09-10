@@ -368,7 +368,7 @@ Back the release keystore + `keystore.properties` up off-machine immediately
 (oneDrive/Backup/ayvu holds the current pair): losing the keystore permanently
 locks updates on every device that installed a build signed with it.
 
-The `release` buildType is unminified for 0.1.0 (R8 needs shrink rules + a
+The `release` buildType is unminified through 0.1.x (R8 needs shrink rules + a
 device pass for Hilt/JNA/ONNX; decisions #126). Upgrading over an installed
 DEBUG build requires uninstall first — the release key differs from the pinned
 debug key by design.

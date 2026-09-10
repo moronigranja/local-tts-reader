@@ -4,6 +4,94 @@ The rationale behind load-bearing decisions. New decisions get an entry here wit
 context, alternatives considered, and consequences. Keep entries short — this is a log,
 not a spec (specs live in architecture.md / feature docs).
 
+## 146. First-release prep: import ceilings + OOM containment, Settings About group, accurate pack hosts, arm64-only APK (2026-09-10)
+
+Owner asked what to complete before publishing the first release (decisions #145 recorded
+that 0.1.1 is release-ready but unpublished). Four blockers were named and closed.
+
+**1. Import had no resource ceilings and OOM killed the process.** `EpubParser`,
+`MobiParser`, `TextParser` and both `BookImporter` reads pulled the whole container into
+the heap (`readBytes()`), and `ZipEntries` inflated every entry with no cap; per-file
+isolation caught `Exception` only, so a zip bomb's `OutOfMemoryError` escaped and took the
+app down. Now:
+
+- `ImportLimits` (new, `internal`) is the single home for the numbers — container ≤ 256 MB,
+  entries ≤ 4096, per entry ≤ 64 MB, cumulative expanded ≤ 512 MB — sized at ~2.5× the
+  fattest real ebook (repo fixtures top out at ~3 KB) so no legitimate book is refused, and
+  injectable so tests exercise the ceilings without a quarter-gigabyte fixture.
+- `EBookSource.readCapped(limits)` is the ONE capped source read; all five former
+  `readBytes()` sites go through it. Breaching the container ceiling raises
+  `EBookLimitExceededException`, a subtype of the (now `open`) `EBookParseException`;
+  `ImportCoordinator` reports it as `ParseError` with the ceiling's own message
+  ("file is too large …") rather than the generic unreadable reason.
+- `ZipEntries` enforces entry count, per-entry bytes and cumulative expanded bytes
+  **during** inflation, before writing — never after a `readBytes()` — so the bomb is
+  never materialised. The extension is deliberately not an `IOException`, so
+  `readUntilBroken`'s lenient path (which tolerates trailing/broken junk in real KF8
+  files) does not swallow a ceiling breach: a bomb is not trailing junk.
+- `BookImporter.import()`'s parse block adds a narrow `catch (e: OutOfMemoryError)` after
+  the typed-parse branch: one file fails with `ParseError("not enough memory to read this
+  book")`, the process survives. `StackOverflowError` and other `Error`s still propagate
+  (pinned by a test).
+
+Evidence: `ImportLimitsTest` (7: container ceiling with exact-boundary case, entry count,
+per-entry, cumulative, trailing junk still parses, lenient path keeps parsed sections,
+lenient path still refuses a bomb), `BookImporterTest` +3 (4097-entry archive fails its
+own file end-to-end and the next file still imports; OOM → typed failure; non-OOM `Error`
+escapes), `ImportCoordinatorTest` +1 (read-stage ceiling → `ParseError`). Guard-removal
+check (agent-run, sources restored byte-identical): disabling the four cap guards fails 6
+tests; widening the lenient catch to `Exception` fails 4; removing the OOM clause kills
+the Gradle test worker — the exact process death the containment prevents.
+
+**Recorded residuals (not blockers):** MOBI `HuffCdic`/`PalmDoc` expansion is still not
+proactively capped (bounded input, unbounded inflate) — the OOM clause is the containment;
+the public `parse(bytes)` overloads bypass `readCapped` (app path always uses
+`EBookSource`); `BookSegmentation.segment`/`coverOf` sit outside the OOM-guarded block.
+
+**2. Settings had no About surface.** Added an `About` group last in the settings list:
+`Ayvu <version>` (rendered unconditionally), `Source code (GPL-3.0)` and `Third-party
+notices` link rows (48 dp targets, TalkBack click label), and the on-device privacy
+statement reused from the setup card. Two seams declared in `feature-settings` and bound
+by the composition root (the `ShareOpenHandler` pattern): `AppInfo { versionName }` from
+`BuildConfig.VERSION_NAME` (the app module now sets `buildConfig = true` — it was off)
+and `LinkOpener`, whose `ACTION_VIEW` adapter is a silent no-op when no browser
+resolves the intent, so the version footer still renders on a bare device.
+
+**3. A tracked defect closed:** the open-bugs "Offline-audio usage row is stale on return
+to a live Settings screen" row (decisions #144) — `SettingsViewModel` read
+`PregenStorage.usageByBook()` only in `init` and after a delete. The screen now refreshes
+on `Lifecycle.Event.ON_RESUME` (`LifecycleEventEffect`, already on the classpath via
+compose-ui's api dependency — no new dependency, no polling). Regression:
+`SettingsOfflineUsageTest` — a live ViewModel publishes the tier as it is *now* after the
+tier changes behind it.
+
+**4. The release APK shipped four ABIs of which three cannot work.** Measured on the
+built artifact: 165.2 MB compressed payload of which `lib/` was 151.7 MB across
+arm64-v8a/armeabi-v7a/x86/x86_64 (± mips stubs), while the phonemizer pack that the app
+must stage is a single `libespeak-ng.so` — downloaded from this project's own release and
+verified `ELF 64-bit LSB shared object, ARM aarch64` (decisions #32). So ~114 MB of the
+download was dead weight, and those ABIs would have installed an app that cannot synthesize
+speech. The release buildType now sets `ndk { abiFilters += "arm64-v8a" }` (debug stays
+unfiltered for x86_64 emulators): **165.2 MB → 50.8 MB payload, 53,389,398 B on disk**, a
+single `lib/arm64-v8a/`. The notes and README now state the arm64 requirement and the real
+size.
+
+**Also in this batch:** `NOTICE.md` no longer claims all packs come from this project's
+releases — it names the three hosts (kokoro-onnx release `model-files-v1.1` for the model
+and voices, `tesseract-ocr/tessdata` tag `3.04.00` for OCR data, this project's
+`espeak-ng-1.52.0` release for the bundle), their pinned sizes and hashes, and the
+third-party-availability consequence; `docs/release-notes-0.1.1.md` is finalized (no
+longer a draft) against HEAD with install/verify (SHA-256 + signing-certificate
+fingerprint), upgrade notes and known limitations; `README.md` gains an Install section
+plus the arm64 limitation; `docs/modules.md`/README module rows mention the About group.
+
+Verification: pure-JVM suites green (620 test cases across the modules' XML reports, 0
+failures/0 errors; `:core-ebook:test` re-run, 141 tests) and `ktlintCheck` green; signed
+release build via `tools/release.sh` with `apksigner verify` → DN `CN=Ayvu,
+O=moronigranja, C=BR`, cert SHA-256 `a5057984…02ae5`, APK SHA-256 `47ee826a…4311`. **No
+device was attached (`adb devices` empty)**, so the signed-build device smoke and the
+publish step remain owner actions (roadmap Release readiness).
+
 ## 145. Roadmap reconciliation — release state corrected, active work put in dependency order, D6 closed (2026-09-10)
 
 Owner asked whether the roadmap's order still made sense. The tiering was sound and the
