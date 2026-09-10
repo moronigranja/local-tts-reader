@@ -47,7 +47,8 @@ Logged 2026-08-25. Sources:
 | Saved speed presets | Audiobookify speed popover (print 3): "Hold a shortcut to save the current speed" | Speed changes already must preserve the play point (logged bug → T4 regression); presets are the same surface | T4 | No schema; global presets first, per-book override later |
 | Sleep timer incl. end-of-chapter | Audiobookify sleep-timer menu (print 4): 5m–1h, End of chapter, Off | Chapter boundaries already exist in the domain model — end-of-chapter stop is nearly free; the player needs a stop condition anyway | T4 | Session-local timer, no schema; end-of-chapter = stop at the next boundary |
 | Sync from Kindle (official export / Highlights-Reports API) | hard-facts "Legitimate sync sources" — Amazon returning the user's own data: the "Your Content and Documents"/"Download your data" export (reading position, last-read, highlights) and the read-only Highlights/Reports API (access-token, cursor pagination) | Manual resume (S3/T4) covers v1 without Amazon access; this automates position import from the user's own data, on-demand | Post-v1 slice (V-lane / new `core-sync`), not in roadmap | On-demand/scheduled only, never real-time; both paths are official read-only. The undocumented, rate-limited "Manage Your Contents and Documents" endpoint (DRM-free lending-eligible titles only) stays a possible future bridge, not a foundation (hard-facts) |
-| Per-fiction playback speed (auto-restore) | candela: speed dialed into one book restores on reopen | Progress is already per-book; a per-book settings key rides the same surface | T4 | Global preset + per-book override |
+| Per-fiction playback speed (auto-restore) | candela: speed dialed into one book restores on reopen | Progress is already per-book; a per-book settings key rides the same surface | T4 | **Deferred** (decisions #144): playback is pinned 1.0× with the live selector removed (decisions #71), so there is no global speed base to override — the override reopens with the speed revisit, not before. The retained model (`progress.speed`, `PregenKey` speed dimension + path layout, backup `progress.json`) makes that revisit migration-free |
+| Per-book voice override | owner (2026-09-10, Phase K item 4 review) | The reader's voice sheet writes the global default, so picking a voice for one foreign-language book re-voices the whole library; voice resolution is one choke point (`PlaybackService.activeVoice()`) plus the pregen input, and the PCM cache is already engine+voice+speed keyed so an override cannot collide | **Promoted — roadmap Phase K item 5** (decisions #144) | One `book.voice.<bookId>` key in the generic settings table: no Room migration, rides the backup archive, dropped with the book; the override applies only when the active engine exposes that voice id, else the global default plays and the selector row reads unavailable |
 | Voice library with favorites and tiers | candela Voice Library: engine-grouped, starred voices, quality tiers | V1 settings needs a voice picker anyway; stars/tiers are settings keys, no schema | V1 | Tiers map to pack sizes (Piper low/med/high ~14–28 MB) |
 | Auto language detection → voice routing | candela: mid-chapter language switch routes text to a matching voice | Multilingual books (en + fr/es dialogue) are common; detection opt-in | T5 / post-v1 | Needs detection + per-language voice mapping; post-v1 size |
 | Multi-engine parallel synthesis tuning | candela: 1–8 engine instances, per-engine thread pools, producer on an audio-priority thread | T5 pre-generation must fit the device's RTF; these are the levers | T5 (design reference — decisions #25) | Validate on S22 Ultra first; candela's Performance-modes wiki is the reference |
@@ -89,13 +90,13 @@ Logged 2026-08-25. Sources:
   restrictions / Doze could kill long-running foreground playback — the player must
   use a proper foreground service and handle being re-killed gracefully (T4).
 
-## Decision status (decisions #29 snapshot 2026-08-25; updated 2026-08-28)
+## Decision status (decisions #29 snapshot 2026-08-25; updated 2026-09-10)
 
 | Idea | Disposition |
 |---|---|
 | Docked player + sentence-sync read-along | **In v1 — the player UX** (T4 reshaped; uses T2 timings) |
 | TXT + Markdown import | **In v1 — C7** |
-| Read-along progress sync, Android Auto, Listen-from-here, speed preserves position, output-switch robustness, speed presets, sleep timer, per-book speed restore | Folded into T4/S3 acceptance criteria |
+| Read-along progress sync, Android Auto, Listen-from-here, speed preserves position, output-switch robustness, speed presets, sleep timer | Folded into T4/S3 acceptance criteria (speed presets and the per-book speed restore now sit inside the deferred speed revisit — decisions #71/#144) |
 | User bookmarks (explicit anchors) | Folded into T4 (v1) — migration v2 table + reader gesture |
 | Read log: per-book position ring + undo-skip | Folded into T4 (v1); full session log = post-v1 marker (feeds TODAY stats) |
 | Theme-follows-system; voice picker + favorites | Theme folded into V1; Settings voice picker/favorites shipped; guided first-run + primary-listening selector scheduled as roadmap C2 (decisions #59) |
@@ -113,6 +114,9 @@ Logged 2026-08-25. Sources:
 | Book start detection (skip cover/TOC/index) | **Added — roadmap I1** (decisions #69, shipped 2026-08-28): passage-level front/back-matter stripping in single-chapter books |
 | Smart chapter detection for monolithic single-chapter books | **Added — roadmap I2** (decisions #70, shipped 2026-08-28): fallback heading split when NCX/nav/ATX left a single chapter, never duplicated |
 | Auto-delete read passages, habit-driven pre-gen | Stays in the pool |
+| Per-book speed restore (`ideas.md` #50) | **Deferred** (decisions #144) to the speed revisit of decisions #71 — no live speed control exists to override; the per-book column/cache/backup model is retained |
+| Per-book voice override | **Promoted — roadmap Phase K item 5** (decisions #144): `book.voice.<bookId>` in the settings table, resolved as `override ?: global`, engine-availability fallback, no migration |
+
 ## Brand & identity
 
 Moved to [docs/brand.md](brand.md) — name (Ayvu), tagline, icon timeline and

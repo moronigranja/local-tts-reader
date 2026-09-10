@@ -163,7 +163,7 @@ overturns it.
 |---|---|---|
 | ORT-android 1.29.0 | shipped Kokoro-82M fp32 | Known-good baseline |
 | ORT-android 1.29.0 | CosyVoice3-0.5B int4 (#49) | ORT reference on a quantized DiT |
-| ~~llama.cpp / GGUF~~ | ~~`cstr/cosyvoice3-0.5b-2512-GGUF`~~ | Dropped — decision #56: no audited llama.cpp path runs CosyVoice3-class flow TTS (no CFM/DiT/vocoder ops, no multi-GGUF loading); the GGUFs target the unaudited CrispASR whisper.cpp fork, also dropped |
+| ~~llama.cpp / GGUF~~ | ~~`cstr/cosyvoice3-0.5b-2512-GGUF`~~ | Dropped — decision #140: no audited llama.cpp path runs CosyVoice3-class flow TTS (no CFM/DiT/vocoder ops, no multi-GGUF loading); the GGUFs target the unaudited CrispASR whisper.cpp fork, also dropped |
 | TFLite / ExecuTorch | gated | No tracked TTS export ships one; recorded untestable |
 
 Required evidence per leg: cold engine-open time-to-first-audio, steady-state RTF,
@@ -172,13 +172,13 @@ Kokoro baseline — S22 and HiBreak, same corpus/voice as D2/D3.
 
 Method caveat: GGUF vs ORT-int4 confounds runtime with quantization, so each number
 states which axis it actually isolates. The llama.cpp leg is closed by the host-side
-feasibility probe (decisions #56, 2026-09-09): the #97 one-convention rule is now
+feasibility probe (decisions #140, 2026-09-09): the #97 one-convention rule is now
 evidence-backed — no audited on-device runtime other than ORT runs this class — with
 the typed keep/drop recorded there. Remaining acceptance: the ORT legs comparison
 (Kokoro fp32 baseline vs CosyVoice3 int4 reference — cold engine-open
 time-to-first-audio, steady-state RTF, peak/resident PSS + VmHWM, #67 PCM oracle,
 S22 and HiBreak, same corpus/voice as D2/D3). The Android leg (plan Step 3) is not
-built; the Step-2 fallback applies per #56.
+built; the Step-2 fallback applies per #140.
 
 #### G0 — Narration-quality listening corpus — bounds G1
 
@@ -259,18 +259,30 @@ concrete improvements:
 3. **Arbitrary pre-generation budget.** The library pre-gen dialog ships fixed presets
    (30 m / 1 h / 2 h / 3 h / whole book); the backend already accepts any
    `PregenBudget.maxTimeMs` (A1) — parse an arbitrary listening-time input, UI-only.
-4. **Per-book overrides — explicit decision.** Record a keep/defer for per-book speed
-   (ideas #50) and per-book voice; no silent global-only assumption.
+4. **Per-book overrides — decided (decisions #144).** Per-book speed is **deferred**:
+   playback is pinned 1.0× (decisions #71), so there is no global speed base for an
+   override to override, and the retained column/cache/backup model keeps the revisit
+   migration-free. Per-book voice is **kept** — the reader's voice sheet currently
+   mutates the global default, re-voicing every other book — and is item 5.
+5. **Per-book voice override.** `effectiveVoice(bookId) = override(bookId) ?: global`,
+   resolved where the active book's voice is read (playback synthesis, coverage keys,
+   pre-generation input, per-book usage display). Storage is one `book.voice.<bookId>`
+   key in the generic settings table — no Room migration, and it rides the existing
+   backup archive and is dropped with the book. An override applies only when the active
+   engine exposes that voice id; otherwise the global default plays and the selector row
+   reads unavailable. Full contract: decisions #144.
 
 Acceptance: settings are grouped and navigable without losing any existing knob or its
 persistence; adding an engine adds its packs without a settings-screen change; an
-arbitrary pre-gen duration works alongside the presets; the per-book-override decision
-is recorded.
+arbitrary pre-gen duration works alongside the presets; the per-book-override decision is
+recorded (decisions #144); and a per-book voice changes only that book — it survives
+restart and backup/restore, feeds pre-generation, and falls back to the global default
+when the active engine lacks the voice.
 
-Status: items 1 and 3 landed (decisions #58) — sections Speech / Reading &
-sharing / Storage & data / Appearance, arbitrary listening-time entry in the
-pregen dialog. Item 4's keep/defer decision still owed; item 2 stays gated on a
-second engine.
+Status: items 1, 3 and 4 landed (decisions #142, #144) — sections Speech / Reading &
+sharing / Storage & data / Appearance, arbitrary listening-time entry in the pregen
+dialog, per-book speed deferred to the #71 revisit and per-book voice kept as item 5.
+Item 2 stays gated on a second engine.
 
 ## Later — strategic and dependency-gated work
 
@@ -280,7 +292,7 @@ second engine.
 | CosyVoice pre-generation + voice cloning | DiT-gated (decisions #21/#23) and D3-quality-flagged (duplicated honorific probes; RTF 12.5–31.1); disk-only playback. A1/A4 long satisfied. |
 | Kindle official export/API sync | External API/export contract and account UX; manual share/resume already covers the core use case. |
 | Word-level highlighting | Requires a stable word/phoneme timing contract beyond current sentence anchors. |
-| Auto language detection and voice routing | Needs per-language voice mappings, mixed-language policy and pack-availability UX. |
+| Auto language detection and voice routing | Needs per-language voice mappings, mixed-language policy and pack-availability UX. The manual single-book case is covered earlier by Phase K item 5 (per-book voice, decisions #144). |
 | Full read/listen session history | Build only with a concrete history/export/statistics consumer. |
 | Auto-delete listened audio | Eviction design first: must preserve the current playhead and every position reachable by undo — a design that does not yet exist (A4's LRU repair is not the eviction policy). |
 | Habit-driven pre-generation | Stats/session evidence first; prediction may rank work but never override storage, charging or playback-yield limits. |
