@@ -64,8 +64,9 @@ PlayPositionE2e, SharePipeline (text + image OCR), OCR smoke, RealEpubImportProb
   v1.0 voice pack serves en/en-GB, fr, es, it, pt-BR, ja, zh, hi. Model and language
   packs are on-demand downloads, never bundled (decisions #7). Portuguese is a
   first-class voice family (`pf_`/`pm_`, verified end-to-end, decisions #40); the
-  post-v1 pt-BR translation decorator (`core-translate`) is a separate deferred
-  slice.
+  post-v1 translate-then-read decorator (`core-translate` — any advertised target language,
+  decisions #101; SMaLL-100 int8 adopted as the engine, decisions #114) is a separate
+  deferred slice (roadmap "Later").
 - **OCR engine:** tess-two 9.1.0's native build is pre-LSTM, so the pinned language
   packs are legacy 3.04.00 tessdata (decisions #36) — accuracy upgrade waits on a
   maintained binding.

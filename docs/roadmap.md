@@ -289,6 +289,7 @@ Item 2 stays gated on a second engine.
 | Item | Gate / reason for position |
 |---|---|
 | Pitch-preserving speed | WSOLA/phase-vocoder DSP and cache-key compatibility; measure CPU/battery before replacing hardware rate conversion. |
+| Translate-then-read (`core-translate`) | Engine and scope already decided: SMaLL-100 int8, one 916 MB pack for all languages (decisions #114, Phase J verdict below), any advertised target language, output-side only, degrades to the original text on failure (decisions #101). Not blocked on any active phase — remaining work is the SMaLL-100 tokenizer port, on-device SentencePiece, and pack integration behind the pre-gen queue; the spike's export/parity/chr-F tooling and manifest pins are the reproduction path. The gate is appetite: the 916 MB download plus the accepted chr-F trade against the per-pair pt-BR specialist. |
 | CosyVoice pre-generation + voice cloning | DiT-gated (decisions #21/#23) and D3-quality-flagged (duplicated honorific probes; RTF 12.5–31.1); disk-only playback. A1/A4 long satisfied. |
 | Kindle official export/API sync | External API/export contract and account UX; manual share/resume already covers the core use case. |
 | Word-level highlighting | Requires a stable word/phoneme timing contract beyond current sentence anchors. |
