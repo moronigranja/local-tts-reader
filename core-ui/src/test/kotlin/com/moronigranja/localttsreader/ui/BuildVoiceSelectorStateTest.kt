@@ -29,9 +29,7 @@ class BuildVoiceSelectorStateTest {
                 ready = true,
                 audition = AuditionUiState(),
             )
-        assertEquals(listOf(voice), state.rows.filter { it.selected }.map { it.name })
-        assertEquals("Selected voice: $voice", state.summary)
-        assertNull(state.unavailableSavedVoice)
+        assertEquals("Selected voice: Heart ❤️ ($voice)", state.summary)
     }
 
     @Test
@@ -96,5 +94,25 @@ class BuildVoiceSelectorStateTest {
             )
         assertEquals(VoicePreviewUi.Generating, state.rows.first { it.name == voice }.preview)
         assertTrue(state.rows.first { it.name == other }.preview is VoicePreviewUi.Idle)
+    }
+
+    @Test
+    fun `presentation fields flow from the metadata table`() {
+        val state =
+            buildVoiceSelectorState(
+                voices = KokoroVoiceMetadata.all,
+                selectedVoice = voice,
+                favorites = emptySet(),
+                ready = true,
+                audition = AuditionUiState(),
+            )
+        val heart = state.rows.first { it.name == "af_heart" }
+        assertEquals("Heart ❤️", heart.displayName)
+        assertEquals("A", heart.grade)
+        // The es/pt families ship no upstream grade — no invented one.
+        assertTrue(state.rows.filter { it.language == "Spanish" }.all { it.grade == null })
+        val unemojied = state.rows.first { it.name == "am_adam" }
+        assertEquals("Adam", unemojied.displayName)
+        assertEquals("F+", unemojied.grade)
     }
 }

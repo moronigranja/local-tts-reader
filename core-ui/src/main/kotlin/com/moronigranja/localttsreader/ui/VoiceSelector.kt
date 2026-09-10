@@ -1,11 +1,15 @@
 package com.moronigranja.localttsreader.ui
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -14,10 +18,28 @@ import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+
+/** Language → flag glyph for the section headers (presentation only). */
+private val LANGUAGE_FLAGS: Map<String, String> =
+    mapOf(
+        "English (US)" to "🇺🇸",
+        "English (UK)" to "🇬🇧",
+        "Spanish" to "🇪🇸",
+        "French" to "🇫🇷",
+        "Hindi" to "🇮🇳",
+        "Italian" to "🇮🇹",
+        "Japanese" to "🇯🇵",
+        "Portuguese (Brazil)" to "🇧🇷",
+        "Chinese" to "🇨🇳",
+    )
 
 /**
  * C2 (roadmap): the ONE voice-selection surface, reused across first-run
@@ -43,6 +65,10 @@ data class VoiceRowUi(
     val name: String,
     val language: String,
     val gender: String,
+    /** Presentation label — "Heart ❤️"-style (KokoroVoiceMeta.displayName). */
+    val displayName: String = "",
+    /** Upstream data-grade ("A"…"F+"); null for the ungraded es/pt families. */
+    val grade: String? = null,
     val favorite: Boolean = false,
     /** Whether the voice's pack is ready; false → the row's [VoiceSelector]
      * [downloadLabel]/Download action replaces Preview. */
@@ -98,21 +124,76 @@ fun VoiceSelector(
                 onDownload = { onDownload(state.unavailableSavedVoice) },
             )
         }
+        // Language sections, collapsed by default except the ones holding the
+        // selected voice or a favorite — a 54-row flat list was a wall (the
+        // Phase K feedback). User toggles persist across recomposition only.
+        var expanded by rememberSaveable {
+            mutableStateOf(defaultExpanded(state))
+        }
         state.rows.groupBy { it.language }.forEach { (language, rows) ->
-            SectionHeader(language, Modifier.padding(top = AyvuSpacing.MD, bottom = AyvuSpacing.XS))
-            rows.forEach { row ->
-                VoiceSelectorRow(
-                    row = row,
-                    onSelect = onSelect,
-                    onToggleFavorite = onToggleFavorite,
-                    onPreview = onPreview,
-                    onStopPreview = onStopPreview,
-                    onDownload = onDownload,
+            val open = language in expanded
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier =
+                    Modifier
+                        .fillMaxWidth()
+                        .clickable {
+                            expanded =
+                                if (language in expanded) {
+                                    expanded - language
+                                } else {
+                                    expanded + language
+                                }
+                        }.padding(top = AyvuSpacing.MD, bottom = AyvuSpacing.XS),
+            ) {
+                Text(
+                    text =
+                        listOfNotNull(
+                            LANGUAGE_FLAGS[language],
+                            language,
+                            "(${rows.size})",
+                        ).joinToString(" "),
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.primary,
                 )
+                Spacer(Modifier.weight(1f))
+                Icon(
+                    imageVector =
+                        if (language in expanded) {
+                            Icons.Filled.KeyboardArrowUp
+                        } else {
+                            Icons.Filled.KeyboardArrowDown
+                        },
+                    contentDescription =
+                        if (language in expanded) "Collapse $language voices" else "Expand $language voices",
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            if (language in expanded) {
+                rows.forEach { row ->
+                    VoiceSelectorRow(
+                        row = row,
+                        onSelect = onSelect,
+                        onToggleFavorite = onToggleFavorite,
+                        onPreview = onPreview,
+                        onStopPreview = onStopPreview,
+                        onDownload = onDownload,
+                    )
+                }
             }
         }
     }
 }
+
+/** Sections to open on first composition: the selected voice's language and
+ * every favorited voice's language — a collapsed section must never hide the
+ * selection or a favorite from the first frame. */
+private fun defaultExpanded(state: VoiceSelectorUiState): List<String> =
+    state.rows
+        .filter { it.selected || it.favorite }
+        .map { it.language }
+        .distinct()
 
 @Composable
 private fun VoiceSelectorRow(
@@ -138,9 +219,16 @@ private fun VoiceSelectorRow(
             // tap, so the star stays an independent favorite action.
             RadioButton(selected = row.selected, onClick = null)
             Column(modifier = Modifier.weight(1f)) {
-                Text(row.name, style = MaterialTheme.typography.bodyMedium)
                 Text(
-                    "${row.language} · ${row.gender}",
+                    row.displayName.ifEmpty { row.name },
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+                Text(
+                    listOfNotNull(
+                        row.name,
+                        row.gender,
+                        row.grade?.let { "grade $it" },
+                    ).joinToString(" · "),
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -244,13 +332,26 @@ fun buildVoiceSelectorState(
                     name = meta.name,
                     language = meta.language,
                     gender = meta.gender,
+                    displayName = meta.displayName,
+                    grade = meta.grade,
                     favorite = meta.name in favorites,
                     ready = ready,
                     selected = meta.name == selectedVoice,
                     preview = previewStage(meta.name, audition),
                 )
             },
-        summary = if (unavailable == null) "Selected voice: $selectedVoice" else "",
+        summary =
+            if (unavailable == null) {
+                val shown =
+                    voices
+                        .firstOrNull { it.name == selectedVoice }
+                        ?.displayName
+                        .orEmpty()
+                        .ifEmpty { selectedVoice }
+                "Selected voice: $shown ($selectedVoice)"
+            } else {
+                ""
+            },
         unavailableSavedVoice = unavailable,
     )
 }

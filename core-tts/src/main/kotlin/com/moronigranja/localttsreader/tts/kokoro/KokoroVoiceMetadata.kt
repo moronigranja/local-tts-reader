@@ -3,7 +3,7 @@ package com.moronigranja.localttsreader.tts.kokoro
 /**
  * Static voice metadata for the kokoro v1.0 voices pack (C1.3): the 54 names
  * are presentation data — the roster lives only inside the downloaded
- * `voices-v1.0.bin` (`KokoroVoiceBank`), so "choose a voice before download"
+ * `voices-v1.0.bin` ([KokoroVoiceBank]), so "choose a voice before download"
  * needs a static table. The roster below was read from the pinned pack
  * artifact itself (the pack is the contract; metadata is presentation):
  * `unzip -l voices-v1.0.bin` yields exactly these 54 `.npy` members, and this
@@ -19,6 +19,12 @@ data class KokoroVoiceMeta(
     val name: String,
     val language: String,
     val gender: String,
+    /** Presentation label — capitalized voice name plus the upstream trait
+     * emoji where one exists ("Heart ❤️", "Bella 🔥", "Nicole 🎧"). */
+    val displayName: String = "",
+    /** Upstream overall data-grade (hexgrad/Kokoro-82M VOICES.md) — A…F+.
+     * Null for the ungraded es/pt families (thin training data, no grade). */
+    val grade: String? = null,
 )
 
 object KokoroVoiceMetadata {
@@ -44,6 +50,72 @@ object KokoroVoiceMetadata {
             "pm" to ("Portuguese (Brazil)" to "Male"),
             "zf" to ("Chinese" to "Female"),
             "zm" to ("Chinese" to "Male"),
+        )
+
+    /** Per-voice presentation extras, pinned from hexgrad/Kokoro-82M's
+     * VOICES.md (HF, 2026-09): the personal trait emoji (the voice's
+     * nickname glyph — ❤️ Heart, 🔥 Bella, 🎧 Nicole) and the overall
+     * data-grade the upstream table assigns (A…F+; the es/pt families ship
+     * no grade). Pure presentation — the pack roster remains the contract,
+     * cross-checked by tests. Declared before [all]: `all`'s init calls
+     * [meta], which reads this map. */
+    private val EXTRAS: Map<String, Pair<String, String?>> =
+        mapOf(
+            "af_heart" to ("❤️" to "A"),
+            "af_bella" to ("🔥" to "A-"),
+            "af_nicole" to ("🎧" to "B-"),
+            "af_alloy" to ("" to "C"),
+            "af_aoede" to ("" to "C+"),
+            "af_jessica" to ("" to "D"),
+            "af_kore" to ("" to "C+"),
+            "af_nova" to ("" to "C"),
+            "af_river" to ("" to "D"),
+            "af_sarah" to ("" to "C+"),
+            "af_sky" to ("" to "C-"),
+            "am_adam" to ("" to "F+"),
+            "am_echo" to ("" to "D"),
+            "am_eric" to ("" to "D"),
+            "am_fenrir" to ("" to "C+"),
+            "am_liam" to ("" to "D"),
+            "am_michael" to ("" to "C+"),
+            "am_onyx" to ("" to "D"),
+            "am_puck" to ("" to "C+"),
+            "am_santa" to ("" to "D-"),
+            "bf_alice" to ("" to "D"),
+            "bf_emma" to ("" to "B-"),
+            "bf_isabella" to ("" to "C"),
+            "bf_lily" to ("" to "D"),
+            "bm_daniel" to ("" to "D"),
+            "bm_fable" to ("" to "C"),
+            "bm_george" to ("" to "C"),
+            "bm_lewis" to ("" to "D+"),
+            "ff_siwis" to ("" to "B-"),
+            "jf_alpha" to ("" to "C+"),
+            "jf_gongitsune" to ("" to "C"),
+            "jf_nezumi" to ("" to "C-"),
+            "jf_tebukuro" to ("" to "C"),
+            "jm_kumo" to ("" to "C-"),
+            "hf_alpha" to ("" to "C"),
+            "hf_beta" to ("" to "C"),
+            "hm_omega" to ("" to "C"),
+            "hm_psi" to ("" to "C"),
+            "if_sara" to ("" to "C"),
+            "im_nicola" to ("" to "C"),
+            "zf_xiaobei" to ("" to "D"),
+            "zf_xiaoni" to ("" to "D"),
+            "zf_xiaoxiao" to ("" to "D"),
+            "zf_xiaoyi" to ("" to "D"),
+            "zm_yunjian" to ("" to "D"),
+            "zm_yunxi" to ("" to "D"),
+            "zm_yunxia" to ("" to "D"),
+            "zm_yunyang" to ("" to "D"),
+            // The es/pt families: upstream ships no data-grade for them.
+            "ef_dora" to ("" to null),
+            "em_alex" to ("" to null),
+            "em_santa" to ("" to null),
+            "pf_dora" to ("" to null),
+            "pm_alex" to ("" to null),
+            "pm_santa" to ("" to null),
         )
 
     /** All 54 v1.0 voices, language-grouped (declaration order). */
@@ -136,6 +208,11 @@ object KokoroVoiceMetadata {
         val (language, gender) =
             FAMILY_TO_LANGUAGE[family]
                 ?: error("voice $name has no known prefix family")
-        return KokoroVoiceMeta(name, language, gender)
+        val (emoji, grade) =
+            EXTRAS[name]
+                ?: error("voice $name has no presentation extras pinned")
+        val pretty = name.substringAfter('_').replaceFirstChar { it.uppercase() }
+        val displayName = if (emoji.isEmpty()) pretty else "$pretty $emoji"
+        return KokoroVoiceMeta(name, language, gender, displayName, grade)
     }
 }

@@ -2361,10 +2361,10 @@
         <error line="130" column="1" source="standard:final-newline" />
     </file>
     <file name="core-ui/src/main/kotlin/com/moronigranja/localttsreader/ui/VoiceSelector.kt">
-        <error line="77" column="5" source="standard:function-naming" />
-        <error line="118" column="13" source="standard:function-naming" />
-        <error line="203" column="13" source="standard:function-naming" />
-    </file>
+        <error line="103" column="5" source="standard:function-naming" />
+        <error line="199" column="13" source="standard:function-naming" />
+        <error line="291" column="13" source="standard:function-naming" />
+</file>
     <file name="core-ui/src/test/kotlin/com/moronigranja/localttsreader/ui/AyvuThemeTest.kt">
         <error line="16" column="1" source="standard:no-empty-first-line-in-class-body" />
         <error line="85" column="1" source="standard:final-newline" />

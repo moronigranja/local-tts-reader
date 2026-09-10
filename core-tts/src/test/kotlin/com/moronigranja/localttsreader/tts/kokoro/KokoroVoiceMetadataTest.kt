@@ -55,6 +55,20 @@ class KokoroVoiceMetadataTest {
         assertTrue(KokoroVoiceMetadata.missingFrom(pack.voiceNames).isEmpty())
     }
 
+    @Test
+    fun `every voice carries a display name and only the ungraded families lack a grade`() {
+        val all = KokoroVoiceMetadata.all
+        assertTrue(all.all { it.displayName.isNotBlank() && it.displayName.startsWith(it.name.substringAfter('_'), ignoreCase = true) })
+        val graded = all.filter { it.grade != null }.map { it.name }
+        val ungraded = all.filter { it.grade == null }.map { it.name }
+        // The es/pt families have no upstream data-grade; everything else does.
+        assertEquals(
+            all.filter { it.language == "Spanish" || it.language == "Portuguese (Brazil)" }.map { it.name }.toSet(),
+            ungraded.toSet(),
+        )
+        assertTrue(graded.isNotEmpty())
+    }
+
     private fun fixturePack(names: List<String>): KokoroVoiceBank {
         val file = File(root, "fixture-voices.bin")
         ZipOutputStream(FileOutputStream(file)).use { zip ->
