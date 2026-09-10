@@ -36,17 +36,18 @@ class G0CorpusRunner(
         const val TAG = "G0Corpus"
 
         /** espeak code → first female voice of the family (KokoroVoiceMetadata). */
-        private val VOICES = mapOf(
-            "en-us" to "af_heart",
-            "en-gb" to "bf_alice",
-            "es" to "ef_dora",
-            "fr-fr" to "ff_siwis",
-            "it" to "if_sara",
-            "pt-br" to "pf_dora",
-            "ja" to "jf_alpha",
-            "cmn" to "zf_xiaobei",
-            "hi" to "hf_alpha",
-        )
+        private val VOICES =
+            mapOf(
+                "en-us" to "af_heart",
+                "en-gb" to "bf_alice",
+                "es" to "ef_dora",
+                "fr-fr" to "ff_siwis",
+                "it" to "if_sara",
+                "pt-br" to "pf_dora",
+                "ja" to "jf_alpha",
+                "cmn" to "zf_xiaobei",
+                "hi" to "hf_alpha",
+            )
     }
 
     private val models = File(context.filesDir, "models")
@@ -103,12 +104,13 @@ class G0CorpusRunner(
                 val voice =
                     VOICES[entry.lang]
                         ?: error("no voice mapped for corpus language '${entry.lang}'")
-                val row = JSONObject()
-                    .put("id", entry.id)
-                    .put("lang", entry.lang)
-                    .put("category", entry.category)
-                    .put("text", entry.text)
-                    .put("phonemes", entry.phonemes)
+                val row =
+                    JSONObject()
+                        .put("id", entry.id)
+                        .put("lang", entry.lang)
+                        .put("category", entry.category)
+                        .put("text", entry.text)
+                        .put("phonemes", entry.phonemes)
                 try {
                     var outcome: SynthesisOutcome? = null
                     val millis =
@@ -121,7 +123,8 @@ class G0CorpusRunner(
                             val wavName = "g0_${entry.id}_${entry.lang}_${entry.category}.wav"
                             val floats = pcmToFloats(res.pcm)
                             Wav.write(File(outDir, wavName), floats, KokoroEngine.SAMPLE_RATE)
-                            row.put("wav", wavName)
+                            row
+                                .put("wav", wavName)
                                 .put("synth_ms", millis)
                                 .put("sample_rate", KokoroEngine.SAMPLE_RATE)
                                 .put("samples", res.pcm.size / 2)

@@ -25,10 +25,11 @@ fun main(args: Array<String>) {
     args.getOrNull(0)
         ?: File(System.getProperty("user.home"), ".cache/local-tts-reader/packs").absolutePath
 
-    val source = sequenceOf("tools/g0-corpus.tsv", "../tools/g0-corpus.tsv")
-        .map(::File)
-        .firstOrNull { it.isFile }
-        ?: error("g0-corpus source not found (looked for tools/g0-corpus.tsv and ../tools/g0-corpus.tsv)")
+    val source =
+        sequenceOf("tools/g0-corpus.tsv", "../tools/g0-corpus.tsv")
+            .map(::File)
+            .firstOrNull { it.isFile }
+            ?: error("g0-corpus source not found (looked for tools/g0-corpus.tsv and ../tools/g0-corpus.tsv)")
     // NormalizingPhonemizer is not AutoCloseable; keep the espeak delegate
     // to release the native library in finally.
     val espeak = EspeakPhonemizer.load()
