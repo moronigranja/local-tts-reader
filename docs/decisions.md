@@ -4874,3 +4874,32 @@ Storage & data and was deleted through it (tier empty again). Device note: the
 offline-usage row only refreshes when the settings screen (re)creates its
 ViewModel — an in-place return to a live instance can show a stale empty state;
 pre-existing behavior, not a Phase K regression, recorded for the item-4 review.
+
+## 59. Voice selector: collapsible language sections + display names and upstream grades (2026-09-10)
+
+Owner request ("shorten the length of the kokoro voices… collapsible sections by
+language… name/language/country in a more visually nice way… extra data about the
+voices"). The C2 single-surface contract holds — one [VoiceSelector] serves Setup,
+Settings and the reader voice sheet, so all three surfaces get the redesign:
+
+- **Sections collapse by language.** Headers carry the language flag + voice count +
+  chevron; collapsed by default EXCEPT the selected voice's language and the
+  languages of favorites (a collapsed section must never hide the selection or a
+  favorite from the first frame). Expansion state is per-composition
+  (rememberSaveable); 54 rows went from ~9 screens to ~2.
+- **Rows.** Primary label is the voice's display name with the upstream personal
+  trait emoji ("Heart ❤️", "Bella 🔥", "Nicole 🎧"; others just "Alloy"-style);
+  secondary line carries the id, gender and the upstream data-grade. The language
+  moved to the section header (it was redundant per row); radio/star/preview
+  mechanics are byte-identical to the C2 contract.
+- **Extra data** (the "studio-like" fields): hexgrad/Kokoro-82M's VOICES.md assigns
+  each voice an overall training-data grade (A…F+ — af_heart A, af_bella A-,
+  am_adam F+; the es/pt families ship none and render without one). Pinned into
+  `KokoroVoiceMetadata.EXTRAS` as presentation only — the pack roster remains the
+  contract, cross-checked by `KokoroVoiceMetadataTest` (54 names, every name has
+  extras, only es/pt ungraded) and `BuildVoiceSelectorStateTest` (display name +
+  grade flow through the one builder).
+
+Verification: full host suite green; ktlint gate green (KokoroVoiceMetadata came
+out clean and left the baseline). Device (S22): collapsed/expanded states, section
+toggle, emoji rendering and per-row grades all visually confirmed.
