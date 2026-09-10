@@ -45,7 +45,7 @@ ebooks and listen to them narrated on-device. No account, no telemetry, no cloud
 The APK attached to this release:
 
 ```
-sha256  47ee826a424345c78194b695207a0c66832ae97366654b4c495bc03d34a34311
+sha256  4b017db45160d2ad8d0ee8e4c09653b88688293d938b631d27e2e83acb601e37
 ```
 
 Check it with `sha256sum app-release.apk` (compare the value above), and confirm the

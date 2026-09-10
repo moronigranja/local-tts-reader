@@ -47,10 +47,3 @@ class PregenStorage @Inject constructor(
         pregenCache.cache.deleteBook(bookId)
     }
 }
-
-/** UI display for the #44 surfaces. */
-fun formatBytes(bytes: Long): String = when {
-    bytes >= 1_048_576 -> "%.1f MB".format(bytes / 1_048_576.0)
-    bytes >= 1_024 -> "%.0f KB".format(bytes / 1_024.0)
-    else -> "$bytes B"
-}

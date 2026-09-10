@@ -68,9 +68,18 @@ object EspeakStager {
     }
 }
 
-/** UI display for the storage-transparency surfaces (decisions #44; A6). */
-fun formatBytes(bytes: Long): String = when {
-    bytes >= 1_048_576 -> "%.1f MB".format(bytes / 1_048_576.0)
-    bytes >= 1_024 -> "%.0f KB".format(bytes / 1_024.0)
-    else -> "$bytes B"
-}
+/**
+ * UI display for the storage-transparency surfaces (decisions #44; A6) — bytes,
+ * KB, MB or GB, whichever is the largest unit the value fills at least once.
+ *
+ * The device-smoke pass on the signed 0.1.1 build caught the missing GB branch:
+ * a 760 GB free-space figure rendered as "760321.4 MB free" on the setup
+ * screen, which reads as nonsense to a user.
+ */
+fun formatBytes(bytes: Long): String =
+    when {
+        bytes >= 1_073_741_824 -> "%.1f GB".format(bytes / 1_073_741_824.0)
+        bytes >= 1_048_576 -> "%.1f MB".format(bytes / 1_048_576.0)
+        bytes >= 1_024 -> "%.0f KB".format(bytes / 1_024.0)
+        else -> "$bytes B"
+    }
