@@ -4826,5 +4826,12 @@ unit suite did not compile on main.
 
 Verification: `./gradlew ktlintCheck` green (baseline re-keyed for the touched
 files — line-number shifts, no new rule classes; G0 corpus files from fe97818
-formatted to the gate); full host `./gradlew test` green. Device instrumented
-re-run pending (S22 not attached at fix time).
+formatted to the gate); full host `./gradlew test` green.
+
+Device verification (same day, S22 SM-S908U1, Android 16): both tests green via
+`am instrument` — `OK (2 tests)`, 185 s total — after staging the pinned packs into
+the app files dir (kokoro-model/kokoro-voices byte-exact vs the host cache,
+espeak-ng zip re-downloaded from the release URL, sha256 `6b2edca…` matching the
+pin, extracted bundle + `.ready` markers under `files/packs/kokoro-82m/`). The 185 s
+wall confirms the 90 s window was genuinely too tight: the 60 s buffer burn is real
+device behavior, not test-host slack.
