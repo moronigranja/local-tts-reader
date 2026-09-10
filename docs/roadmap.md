@@ -236,6 +236,35 @@ spans dropped — not raw foreground dwell.
 A full event/session timeline is not a prerequisite for the dashboard. Add it later only
 if a user-visible history view needs event-level data.
 
+### Phase K — Settings review and improvements
+
+The settings surface has accreted without an information-architecture pass since B3.
+`AppSettings.Snapshot` grew from five keys (threshold, voice, favorites, theme, OCR
+languages) to nine (adding `ttsEngine`, `playbackGain`, `ttsThreads`,
+`realtimeCapable`), and the screen now spans engines/packs, voice + favorites, match
+threshold, OCR languages, theme, offline audio, playback volume, generation threads and
+backup & restore — with no grouping beyond stack order. Review first, then land the
+concrete improvements:
+
+1. **Grouping and discoverability.** Reorganize into coherent sections (speech vs
+   reading vs storage/data) with headers; review the "applies after restart" knobs
+   (`ttsThreads`, `realtimeCapable`) for user-comprehensible copy, and keep the B4
+   accessibility bar (TalkBack, 48 dp targets, theme) intact.
+2. **Engine-agnostic pack rows.** `SettingsScreen` hardcodes `KOKORO_PACK_IDS` /
+   `OCR_PACK_IDS`, and `VoiceCatalog` npz parsing is kokoro-specific. Derive pack rows
+   from the registered engine's descriptors so D4's Piper (per-language packs) or D5's
+   CosyVoice adds its packs without a settings-surface edit.
+3. **Arbitrary pre-generation budget.** The library pre-gen dialog ships fixed presets
+   (30 m / 1 h / 2 h / 3 h / whole book); the backend already accepts any
+   `PregenBudget.maxTimeMs` (A1) — parse an arbitrary listening-time input, UI-only.
+4. **Per-book overrides — explicit decision.** Record a keep/defer for per-book speed
+   (ideas #50) and per-book voice; no silent global-only assumption.
+
+Acceptance: settings are grouped and navigable without losing any existing knob or its
+persistence; adding an engine adds its packs without a settings-screen change; an
+arbitrary pre-gen duration works alongside the presets; the per-book-override decision
+is recorded.
+
 ## Later — strategic and dependency-gated work
 
 | Item | Gate / reason for position |
