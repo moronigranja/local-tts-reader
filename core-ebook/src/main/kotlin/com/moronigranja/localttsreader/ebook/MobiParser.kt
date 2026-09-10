@@ -29,7 +29,7 @@ import java.nio.charset.CodingErrorAction
 object MobiParser : EBookParser {
 
     override fun parse(source: EBookSource): Book {
-        val bytes = source.open().use { it.readBytes() }
+        val bytes = source.readCapped()
         val base = source.fileName.substringBeforeLast('.').substringAfterLast('/')
         return parse(bytes, fallbackTitle = base.ifBlank { "Untitled" })
     }

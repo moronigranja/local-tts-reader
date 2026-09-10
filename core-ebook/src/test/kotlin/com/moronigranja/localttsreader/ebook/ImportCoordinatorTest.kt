@@ -272,4 +272,28 @@ class ImportCoordinatorTest {
             assertTrue(!index.contains(secondId), "file 2 must never reach the store or index")
             assertEquals(1, store.books.value.size)
         }
+
+    /** The read-stage ceiling bridge: a source past the container ceiling is a typed per-file
+     * parse failure carrying the ceiling's own message — never "unreadable". The guard itself
+     * is exercised with injected limits in [ImportLimitsTest]; reaching it for real here would
+     * mean allocating a quarter gigabyte inside a unit test. */
+    @Test
+    fun `an over-limit source fails as a parse failure at the read stage`() =
+        runTest {
+            val store = InMemoryLibraryStore()
+            val index = TextIndex()
+            val overLimit =
+                EBookSource("Big.epub") { throw EBookLimitExceededException("file is too large (over 256 MB)") }
+
+            val failed =
+                assertInstanceOf(
+                    ImportOutcome.Failed::class.java,
+                    coordinator(store, index).import(overLimit),
+                )
+
+            val reason = assertInstanceOf(ImportFailureReason.ParseError::class.java, failed.reason)
+            assertEquals("file is too large (over 256 MB)", reason.message)
+            assertEquals(0, store.books.value.size, "a refused source is never committed")
+            assertEquals(0, index.bookCount())
+        }
 }

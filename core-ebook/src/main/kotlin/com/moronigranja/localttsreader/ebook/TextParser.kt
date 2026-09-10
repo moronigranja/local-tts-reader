@@ -36,7 +36,7 @@ object TextParser : EBookParser {
     private val FENCE = Regex("""^\s{0,3}(?:```|~~~)(.*)?$""")
 
     override fun parse(source: EBookSource): Book {
-        val bytes = source.open().use { it.readBytes() }
+        val bytes = source.readCapped()
         val fallback = source.fileName
             .substringBeforeLast('.')
             .substringAfterLast('/')

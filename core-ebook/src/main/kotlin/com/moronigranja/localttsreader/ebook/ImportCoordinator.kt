@@ -18,6 +18,10 @@ import kotlinx.coroutines.delay
  *   holds ids whose Room write failed).
  * - A failed durable commit returns [ImportFailureReason.Storage] and
  *   leaves the index untouched — retry re-parses and re-commits.
+ * - The read stage enforces the [ImportLimits] container ceiling; a breach is reported as
+ *   [ImportFailureReason.ParseError] carrying the ceiling's own message ("file is too large"),
+ *   NOT as [ImportFailureReason.Unreadable] — an oversized source is a policy refusal, and
+ *   the user gets told which.
  * - Deletion is the mirror order: durable [LibraryStore.delete] first;
  *   the index removal happens only after it succeeds.
  * - Every index mutation (publish here, remove on delete, launch rebuild)
@@ -45,8 +49,12 @@ class ImportCoordinator(
         }
         onStage(ImportStage.READING)
         val id =
-            importer.sourceId(source)
-                ?: return ImportOutcome.Failed(source.fileName, ImportFailureReason.Unreadable)
+            try {
+                importer.sourceId(source)
+            } catch (e: EBookLimitExceededException) {
+                return ImportOutcome.Failed(source.fileName, ImportFailureReason.ParseError(e.message ?: "file is too large"))
+            }
+        if (id == null) return ImportOutcome.Failed(source.fileName, ImportFailureReason.Unreadable)
         if (store.contains(id)) return ImportOutcome.Unchanged(id)
         onStage(ImportStage.PARSING)
         val outcome = importer.import(source)

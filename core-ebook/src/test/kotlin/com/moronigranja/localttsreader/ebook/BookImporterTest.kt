@@ -150,4 +150,64 @@ class BookImporterTest {
         val failed = assertInstanceOf(ImportOutcome.Failed::class.java, outcome)
         assertInstanceOf(ImportFailureReason.ParseError::class.java, failed.reason)
     }
+
+    // ------------------------------------------------------------------
+    // Import ceilings + OOM containment (A7)
+    // ------------------------------------------------------------------
+
+    @Test
+    fun `a container over the entry ceiling fails its own file with the ceiling's message`() {
+        val bomb = zip(*Array(ImportLimits.MAX_ENTRY_COUNT + 1) { "e$it.txt" to "x" })
+        val outcome = importer().import(source("Bomb.epub", bomb))
+
+        val failed = assertInstanceOf(ImportOutcome.Failed::class.java, outcome)
+        val reason = assertInstanceOf(ImportFailureReason.ParseError::class.java, failed.reason)
+        assertTrue(reason.message.contains("archive has too many entries"), "was ${reason.message}")
+
+        // One refused container never poisons the importer: the next file still parses.
+        val next = importer().import(source("Novel.epub", epubBook("Novel", "Chapter 1", "Prose here.")))
+        assertInstanceOf(ImportOutcome.Added::class.java, next)
+    }
+
+    @Test
+    fun `an out of memory during a file's parse fails that file, not the process`() {
+        val outcome = importer().import(EBookSource("Book.epub") { StarvedStream() })
+
+        val failed = assertInstanceOf(ImportOutcome.Failed::class.java, outcome)
+        val reason = assertInstanceOf(ImportFailureReason.ParseError::class.java, failed.reason)
+        assertEquals("not enough memory to read this book", reason.message)
+
+        // The Error was contained inside the one file: the next import still runs.
+        val next = importer().import(source("Novel.epub", epubBook("Novel", "Chapter 1", "Prose here.")))
+        assertInstanceOf(ImportOutcome.Added::class.java, next)
+    }
+
+    @Test
+    fun `errors other than out of memory are not contained`() {
+        assertThrows(StackOverflowError::class.java) {
+            importer().import(EBookSource("Book.epub") { DeepStackStream() })
+        }
+    }
+
+    /** Heap exhaustion raised where a real one lands: inside a file's read/parse. */
+    private class StarvedStream : ByteArrayInputStream(ByteArray(0)) {
+        override fun read(): Int = throw OutOfMemoryError("simulated heap exhaustion")
+
+        override fun read(
+            b: ByteArray,
+            off: Int,
+            len: Int,
+        ): Int = throw OutOfMemoryError("simulated heap exhaustion")
+    }
+
+    /** A non-memory [Error]: the containment must not become a blanket catch. */
+    private class DeepStackStream : ByteArrayInputStream(ByteArray(0)) {
+        override fun read(): Int = throw StackOverflowError("simulated stack exhaustion")
+
+        override fun read(
+            b: ByteArray,
+            off: Int,
+            len: Int,
+        ): Int = throw StackOverflowError("simulated stack exhaustion")
+    }
 }

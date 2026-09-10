@@ -25,21 +25,21 @@ class BookImporter(
     fun isSupported(fileName: String): Boolean = EBookFormats.parserFor(fileName) != null
 
     /**
-     * Reads + hashes the source WITHOUT parsing — the coordinator's duplicate
-     * gate. Returns null when the format is unsupported or the source cannot
-     * be read (the coordinator maps those to the typed reasons).
+     * Reads + hashes the source WITHOUT parsing — the coordinator's duplicate gate; null when
+     * unsupported or unreadable, [EBookLimitExceededException] when over the container ceiling.
      */
     fun sourceId(source: EBookSource): String? {
         if (!isSupported(source.fileName)) return null
         return try {
-            source.open().use { Bytes.sha256Hex(it.readBytes()) }
+            Bytes.sha256Hex(source.readCapped())
+        } catch (e: EBookLimitExceededException) {
+            throw e
         } catch (e: Exception) {
             null
         }
     }
 
-    /** Parses one source into a segmented [LibraryEntry] (+cover). No index,
-     * no persistence — callers (the coordinator) own those side effects. */
+    /** Parses one source into a segmented [LibraryEntry] (+cover); the coordinator owns index + persistence. */
     fun import(source: EBookSource): ImportOutcome {
         val parser = EBookFormats.parserFor(source.fileName)
             ?: return ImportOutcome.Failed(source.fileName, ImportFailureReason.UnsupportedFormat)
@@ -48,19 +48,19 @@ class BookImporter(
             parser.parse(source) // EBookSource.open() is a factory: a fresh stream per call
         } catch (e: EBookParseException) {
             return ImportOutcome.Failed(source.fileName, ImportFailureReason.ParseError(e.message ?: "parse failed"))
+        } catch (e: OutOfMemoryError) {
+            // An OOM is an Error: one file's parse must fail that file, never the process.
+            return ImportOutcome.Failed(source.fileName, ImportFailureReason.ParseError("not enough memory to read this book"))
         } catch (e: Exception) {
-            // Stream/open failures surface here (the pre-import bytes read is
-            // gone — the coordinator owns the id/lookup path now).
+            // Stream/open failures land here (the pre-import bytes read is gone; the coordinator owns id/lookup).
             return ImportOutcome.Failed(source.fileName, ImportFailureReason.Unreadable)
         }
 
         val segmented = BookSegmentation.segment(book) // index/segmentation contract (C4)
-        // E1: ONE read reused for the cover and the opt-in source-bytes capture
-        // (never an extra stream vs the pre-E1 path). A source that cannot be
-        // re-read simply has no sidecar — the export skips it, never fails.
+        // E1: ONE capped read reused for the cover + source-bytes capture; a source that cannot be re-read has no sidecar.
         val raw =
             try {
-                source.open().use { it.readBytes() }
+                source.readCapped()
             } catch (e: Exception) {
                 null
             }
