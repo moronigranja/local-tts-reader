@@ -63,6 +63,21 @@ tasks.register<JavaExec>("kokoroGrainSpike") {
         args = launcherArgs
     }
 }
+tasks.register<JavaExec>("g0Corpus") {
+    description = "G0: phonemize the narration corpus into g0_corpus.tsv (five columns) with the production EspeakPhonemizer"
+    group = "verification"
+    classpath = sourceSets.test.get().runtimeClasspath
+    mainClass.set("com.moronigranja.localttsreader.tts.kokoro.G0CorpusGenKt")
+    // First optional arg: pack cache root (defaults to ~/.cache/local-tts-reader/packs),
+    // forwarded for parity with kokoroGrainSpike (unused by the phonemize-only pass).
+    val launcherArgs = mutableListOf<String>()
+    if (project.hasProperty("kokoroCache")) {
+        launcherArgs += project.property("kokoroCache") as String
+    }
+    if (launcherArgs.isNotEmpty()) {
+        args = launcherArgs
+    }
+}
 tasks.test {
     useJUnitPlatform()
     testLogging {

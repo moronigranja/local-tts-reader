@@ -191,6 +191,11 @@ measured failures, not the single `Ms.` regression.
 Acceptance: the corpus synthesizes end-to-end on the S22; findings recorded as typed
 classes with examples; G1's built-in rule set is derived from them.
 
+Status: corpus (377 entries, 9 languages × 15 categories) built and synthesized
+end-to-end on the S22; device corpus, WAVs and measurements complete
+([g0-findings.md](g0-findings.md)). Roman-language mispronunciation classes await the
+owner's listening pass; ja/cmn/hi are recorded as a non-native-ear limitation.
+
 #### G1 — TTS pronunciation replacements — promoted from ideas
 
 Add a deterministic, testable normalization/replacement stage before phonemization for
