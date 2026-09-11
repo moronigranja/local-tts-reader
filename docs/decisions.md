@@ -62,10 +62,27 @@ those two settings or it measures contention.
 
 *Consequence.* Leg `g` (harness-sensitivity audit: fp32@4 vs ORT-default threads vs
 XNNPACK ± spinning vs int8 alone vs int8-with-oracle, round-robin rounds) is implemented in
-`PerfSpikeRunner`/`PerfSpikeBenchmarkTest` and its claim probe has run; the RTF matrix needs a
-charged flagship (the S22 was at 5 % battery and the Fold unattached when this was written).
-`PerfSpikeRunner.flush` now also mirrors every JSON into the app's internal `files/` so
-results survive a sleeping device (`/sdcard` is not readable via `adb shell run-as`).
+`PerfSpikeRunner`/`PerfSpikeBenchmarkTest` and **has now run on the Fold 8** (plugged,
+display off, 1 passage/2 windows, best-of-2 rounds; full table in the report §4.8):
+
+| config | best RTF | vs fp32@4 |
+|---|---|---|
+| fp32, explicit 4 threads | 0.591 | — |
+| fp32, ORT default threads | **0.504** | 0.85× (15 % faster) |
+| fp32 + XNNPACK, 4 threads | 0.786 | 1.33× slower |
+| fp32 + XNNPACK, `allow_spinning=0` | 0.692 | 1.17× slower |
+| int8, 4 threads | 1.145 | **1.94× slower** |
+| int8 + resident fp32 oracle | 2.156 | 1.88× slower than int8 alone |
+
+So: the int8 rejection is confirmed with every confound removed (**not** a harness artifact);
+XNNPACK is measured a loss (+33 %, +17 % with ORT's recommended no-spin) on a partial
+partition — the 1-D→2-D rewrite line is closed, do not spend on it; the thread axis is a real
+~15–20 % lever and our recorded `threads` field was a bug (default threads beat our explicit
+4, #147's knee was 6); a resident oracle nearly doubles the candidate's measured time; and
+intra-leg thermal drift was +35 % (battery 33.6 → 38.5 °C), which is why round-robin rounds
+are mandatory. `PerfSpikeRunner.flush` also now mirrors every JSON into the app's internal
+`files/` so results survive a sleeping device (`/sdcard` is not readable via
+`adb shell run-as`).
 
 ---
 

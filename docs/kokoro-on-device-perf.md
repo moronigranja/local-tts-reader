@@ -393,6 +393,51 @@ Both are session/graph properties, not device properties — the same on every A
 
 ---
 
+### 4.8 Harness-sensitivity leg — the same graph under six harness settings (Fold 8)
+
+One passage (2 windows at cap 510, ≈40 s audio), warm-up included, best-of-2 round-robin
+rounds, explicit 4 threads unless noted, **plugged, display off**, `onnxruntime-android`
+1.29. Battery temperature 33.6 → 38.5 °C across the run, which is why the round-2 column is
+included: it is the drift.
+
+| config | round 1 RTF | round 2 RTF | best | vs fp32@4 | PSS |
+|---|---|---|---|---|---|
+| `g0` fp32, explicit 4 threads | 0.591 | 0.798 | 0.591 | — | 162 MB |
+| `g1` fp32, **no** thread setting (ORT default) | **0.504** | 0.674 | **0.504** | **0.85× (15 % faster)** | 177 MB |
+| `g2` fp32 + **XNNPACK**, 4 threads | 0.786 | 0.867 | 0.786 | 1.33× slower | 1.18 GB |
+| `g3` fp32 + XNNPACK + `allow_spinning=0` | 0.692 | 0.881 | 0.692 | 1.17× slower | 1.19 GB |
+| `g4` **int8**, 4 threads | 1.145 | 1.496 | 1.145 | **1.94× slower** | 1.18 GB |
+| `g5` int8 + **resident fp32 oracle** | 2.156 | 2.305 | 2.156 | **1.88× slower than `g4`** | 2.36 GB |
+
+What this settles:
+
+* **The int8 penalty is not a harness artifact.** With a warm-up, explicit thread count, a
+  single session and no oracle, the shipped 92 MB int8 pack is still ~2× slower than fp32
+  (1.145 vs 0.591) — reproducing leg A's verdict (0.77–1.13 vs 0.49–0.56) under clean
+  conditions. #150's rejection stands on measurement, not on inference.
+* **XNNPACK is a loss on this graph, measured for the first time.** +33 % wall time with
+  default spinning, +17 % with ORT's own recommended `allow_spinning=0` (its warning about
+  the EP's second thread pool is real and worth ~15 % here), on top of ~1 GB more PSS. The
+  claim probe on the same graph reports a **partial** partition
+  (`disable_cpu_ep_fallback=1` session creation fails). Do not spend on the 1-D→2-D rewrite.
+* **Thread count is a lever we mis-recorded and under-used.** ORT's default (all physical
+  cores) beat our explicit 4 threads by 15 % on an 8-core device, consistent with #147's
+  knee at 6 (0.4796) versus 4 (0.5754). A result file that *states* 6 while running
+  whatever ORT picked is a correctness bug in the harness, and the shipped `tts_threads`
+  default of 4 leaves ~20 % on the table on big devices.
+* **A resident oracle nearly doubles the candidate's measured time** (1.88× here, 4+4
+  threads). Leg A's int8 numbers were taken under that structure and its penalty was smaller
+  (its sessions used ORT's default 8 threads), so the *structure* is a confound whose size
+  depends on the thread configuration — which is exactly why the ratio, not the absolute
+  number, is the transferable part.
+* **Thermal drift inside one leg is +35 %** (g0: 0.591 → 0.798) with the battery at
+  33.6 → 38.5 °C. Round-robin ordering is what keeps that drift from being read as a config
+  difference; the ranking was identical in both rounds.
+* Plug state, not display state, is what the earlier "screen-off throttle" tracked: this leg
+  was **plugged with the display off** and measured in the fast band (0.59), where the
+  unplugged + display-off legs measured 1.32–1.79. The slow condition is specifically
+  *unplugged **and** display off*.
+
 ## 5. Reproduction checklist
 
 1. Pin artifacts by sha256 (§2) and verify the staged files' digests on-device.
