@@ -258,6 +258,15 @@ MODELS=~/.cache/ayvu-spike/models
 # different 114,119,327 B / ae315a79… artifact, and the #86 int8 numbers were
 # measured on that other file — they are not comparable to this one.
 
+# int8 tier: the released NekoSpeak asset names its waveform output `audio`, which
+# OrtKokoroSession rejects ("Unknown output name waveform, expected one of [audio]");
+# stage a renamed copy (metadata only, host-verified bit-identical output) so leg A
+# measures the int8 *numbers* on the production path. Shipping the pack would need an
+# output-name alias in the engine — recorded in each leg A JSON.
+python3 tools/adapt_kokoro_int8_output.py \
+  --in $MODELS/kokoro-v1.0.int8-neko.onnx \
+  --out $MODELS/kokoro-v1.0.int8-neko-waveform.onnx          # 0b81e78af8e9… sha256
+
 # int4 kernel probe (leg F1 graph) — verdict must be cpu_ep_kernel_present
 python3 tools/gen_matmulnbits_probe.py --out $MODELS
 
@@ -283,7 +292,7 @@ adb -s $S install -r spike-tts/build/outputs/apk/debug/spike-tts-debug.apk
 adb -s $S install -r spike-tts/build/outputs/apk/androidTest/debug/spike-tts-debug-androidTest.apk
 adb -s $S push $MODELS/kokoro-v1.0.onnx            /data/local/tmp/kokoro-model
 adb -s $S push $MODELS/voices-v1.0.bin             /data/local/tmp/kokoro-voices
-adb -s $S push $MODELS/kokoro-v1.0.int8-neko.onnx  /data/local/tmp/kokoro-model-int8
+adb -s $S push $MODELS/kokoro-v1.0.int8-neko-waveform.onnx /data/local/tmp/kokoro-model-int8
 adb -s $S push $MODELS/matmulnbits-probe.onnx      /data/local/tmp/matmulnbits-probe
 # kokoro-model-2d is staged ONLY if the reshape parity gate passed (it did not — see above)
 adb -s $S push ~/.cache/local-tts-reader/packs/kokoro-device-corpus.tsv /data/local/tmp/corpus.tsv
@@ -321,6 +330,21 @@ Leg → args → what it writes:
 | `c` | — | `perfspike_c.json` | MODE_STATIC vs per-window MODE_STREAM (underruns, first audio) |
 | `f2` | — | `perfspike_f2.json` | XNNPACK full claim vs partial offload (gated — see above) |
 
+**Screen state matters per device.** The plan's default is screen off (the listening
+case), and every JSON records the state it ran under. On the Fold 8 that default is not
+usable: unplugged + screen-off drops the RTF to 1.49-1.79 where screen-on measures 0.52-0.60
+for the same cap (measured 2026-09-11 — Samsung caps CPU with the display off on battery;
+`cmd deviceidle whitelist +<pkg>` does *not* change it, and it is not thermal: 37.8 °C during
+the slow runs vs 40.7 °C during the fast ones). Run the Fold's legs with the screen on
+(`input keyevent 224`, `svc power stayon true`, `settings put system screen_off_timeout
+2147483647`) and read `screen` in the JSON; the S22 Ultra shows no such effect (fp32 control
+0.678 with the screen off, the recorded regime).
+
+**Leg C makes sound.** The runner sets the track gain to 0.05 (−26 dB) and the media volume
+should be at its floor: `cmd media_session volume --stream 3 --set 1` (`media volume` does not
+exist on modern ROMs, and the HiBreak ignores both — it stays at index 12, so its 0.05 gain is
+all that keeps it quiet).
+
 **Energy legs (A, D, E) must run unplugged** — while the device is on USB/AC the battery
 current is a charge current, not a load signal, so `PowerProbe` derives power only from
 on-battery samples and a leg below 90% unplugged samples records `energy_valid=false` with
@@ -336,13 +360,32 @@ with `adb shell svc power stayon true` + a long `screen_off_timeout` and keep th
 
 ```bash
 mkdir -p docs/prints/perfspike
+# /sdcard is not readable through run-as on every ROM (HiBreak: EACCES) — use the
+# /storage/emulated/0 path, and pull per device into its own directory.
 adb -s $S exec-out run-as com.moronigranja.localttsreader.spiketts \
-  sh -c 'cd /sdcard/Android/data/com.moronigranja.localttsreader.spiketts/files && tar cf - perfspike_*.json kokoro_precision_int8.json kokoro_results_cpu.json perfspike_a_pass*_*.wav' \
-  | tar xf - -C docs/prints/perfspike
-# rename before the next device's pull: mv perfspike_a.json perfspike_a_s22.json etc.
+  sh -c 'cd /storage/emulated/0/Android/data/com.moronigranja.localttsreader.spiketts/files && tar cf - perfspike_*.json kokoro_precision_int8.json kokoro_results_cpu.json perfspike_a_pass*_*.wav' \
+  | tar xf - -C docs/prints/perfspike/$DEVICE
+# DEVICE=fold|s22|hibreak; one directory per device keeps the same-named WAVs apart
 python3 tools/kokoro_perceptual.py --dir docs/prints/perfspike --out docs/prints/perfspike/perceptual_summary.json
 python3 tools/gen_blind_kokoro_set.py --dir docs/prints/perfspike --out docs/prints/perfspike/blind --seed 20260911
 ```
+
+### Field notes (measured 2026-09-11)
+
+* **Wireless adb dies with the screen.** On all three devices the TCP adb session went
+  away when the display slept on battery — the Fold and S22 needed a physical wake to come
+  back, which stranded unpulled results mid-sequence. Keep the screen on for long legs
+  (`input keyevent 26` to wake — KEYCODE_WAKEUP is ignored by the HiBreak — plus
+  `settings put system screen_off_timeout 2147483647`), and pull results *between* legs.
+* **The HiBreak cannot run leg A.** Its int8 candidate plus fp32 oracle drives the 3.9 GB
+  device into swap (2.19 GB swap in use) and an lmkd kill loop (load 16-20, the
+  instrumented process restarted mid-leg, pass 1 taking 25+ min). `-e memOff 1` cannot help
+  because `KokoroBenchmarkRunner.runPrecision` owns leg A's session options — run leg A on
+  an 8 GB device and use the HiBreak for legs B/D/E.
+* **Legs are long.** Measured wall clock: leg A ≈ 10 min (S22/Fold), 45-90 min (HiBreak);
+  leg B ≈ 35 min (Fold, 3 runs), 20 min (S22 caps, hot), 105 min (HiBreak, 1 run); leg D
+  ≈ 35 min (S22), leg E ≈ 45-60 min. Budget hours per device, and expect thermal drift on
+  the S22 (battery 38 °C, window p95 35 s at cap 300 where the Fold's worst was 10.6 s).
 
 ## D3 engine comparison staging (decisions #92/#93, `spike-tts`)
 

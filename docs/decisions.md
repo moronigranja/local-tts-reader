@@ -4,6 +4,82 @@ The rationale behind load-bearing decisions. New decisions get an entry here wit
 context, alternatives considered, and consequences. Keep entries short — this is a log,
 not a spec (specs live in architecture.md / feature docs).
 
+## 150. Cross-app performance spike (decisions #148): int8 tier rejected, window cap is a latency lever, per-window output feeding fails, ADPF is the one real speed lever, int4 CPU kernel exists (2026-09-11)
+
+Phase D spike legs A–F, measurement only — no pack, engine or setting changed. Raw data
+per device in `docs/prints/perfspike/{fold,s22,hibreak}/`, summary in its `README.md`,
+host gates at that level.
+
+**A — int8 tier: rejected on this artifact.** The int8 pack peers actually ship (NekoSpeak's
+mirror of the thewh1teagle lineage, 92,361,271 B, `6e742170…`) is *slower* than our fp32 in
+the same session — Fold 0.77–1.13 vs 0.49–0.56 RTF (≈2×), S22 1.02 vs 0.70 (1.4×) — and
+costs 1.6–1.9× the energy per hour of audio on the Fold (3.06–3.51 vs 1.75–2.00 Wh). Its
+waveform is far from fp32 (oracle max diff 0.78–0.87; the 0.001 gate rejects) and all six
+S22 blind pairs are flagged by the instrumental bands (MCD 1.22–1.31 dB, segment SNR −3.3…
+−3.6 dB). Set for the owner's listening verdict: `s22/blind/`. Two side findings: the
+release names its output `audio` and `OrtKokoroSession` needs `waveform` (measured through a
+host-verified renamed copy; shipping would need an engine alias), and
+`ORACLE_REJECT_THRESHOLD = 0.001` sits *below* this model's own kernel-order noise floor
+(the unmodified graph's BASIC-vs-ALL fusion delta is 0.012–0.030), so it rejects any
+computation-path change by construction and cannot discriminate an int8 defect.
+
+**B — window length: a latency lever, not a throughput one.** Throughput is flat across
+caps 150/300/510 (Fold 1.91/1.86/1.66 audio-s/s; S22 0.84/0.84/0.77; HiBreak
+0.18/0.17/0.19) while time-to-first-audio grows with the cap: Fold 0.96/1.62/17.4 s, S22
+4.0/4.9/19.5 s, HiBreak 8.7/21.8/**143.6** s. #148's hypothesis (longer window trades
+latency for throughput) is falsified on the latency side — a small cap (150) is the
+weak-device setting, and large caps buy nothing.
+
+**C — per-window output feeding: keep the whole-passage `MODE_STATIC` path.** On all three
+devices the stream seam reaches first audio after 34/35/85 s (Fold/S22/HiBreak) against
+17–56 ms for the shipped static path, and underruns twice per 64 s of audio: a window takes
+11–14 s (S22) to 55–65 s (HiBreak) to synthesize while the stream buffer holds one second.
+The plan's rule (`stream underruns == 0 && first audio ≤ 0.7× static`) fails on both counts.
+
+**D — ADPF is the one real speed lever.** Hinting three ORT worker threads (discovered by
+`comm` signature) takes the Fold's RTF 0.596 → 0.459 (**23 % faster**) and first audio
+15.4 → 10.7 s, at 1.85 → 2.09 Wh per audio-hour — speed, not savings.
+`session.intra_op.allow_spinning=0` is free (0.593) and slightly cheaper (1.67 Wh),
+`THREAD_PRIORITY_URGENT_AUDIO` is neutral (0.593) with a worse tail (p95 58 s). On the S22 Ultra
+`createHintSession` returns *null* rather than throwing — the ADPF service is absent on that
+ROM, so its ADPF configs carry no numbers but do record `adpf_unavailable` (and the thread
+discovery falls through to the CPU-placement heuristic there, since ORT's threads are
+unnamed).
+
+**E — duty cycling is thermal, not energy.** The Fold's mean power falls 6.66 → 3.80 →
+2.68 W at 100/50/33 % duty (measured ratios 1.000/0.551/0.367), but energy per hour of
+audio *rises* 2.42 → 2.71 → 2.72 Wh: wall time grows faster than power falls, because the
+rest phases do not return the device to its 742 mW idle floor. Use duty cycling to stay
+cool, not to save charge.
+
+**F1 — the int4 conflict resolves for the kernel.** A single-node `com.microsoft::MatMulNBits`
+graph opens and produces finite, non-degenerate output on host ORT 1.29.0's CPU EP and on
+ORT-android 1.29 (all three devices, `perfspike_f1.json`). #148's source reading that no
+CPU-EP kernel exists is wrong for 1.29; note ORT 1.29 demands packed shapes
+(`B [N, k_blocks, block_size·bits/8]`, `zero_points [N, blob_size]`), not the unpacked ones.
+
+**F2 — XNNPACK half stopped, and why.** The 1-D→2-D conv rewrite (97 convs, 194 reshapes)
+is arithmetically exact (per-conv onset test: none; ≤1.6e-06 over clean convs; synthetic
+float64 check passes) but fails the plan's waveform parity gate (5.7e-02…8.4e-02 vs 1e-4)
+because the model's harmonic generator amplifies fp32 kernel-order noise — the *unmodified*
+graph's BASIC-vs-ALL fusion delta is 1.2e-02–3.0e-02. No pack staged, leg F2 not run;
+reopening condition (per-conv onset gate instead of the absolute waveform tolerance) in
+`docs/prints/perfspike/xnnpack-reshape.md`.
+
+**Conditions that shaped the run** (docs/build.md §"Cross-app performance spike"):
+screen-off + unplugged throttles the Fold ~2.5× (`deviceidle whitelist` does not change it,
+it is not thermal), so its energy legs ran screen-on and record that; unplugged devices drop
+wireless adb mid-leg, which stranded several legs until physical wake-ups; the HiBreak
+cannot run leg A at all (int8 + fp32 oracle pair → swap pressure and an lmkd kill loop);
+the S22 Ultra's battery gauge reads ~0.3 mA while the phone draws ~4 W, so every S22 energy
+field is null with `energy_invalid_reason="gauge_below_floor"`.
+
+Consequences: do not ship an int8 pack from this lineage (revisit only with the 114 MB
+export or a re-export that keeps `waveform`); cap the window at 150 for weak devices; leave
+the output path as MODE_STATIC; ADPF hint sessions are the only measured speed lever and
+cost energy; duty cycling is a thermal tool; and UI-facing "quality tier" copy cannot lean
+on the 0.001 oracle gate — a listening pass is the gate.
+
 ## 149. Pocket TTS enters D5 as a third candidate; license audit clean with two catches (2026-09-11)
 
 #92's rejection of Pocket TTS ("no Android runtime path") is falsified — NekoSpeak v1.4.2

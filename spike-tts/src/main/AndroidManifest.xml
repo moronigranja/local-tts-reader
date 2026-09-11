@@ -1,6 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
+    <!-- Cross-app performance spike (decisions #148): legs A/D/E hold a
+         PARTIAL_WAKE_LOCK so the energy measurement covers the work and not a
+         suspended process. -->
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+
     <!-- QNN HTP: the FastRPC transport lives in libcdsprpc.so; without this
          declaration it sits outside the app's linker namespace and libQnnHtp*'s
          stub fails to link → QnnDevice_Create fails (qualcomm/fastrpc#379). -->
