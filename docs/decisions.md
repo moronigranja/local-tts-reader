@@ -16,7 +16,9 @@ the same session — Fold 0.77–1.13 vs 0.49–0.56 RTF (≈2×), S22 1.02 vs 0
 costs 1.6–1.9× the energy per hour of audio on the Fold (3.06–3.51 vs 1.75–2.00 Wh). Its
 waveform is far from fp32 (oracle max diff 0.78–0.87; the 0.001 gate rejects) and all six
 S22 blind pairs are flagged by the instrumental bands (MCD 1.22–1.31 dB, segment SNR −3.3…
-−3.6 dB). Set for the owner's listening verdict: `s22/blind/`. Two side findings: the
+−3.6 dB), and the owner's blind pass over the Fold's level-matched pt-br pair picked the
+fp32 reference ("2 sounds better"; the int8 slot sounded "a little frayed", same loudness).
+Two side findings: the
 release names its output `audio` and `OrtKokoroSession` needs `waveform` (measured through a
 host-verified renamed copy; shipping would need an engine alias), and
 `ORACLE_REJECT_THRESHOLD = 0.001` sits *below* this model's own kernel-order noise floor
