@@ -71,6 +71,85 @@ code whose *parameters* the spike measures.
 `PowerProbe`, uncommitted in the worktree at this entry's date), so this entry takes the
 next free number.
 
+## 147. Single-session thread sweep on the Fold 8 — 1 thread is slower than realtime, 4 is the knee, 8 oversubscribes (2026-09-11)
+
+#137 shipped the `tts_threads` slider (1-8, default 4) on the S22's reasoning and left the
+on-device acceptance unrun; #139 swept workers and threads *together*, so its 4-thread
+points (2×2 = 0.945, 4×1 = 1.207) fold session-splitting cost into the thread axis. This
+leg holds W=1 and sweeps T alone. New harness in `spike-tts`: `ThreadSweepRunner` +
+`ThreadSweepBenchmarkTest` (args `-e threads 1,6`, `-e runs`, `-e corpus`, `-e
+wait_unplugged true`) and `PowerProbe` (battery current/voltage/temperature + the calling
+thread's CPUs); every leg flushes JSON, so an OOM or an unplug keeps the earlier legs.
+
+**Setup.** SM-F971B (Fold 8, Snapdragon 8 Elite Gen 5, 8 cores, Android 17), the same
+2-passage `corpus.tsv` whose 6-thread CPU baseline #115 recorded at RTF 0.43-0.66,
+best-of-3 with an untimed warm-up, **on battery with the screen on** (wireless adb),
+100% unplugged samples in every leg. A 60 s idle-baseline leg runs first, because a
+screen-on leg carries a display/system constant.
+
+| T | RTF | wall | power | energy | batt | (reverse-order re-run) |
+|---|---|---|---|---|---|---|
+| 1 | **1.212** | 77.4 s | 2961 mW | 3.59 Wh/audio-h | 32.4 °C | — |
+| 2 | 0.668 | 42.7 s | 3679 mW | 2.46 | 33.0 °C | — |
+| 3 | 0.671 | 42.8 s | 3026 mW | 2.03 | 34.0 °C | — |
+| 4 | 0.575 | 36.7 s | 3368 mW | **1.94** | 34.0 °C | 0.545 / 3241 mW / 1.77 |
+| 6 | **0.480** | 30.6 s | 4820 mW | 2.31 | 35.5 °C | 0.524 / 3577 mW / 1.87 |
+| 8 | 0.611 | 39.1 s | 3942 mW | 2.41 | 36.4 °C | 0.633 / 3461 mW / 2.19 |
+| idle | — | — | 662 mW | — | 32.4 °C | 671 mW |
+
+**1 thread is slower than realtime, and reproducibly so.** RTF 1.216 / 1.213 / 1.212
+across the three runs — the 1-thread wall is stable to 0.2 s. The host-measured scaling
+shape transfers almost exactly: the host's 1→6-thread ratio was 2.79×, the device's
+1.212/0.480 = 2.53× (2.87× against the cold plugged t6 run, 0.422). A 45 s fill ahead of
+a 1.212 RTF playhead drains in ~3.5 min and the cold path (60 s cap) takes over from
+there; pre-generation at 1 thread takes 1.21× the listening time, so it never catches up.
+
+**The knee is 4 threads, and the shipped default is validated.** 4 threads give 2.1× the
+1-thread throughput at the lowest energy per hour of audio measured (1.94 Wh, 1.77 in the
+reverse run); 6 gives ~20% more throughput for ~1.4 W more. RTF 0.575 leaves 1.7× realtime
+headroom, which is what #137's default was chosen to protect.
+
+**8 threads is a loss on an 8-core device.** Both sweep orders agree: 0.611 vs 0.480
+(forward, cold→hot) and 0.633 vs 0.524 (reverse, hot) — 8 is 21-27% *slower* than 6, and
+its runs are unusually stable (0.633/0.633/0.638), i.e. a real effect rather than noise.
+The host sweep saw the same shape (8 ≈ 6, 16 threads 38% worse): ORT's pool has no room
+once the OS and the (screen-on) system share the cores. **Open follow-up, not changed
+here:** `MAX_TTS_THREADS` is 8; the slider's top end is measurably counter-productive on
+this SoC, so either cap it at 6 or explain the ceiling in the settings copy.
+
+**Thermal and battery, measured.** Continuous synthesis takes the device from thermal
+status 0 (SKIN 36 °C) to status 3 (SKIN 45 °C) in ~15 min and it does not cool while the
+run continues; battery 40% → 35% in 17 min. The sweep's power-weighted average (3.30 W
+including the idle baseline) agrees with the battery's own charge counter, which dropped
+327.6 mAh over the two sweeps (1,701,000 → 1,373,400 µAh in 1598 s ≈ 2.9 W over the sweep
+windows), to within ~10% — an independent check on `PowerProbe`. For the shipping question
+that means **synthesize-while-listening costs ~10% of this battery per listening hour**
+(1.9 Wh at 4 threads) versus ~2% playing from the pre-generated cache; 1 thread is the
+worst of both worlds at 3.59 Wh per audio-hour, and `ThermalProbe`'s thermal-status axis is
+dead on Android 17 (`android.os.ThermalManager` no longer resolves — status -1, headroom
+0), so the leg's thermal signal is battery temperature plus the shell-side `dumpsys
+thermalservice` sampler.
+
+**Screen-state caveat.** The screen stayed awake for the t1-t4 legs and the whole reverse
+run, but Samsung restored `screen_off_timeout` from the forced max back to 600000 (10 min)
+mid-session, so the forward sweep's t6/t8 legs may have run with the display off. That does
+not move the verdict: t1 (screen on, three runs stable to ±0.004), the t8-vs-t6 ordering
+(confirmed in the reverse run, which ran entirely screen-on and hot) and the reverse t4
+point are all unaffected, no leg shows the ~5× cpuset stall below, and the power numbers
+match the coulomb account. Only t2 ≈ t3 (0.668 vs 0.671) is within noise rather than
+resolved, which #147 does not need to settle.
+
+**Harness rule discovered (not a product finding).** Unplugged + screen-off put the
+instrumentation process in the restricted background cpuset: one t1 run went from RTF
+1.214 to **6.575** mid-leg after the cable was pulled, with AP at 35-38 °C — a policy
+restriction, not thermal throttling. The spike runs no foreground service; production
+pregen and playback do, so energy legs must run with the screen on (and with adb over
+TCP, so pulling the cable does not drop the run).
+
+Evidence: `docs/prints/thread-sweep/` (forward + reverse JSON, per-run logcat, thermal
+log), `ThreadSweepRunner` / `ThreadSweepBenchmarkTest` / `PowerProbe`, build.md
+"Single-session thread sweep".
+
 ## 146. First-release prep: import ceilings + OOM containment, Settings About group, accurate pack hosts, arm64-only APK (2026-09-10)
 
 Owner asked what to complete before publishing the first release (decisions #145 recorded

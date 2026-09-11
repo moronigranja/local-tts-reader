@@ -82,7 +82,15 @@ numbers live in the cited decisions.
 - **2-engine parallel pregen is slower**: serial 1.43 audio-s/s vs parallel 1.21
   (1.18×) at +76% VmHWM / +84% PSS. Window-parallel re-ask at candela granularity:
   serial wins at every config.
-- RTF baseline: S22 1.16–1.20 (#86) / 0.66–0.76 (listening corpus); HiBreak 2.84–3.12.
+- **Thread count alone, W=1 (decisions #147, measured on the Fold 8):** one session,
+  T=1..8 — **1 thread RTF 1.212 (slower than realtime, reproducible to ±0.004)**, 2 ≈ 0.67,
+  3 ≈ 0.67, **4 = 0.575 (the knee: lowest energy per audio-hour at 1.94 Wh)**, 6 = 0.480,
+  **8 = 0.611–0.633, i.e. *slower* than 6 in both sweep orders** (an 8-core phone
+  oversubscribes once the OS and system threads share the cores). The shipped default (4)
+  is validated; the slider's top end (8) is measurably counter-productive — capping it at
+  6 is an open follow-up decision, not a code change.
+- RTF baselines: S22 1.16–1.20 (#86) / 0.66–0.76 (listening corpus); HiBreak 2.84–3.12;
+  Fold 8 (SM-F971B) 0.42–0.66 at 6 threads, 1.21 at 1 thread (#147).
 
 ### D3 — engine comparison (decisions #93, #96)
 
@@ -198,7 +206,11 @@ separate decision once the numbers exist.
   `session.intra_op.allow_spinning=0`, and fast-core placement — RTF, energy, and
   UI-latency jitter (the complaint #137 answered with a thread slider).
 - **E — duty cycle.** Continuous vs on/off generation at equal coverage: energy per audio
-  hour and thermal headroom — the battery half of the owner's question.
+  hour and thermal headroom — the battery half of the owner's question. One continuous-run
+  data point already exists from #147 (Fold 8, on battery, screen on): 3.3 W average over
+  a 17 min sweep, battery 40% → 35%, thermal status 0 → 3 with SKIN 36 → 45 °C; the
+  screen-off equivalent must not be used (unplugged + screen-off drops a non-foreground
+  process into the restricted cpuset and stalls inference ~5×, #147).
 - **F — verdict repair.** int4 `MatMulNBits` CPU-EP availability re-probed; XNNPACK's
   partition coverage re-checked on an H=1-reshaped static vocoder (open/partition gate
   only — a speed claim needs its own export).

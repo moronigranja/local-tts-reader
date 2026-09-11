@@ -118,6 +118,14 @@ Kokoro ships inside the app.
   management; the APK ships no TTS model data. A language that is not downloaded is
   surfaced in settings with a "download" action, never a silent failure. CosyVoice3
   covers its 9 languages in one pack; engines like Piper would add per-language packs.
+- **Synthesis power and heat, measured (2026-09-11, Fold 8 / SM-F971B, on battery with the
+  screen on; decisions #147):** live Kokoro synthesis runs at ~3.0–4.8 W (screen-on idle
+  floor 0.66 W), takes the device from thermal status 0 to 3 (SKIN 36 → 45 °C) in ~15 min
+  without cooling while it continues, and costs ~5% of the 4800 mAh battery per 17 min —
+  ~10% per *listening hour* when audio is synthesized live. Thread count does not rescue
+  it: 1 thread is both slower than realtime (RTF 1.212) and the most expensive per audio
+  hour (3.59 Wh vs 1.94 Wh at 4 threads). Playing from the pre-generated cache is the only
+  lever that idles the SoC during listening.
 - **Reference device:** Galaxy S22 Ultra (Snapdragon 8 Gen 1) — the performance gate for
   engine selection. CosyVoice3-0.5B int4 measured there (decisions #49): RTF ≈13.4,
   peak native VmHWM 2.27 GiB / PSS 336 MiB, no thermal trip — fails the live-realtime

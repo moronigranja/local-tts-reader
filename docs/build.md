@@ -157,6 +157,76 @@ Measured verdict (2026-09-09): serial single-session wins at every config —
 window-parallelism bound — the leg is closed as measured. Evidence: decision
 #139.
 
+## Single-session thread sweep (decisions #147, `spike-tts`)
+
+The device number behind the shipped `tts_threads` setting (#137: a 1–8 slider,
+default 4, applied when the ORT session opens). #139 varied workers and threads
+together, so its 4-thread points fold session-splitting cost into the thread
+axis; this leg holds **one session and sweeps T alone** — `ThreadSweepRunner` +
+`ThreadSweepBenchmarkTest`, T = 1, 2, 3, 4, 6, 8, best-of-3 with an untimed
+warm-up, reporting RTF, session open time, VmHWM/PSS, thermal status/headroom,
+battery power, energy per hour of audio, and the CPUs the inference thread was
+seen on (`PowerProbe`).
+
+```bash
+# model + voices already staged under files/models/ by the Kokoro benchmark;
+# the default corpus is the SAME 2-passage corpus.tsv the #115 provider table
+# measured the 8 Elite Gen 5 CPU at RTF 0.43-0.66 on, so t6 is comparable.
+adb shell svc power stayon true   # no doze mid-benchmark
+adb logcat -c
+adb shell am instrument -w -e class \
+  com.moronigranja.localttsreader.spiketts.ThreadSweepBenchmarkTest \
+  com.moronigranja.localttsreader.spiketts.test/androidx.test.runner.AndroidJUnitRunner
+# optional: -e threads 1,6  -e runs 2  -e corpus corpus_pregen.tsv
+# energy pass: start with the cable in, pull it when the leg logs that it is waiting:
+#   -e wait_unplugged true   (the sweep begins when the device reports on-battery)
+adb logcat -d -s KokoroSpike   # per-leg RTF, power, speedup vs t1, DONE
+adb exec-out run-as com.moronigranja.localttsreader.spiketts cat \
+  /sdcard/Android/data/com.moronigranja.localttsreader.spiketts/files/kokoro_thread_sweep.json
+```
+
+**Energy legs must be run unplugged, with the screen ON.** While the device is on
+USB/AC the battery current is a charge current, not a load signal — a strong
+charger feeds the SoC without the battery current moving. `PowerProbe` counts
+plugged and unplugged samples separately and derives every power number from the
+unplugged ones only; each leg reports `unplugged_fraction`, so a plugged leg
+reads as *energy not measured* (0 unplugged samples) rather than as a wrong
+number. But unplugged *and screen-off* is worse than useless: the app process
+drops into the restricted background cpuset and inference stalls ~5× (measured
+2026-09-11 — a t1 run went RTF 1.214 → 6.575 mid-leg after the cable was pulled,
+with AP at 35-38 °C, i.e. a policy restriction rather than thermal throttling).
+Set the screen to stay on for the pass, and use wireless adb so pulling the
+cable does not drop the instrumented run:
+
+```bash
+adb tcpip 5555 && adb connect <phone-ip>:5555
+adb -s <phone-ip>:5555 shell svc power stayon true
+adb -s <phone-ip>:5555 shell settings put system screen_off_timeout 2147483647
+```
+
+`ThreadSweepRunner` runs an **idle baseline leg** (60 s, no session open) before
+the sweep for exactly this reason: with the screen on, every leg carries a
+constant display/system drain, so the synthesis-attributable power is
+`leg − idle`, not the leg's absolute mW. The runner keeps going after the cable
+is pulled (the JSON flushes after every leg); with wireless adb the run also
+completes and reports normally. Restore with
+`settings put system screen_off_timeout 30000` and `svc power stayon false`.
+
+**Re-assert the timeout before every pass.** On the Fold 8 the forced maximum did
+not survive the session — Samsung restored it to 600000 (10 min) mid-run, so a
+sweep longer than 10 min can end up with the display off (measured 2026-09-11:
+the RTF and power numbers stayed consistent, but a leg's screen state is then
+ambiguous). Verify with `settings get system screen_off_timeout` between passes,
+or split long sweeps into sub-10-minute windows.
+
+Measured verdict (2026-09-11, SM-F971B Fold 8, on battery, screen on, best-of-3;
+raw JSON/logcat/thermals in `docs/prints/thread-sweep/`, decision #147): **1 thread
+is slower than realtime (RTF 1.212, reproducible to ±0.004); 4 threads is the knee
+(0.575, the lowest energy per audio-hour at 1.94 Wh); 8 threads is *slower* than 6
+(0.611-0.633 vs 0.480-0.524 in both sweep orders)** — the 8-core device
+oversubscribes once the system's own threads share the cores. Idle floor on
+battery with the screen on: 662-671 mW.
+
 ## D3 engine comparison staging (decisions #92/#93, `spike-tts`)
 
 Stages the Kitten Nano + MOSS-TTS-Nano packs and the shared `d3_corpus.tsv`
