@@ -4,6 +4,71 @@ The rationale behind load-bearing decisions. New decisions get an entry here wit
 context, alternatives considered, and consequences. Keep entries short — this is a log,
 not a spec (specs live in architecture.md / feature docs).
 
+## 151. Peer claims re-checked at source + our own harness confounds (owner question: "are we missing a variable?") (2026-09-11)
+
+**Question.** Several projects appear to publish conditions we cannot reproduce — about
+quantization, about speed. Is a variable fixed in *our* harness?
+
+**Answer: yes — six of them, all in our own measurement code, and two peer claims were
+misreadings rather than unreproducible results.** No decision from #150 changes; every
+absolute RTF in it now carries an explicit condition.
+
+*Peer claims, verified at source* (full detail: `docs/kokoro-on-device-perf.md` Appendix A):
+only **VoiceShelf** publishes a phone number — "about 2.8× faster than real-time"
+(RTF ≈ 0.36), Z Fold 7 / SD 8 Elite, fp32, with **100 s buffers and low/high watermarks so
+the phone idles between them**. 0.36 is *inside our own spread* for the same fp32 config on
+the same SoC class (0.36 rested, 0.49–0.60 warm, 1.49–1.79 display-asleep): their buffer
+design is the duty-cycling our continuous legs never do. **Lectern publishes no quantitative
+claim at all**; **NekoSpeak publishes no Kokoro RTF** and ships int8 as a **size** choice
+(≈115 MB on-demand vs 349 MB; its ADR records int8 Kokoro as 74 % NNAPI-incompatible), so
+"peers ship int8, therefore int8 is faster" was our inference, not their claim; **sherpa-onnx**
+(runtime behind Lectern/HayaiTTS) defaults to `provider="cpu"`, `num_threads=1`, has no
+XNNPACK flag on master, and publishes RTF only for a Raspberry Pi 4 — its defaults are
+*weaker* than our baseline.
+
+*The int8 artifact is the variable.* Our own two int8 exports of the same model disagree by
+direction: the 114 MB QDQ export measured **faster** than fp32 on the Fold class (0.36/0.50
+vs 0.52), the 92 MB Neko-lineage export in #150 measured **~2× slower**. They are different
+graphs, not different scales: 148 `MatMulInteger` + 139 `DynamicQuantizeLinear` + **333
+`Cast`** and only 26 `MatMul`, against fp32's 102 `MatMul` + 73 `Gemm` + 90 `Conv`.
+
+*Harness confounds found in our code* (magnitudes in the report §3.8):
+1. `KokoroBenchmarkRunner.measure` times the **first** inference of a fresh session — lazy
+   graph init and, for quantized graphs, weight prepacking land inside the number (2-passage
+   corpus ⇒ half the sample).
+2. `OrtProvider.CPU.options = {}` — **no `setIntraOpNumThreads`**, i.e. ORT's default (all
+   physical cores) while the result file records `"threads": 6`. Legs A and B/D/E therefore
+   ran different thread counts, and neither is the measured knee (4).
+3. Screen state was **asserted, not observed**: the legacy harness hard-codes
+   `"screen": "off/locked (instrumented)"` and the leg-level value is read once at leg start.
+   Consequence corrected here: the Fold's leg A was published as "screen on" while its own
+   record reads `interactive=false` (`docs/kokoro-on-device-perf.md` §4.1, `README.md`
+   Conditions, `build.md`).
+4. Oracle-gated legs keep the reference session **resident and inferring between** the timed
+   candidate windows — two ORT pools in one process (ORT documents the identical hazard for
+   XNNPACK: `xnnpack_execution_provider.cc:166`).
+5. Every leg runs **back-to-back**; sustained load walks clocks down (same config inside one
+   session: 0.678 / 0.813 / 0.832; cold-vs-warm 0.36 vs 0.60).
+6. The window cap was fixed at the model maximum (510) while peers batch at ~150 (leg B: 0.524
+   vs 0.604 RTF, 960 ms vs 17.4 s TTFA on the Fold).
+
+*New measurement, XNNPACK (device-independent: graph + ORT-build property).* With
+`onnxruntime-android` 1.29, XNNPACK added and `session.disable_cpu_ep_fallback=1`, session
+creation over the unmodified dynamic-width fp32 graph **fails** ("session contains graph nodes
+that are assigned to the default CPU EP, but fallback … explicitly disabled") ⇒ XNNPACK takes
+only part of Kokoro and the rest falls back; ORT also warns that the EP's second pthread pool
+contends with ORT's when spinning is on and threads > 1. Any future XNNPACK work must state
+those two settings or it measures contention.
+
+*Consequence.* Leg `g` (harness-sensitivity audit: fp32@4 vs ORT-default threads vs
+XNNPACK ± spinning vs int8 alone vs int8-with-oracle, round-robin rounds) is implemented in
+`PerfSpikeRunner`/`PerfSpikeBenchmarkTest` and its claim probe has run; the RTF matrix needs a
+charged flagship (the S22 was at 5 % battery and the Fold unattached when this was written).
+`PerfSpikeRunner.flush` now also mirrors every JSON into the app's internal `files/` so
+results survive a sleeping device (`/sdcard` is not readable via `adb shell run-as`).
+
+---
+
 ## 150. Cross-app performance spike (decisions #148): int8 tier rejected, window cap is a latency lever, per-window output feeding fails, ADPF is the one real speed lever, int4 CPU kernel exists (2026-09-11)
 
 Phase D spike legs A–F, measurement only — no pack, engine or setting changed. Raw data

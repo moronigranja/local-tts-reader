@@ -28,6 +28,15 @@ English and Brazilian-Portuguese passages. **Runtime**: onnxruntime-android 1.29
    ARM CPUs; dynamic activation quantization adds `DynamicQuantizeLinear`/`Cast` traffic on
    top of `MatMulInteger`/`ConvInteger`, and that path is not always faster than the fp32
    MLAS GEMMs.
+   **The artifact is the variable, not "int8".** An earlier export of the *same* model
+   (114,119,327 B, QDQ, sha `ae315a79…`) measured **faster** than fp32 on the same device
+   class (0.36/0.50 vs 0.52), and the two graphs differ structurally, not by a scale factor:
+   the 92 MB export is 148 `MatMulInteger` + 139 `DynamicQuantizeLinear` + **333 `Cast`** with
+   only 26 `MatMul`, against the fp32 graph's 102 `MatMul` + 73 `Gemm` + 90 `Conv`. Also note
+   what the shipper actually claims: NekoSpeak ships int8 as a **size** choice (≈115 MB
+   on-demand vs 349 MB), publishes no Kokoro RTF at all, and its ADR records int8 Kokoro as
+   74 % NNAPI-incompatible. An int8 tier is a memory decision; treat any speed claim for one
+   as a separate, per-artifact measurement.
 2. **Window length is a latency lever, not a throughput lever.** Throughput is flat across
    the 150/300/510-phoneme caps, while time-to-first-audio grows with the cap — on the
    HiBreak, from **8.7 s at 150 to 143.6 s at 510**. If a weak device must start speaking
@@ -48,6 +57,16 @@ English and Brazilian-Portuguese passages. **Runtime**: onnxruntime-android 1.29
    A waveform parity gate at 1e-4 (or a "max abs PCM diff ≤ 0.001" adoption gate) cannot be
    passed by *any* change of computation path, including one that is arithmetically exact —
    it rejects by construction. Gate on per-layer relative error, or on listening.
+8. **The largest single variable in this whole report is the measurement condition, not the
+   model.** The same fp32 configuration measured 0.36 RTF rested and 0.60 warm on one device
+   and 1.49–1.79 with the display asleep; the same config on the S22 spanned
+   0.678 / 0.813 / 0.832 inside one session. Every one of our legs — and every peer number we
+   failed to reproduce — is an A/B whose effect size is comparable to that drift, so §3.8
+   lists the six harness confounds we found in our own code (no warm-up, thread count
+   recorded but not set, screen state asserted rather than observed, a second session
+   resident during timing, continuous back-to-back load, and the fixed 510 cap) with the
+   error each one can introduce. **Fix those before believing any cross-app comparison
+   including ours.**
 
 ---
 
@@ -185,6 +204,25 @@ listener as the gate.
 
 ---
 
+### 3.8 Harness confounds we actually hit (fix these before trusting any A/B)
+
+Every one of these was found *in our own measurement code*, and each is worth more than
+most of the differences we were trying to explain. They are listed with the size of the
+error they can introduce.
+
+| confound | how it bites | measured size |
+|---|---|---|
+| **No warm-up before timing** | A harness that times the *first* inference of a freshly opened session charges ORT's lazy graph init, arena growth and — for a quantized graph — weight prepacking to the model's "synthesis time". With a 2-passage corpus that is half the sample. | first-call cost is per-graph; the same config's first pass ran 40 % faster than its later passes in one leg |
+| **Thread count recorded but not set** | One harness path passed empty session options (ORT's default = all physical cores) while its result file wrote a fixed `"threads": 6`. Two legs of the same spike therefore ran different thread counts, and neither matched the measured knee (4). | #147 measured 4 vs 8 threads as 0.575 vs 0.612 RTF, and 1 thread at 1.212 — i.e. ~2× across the axis |
+| **Screen state asserted, not observed** | A result file that *hard-codes* `"screen": "off/locked"` cannot tell you what the device was doing; a leg labelled "screen on" in a write-up can be contradicted by its own JSON. Verify the field is read from `PowerManager.isInteractive()` at the time of the measurement, and re-read it at the end. | 2.5–3× on one device (1.49–1.79 screen-off vs 0.52–0.60 screen-on, same cap) |
+| **A second session resident during timing** | Oracle-gated comparisons keep the reference model open and infer with it between the timed candidate windows: two ORT pools in one process, so every candidate window runs right after a full reference pass. | not quantified here — the fix is to time the candidate with the oracle *closed* and only then open the reference (ORT documents the same two-pool contention for XNNPACK: `xnnpack_execution_provider.cc:166` warns that with >1 ORT thread and spinning on, "performance will suffer") |
+| **Back-to-back continuous load** | Our legs never idle. Sustained synthesis walks clocks and thermal headroom down; a moment of rest recovers them. | same config across one session: 0.678 / 0.813 / 0.832 RTF (S22), 0.36 (rested Fold) → 0.60 (warm Fold) |
+| **Window cap** | Fixed at the model's maximum (510) unless overridden; peers batch at ~150. Input width is the model's cost driver. | 0.524 (cap 150) vs 0.604 (cap 510) RTF on the Fold, and 960 ms vs 17 385 ms to first audio |
+
+The practical rule: **state the condition, measure the condition, and re-measure the first
+config at the end of the session.** Any cross-config difference smaller than the drift you
+measure that way is not a result.
+
 ## 4. Results
 
 ### 4.1 Leg A — int8 vs fp32 (same session, production pipeline)
@@ -194,7 +232,7 @@ passages (~63 s audio), 3 passes; the fp32 control run in the same session immed
 
 | device | int8 RTF (en-us / pt-br) | fp32 RTF | ratio | int8 Wh/audio-h | fp32 Wh/audio-h | oracle max diff |
 |---|---|---|---|---|---|---|
-| Fold 8 (screen on) | 0.77–1.09 / 1.09–1.13 | 0.49–0.56 | ≈2.0× slower | 3.06–3.51 | 1.75–2.00 | 0.781 |
+| Fold 8 (screen state unverified — §3.3) | 0.77–1.09 / 1.09–1.13 | 0.49–0.56 | ≈2.0× slower | 3.06–3.51 | 1.75–2.00 | 0.781 |
 | S22 Ultra (screen off) | 1.02 / 1.01 | 0.71 / 0.70 | ≈1.44× slower | not measurable (gauge) | not measurable | 0.873 |
 
 Blind-listening outcome (see §3.6): pt-br → fp32 preferred on both devices ("frayed" int8);
@@ -326,6 +364,33 @@ removed — is 2.4e-06. So the rewrite is exact and the gate is the wrong instru
 pursue XNNPACK, gate the rewrite per-layer and let the EP's own partition report
 (`session.disable_cpu_ep_fallback=1`) tell you what it claimed.
 
+**Measured since (harness-sensitivity leg, 2026-09-11):** on `onnxruntime-android` 1.29, a
+session over the *unmodified*, dynamic-width fp32 graph with XNNPACK added and
+`session.disable_cpu_ep_fallback=1` **fails to build**:
+
+```
+E onnxruntime: [E:onnxruntime:, inference_session.cc:2758 Initialize] This session contains
+graph nodes that are assigned to the default CPU EP, but fallback to CPU EP has been
+explicitly disabled by the user.
+```
+
+so XNNPACK takes only part of Kokoro and the rest falls back — i.e. any XNNPACK run of this
+graph is a mixed partition, not an offload. ORT also warns on the same session:
+
+```
+W onnxruntime: [W:onnxruntime:ort-java, xnnpack_execution_provider.cc:166 XnnpackExecutionProvider]
+The XNNPACK EP utilizes an internal pthread-based thread pool for multi-threading. If ORT's
+thread pool size is > 1 and spinning is enabled, there will be contention between the two
+thread pools, and performance will suffer. Please set either intra_op_param.allow_spinning
+to 0 ... or the ORT intra-op threadpool size to 1.
+```
+
+Two consequences for anyone comparing against a peer that ships XNNPACK: (a) the graph as
+shipped is dynamic-width, which is the regime XNNPACK's convolution path declines, and the
+claimable ops are the Gemm/MatMul pairs; (b) the EP carries a second thread pool, so the
+obvious session settings (`intra_op=4..6`, spinning on) are the ones ORT says will be slow.
+Both are session/graph properties, not device properties — the same on every Android phone.
+
 ---
 
 ## 5. Reproduction checklist
@@ -354,7 +419,7 @@ pursue XNNPACK, gate the rewrite per-layer and let the EP's own partition report
 | `tools/adapt_kokoro_int8_output.py` | renames the int8 graph's `audio` output to `waveform`, verifying bit-identical outputs (§2) | `python3 tools/adapt_kokoro_int8_output.py --in int8.onnx --out int8-waveform.onnx` |
 
 The device-side harness (this repo's `spike-tts` module: `PerfSpikeRunner` +
-`PerfSpikeBenchmarkTest`, `-e leg a|b|c|d|e|f1|f2`) is Android-app-specific; §3.1 states the
+`PerfSpikeBenchmarkTest`, `-e leg a|b|c|d|e|f1|f2|g`) is Android-app-specific; §3.1 states the
 shape to reimplement in whatever runtime the target project uses.
 
 ## 7. Provenance
@@ -364,3 +429,21 @@ per-device JSON and WAV pairs live in `docs/prints/perfspike/`, which is gitigno
 document deliberately inlines every number it relies on. The reusable host tools are
 tracked and named in §2/§3: perceptual metrics + bands, the seeded blind-set generator, the
 int4 probe, and the 1-D→2-D conv rewriter with its parity gate.
+
+## Appendix A — peer claims, checked
+
+Peers were read at source (not from their marketing), because the useful question is not
+"what number did they print" but "what configuration produced it".
+
+| peer | what it actually claims | configuration it names | our cross-check |
+|---|---|---|---|
+| **VoiceShelf** (closed beta, Reddit) | "about 2.8× faster than real-time" (RTF ≈ 0.36) | Galaxy Z Fold 7 / Snapdragon 8 Elite; CPU-only **fp32**; int8 explicitly rejected as "could fail to synthesize certain segments"; **100 s buffers with low/high watermarks** so the phone idles between them; ≈1 GB APK. No thread count, ORT version, thermal or screen state. | **Inside our own spread**: our Fold (same SoC class) measured exactly **0.36** rested and 0.49–0.60 warm for the same fp32 config. Their buffer/watermark design *is* the duty cycling that keeps a device in the fast regime — the condition our harness fixes at "continuous" (§3.8). |
+| **Lectern** (Play) | **No quantitative performance claim at all** — "faster than real-time on most phones", no device named. Its changelog describes *mechanisms*: a keep-up measurement, thermal-aware voice swap, and "voices use more of your phone's fast cores instead of a fixed four". | sherpa-onnx runtime; 53 Kokoro voices; 132 MB "Light" vs 349 MB "High" packs. | Nothing to reproduce. Their mechanisms match three of our own findings (window/TTFA trade, thermal coupling, thread placement) but they publish no number. |
+| **NekoSpeak** (MIT, Android) | **No Kokoro RTF anywhere in the repo.** Its only device-named figure is Pocket-TTS "5–8 s for 1.2 s of audio" on SM7675, with no conditions. int8 is presented as a **size** option (≈115 MB on-demand vs 349 MB), not a speed one. | ONNX Runtime **1.18.0**, CPU EP only, `setIntraOpNumThreads(6)`, `ALL_OPT`, no XNNPACK; Kokoro at a **150-token** window with first-sentence flush; per-batch RTF timing logged only to logcat. | Its int8 file *is* the artifact we measured at ~2× slower than fp32 — and it never claimed otherwise. Its 150-token window matches our leg B finding that a smaller cap is the latency lever (0.524 vs 0.604 RTF, 960 ms vs 17.4 s TTFA on the Fold). |
+| **sherpa-onnx** (runtime behind Lectern / HayaiTTS / kokoro-reader's server) | Published RTF table is **Raspberry Pi 4 only** (kokoro-en 6.63/3.87/3.00/2.77 and multi-lang 7.64/4.47/3.43/3.19 at 1/2/3/4 threads, fp32 CPU). No phone, no int8, no XNNPACK numbers. | Defaults: `provider="cpu"`, `num_threads=1`, no XNNPACK flag exists on master (XNNPACK is an opt-in `provider="xnnpack"`), no `session.*` entries, ORT defaults for optimization level/memory pattern/arena. Kokoro is fed a **dynamic** width (`x_shape={1, <actual tokens>}`), one sentence-chunk per call, `max_token_len` = 510 from the style tensor. | Its defaults enable **strictly less** than our baseline (1 thread vs our 6, same CPU EP), so sherpa defaults cannot explain a faster peer. Its dynamic-width, chunk-per-sentence design is what our harness does too — and the 510 bound matches our cap-510 default. |
+
+Three consequences for anyone quoting this comparison: (a) only **one** peer publishes a
+phone number (VoiceShelf), and it sits at the fast end of *our own* measurement spread;
+(b) the "peers ship int8 so int8 must be faster" inference is a misreading — the shipper
+sells size and publishes no speed; (c) no peer states its measurement conditions, so the
+honest comparison is between *configurations*, not numbers.

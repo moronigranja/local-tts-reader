@@ -883,6 +883,297 @@ class PerfSpikeRunner(
         }
     }
 
+    // ------------------------------------------------- leg G (harness audit)
+
+    /**
+     * Leg G — harness-sensitivity audit (owner question, 2026-09-11).
+     *
+     * Several peer projects publish numbers this spike could not reproduce. The
+     * working hypothesis is that our own harness *fixes* axes they vary, so each
+     * config here isolates exactly one of them and every config is measured in
+     * [rounds] round-robin passes, which spreads thermal drift across all configs
+     * instead of charging it to whichever one ran last.
+     *
+     *  * `g0_fp32_t4` — the honest baseline: pinned fp32, explicit 4 threads (the
+     *    #147 knee), plain CPU EP.
+     *  * `g1_fp32_default_threads` — the *same* graph with **no**
+     *    `setIntraOpNumThreads`. This is what every `KokoroBenchmarkRunner` leg
+     *    actually ran (`OrtProvider.CPU.options = {}`), while its JSON records
+     *    `"threads": 6`; and it has no warm-up, so ORT's lazy graph init and — for
+     *    a quantized graph — weight prepacking land inside its timed number.
+     *    `first_infer_ms` here is that cost, reported on its own.
+     *  * `g2_fp32_xnnpack_t4` — pinned fp32 with the XNNPACK EP added. sherpa-onnx
+     *    (Lectern, HayaiTTS, kokoro-reader's server) enables XNNPACK by default;
+     *    no leg of this spike ever added it, so all of spike legs A–E measured the
+     *    plain CPU EP (MLAS) path only.
+     *  * `g3_xnnpack_claim` — creation-only probe with
+     *    `session.disable_cpu_ep_fallback=1`: session creation succeeding proves
+     *    XNNPACK claims *every* node; failing names the first unassigned node,
+     *    which is the claim map the conv-only source reading never produced.
+     *    Kokoro is 90 Conv + 7 ConvTranspose but also 102 MatMul + 73 Gemm — and
+     *    Gemm/MatMul are the ops XNNPACK can claim with a dynamic axis
+     *    (`input_ids` is `[1, 'input_ids_len']`).
+     *  * `g3_fp32_xnnpack_nospin` — the same XNNPACK session with
+     *    `session.intra_op.allow_spinning=0`, which is what ORT's own XNNPACK
+     *    warning recommends when ORT's pool has >1 thread (the EP carries a
+     *    second pthread pool).
+     *  * `g4_int8_t4` — the int8 model alone, warm, 4 threads.
+     *  * `g5_int8_oracle` — int8 measured the way leg A measured it: with a
+     *    resident fp32 oracle session inferring between the timed candidate
+     *    windows (two ORT pools in one process).
+     *
+     * RTF only: no wake lock is held and no energy field is emitted, so a plugged
+     * device is fine and each row's conditions come from [screenState] rather than
+     * from a constant.
+     */
+    fun runHarnessSensitivity(
+        rounds: Int,
+        corpusName: String,
+        threads: Int,
+        log: (String) -> Unit,
+    ): Boolean {
+        val outFile = File(outDir, "perfspike_g.json")
+        val json =
+            JSONObject()
+                .put("device", "${Build.MANUFACTURER} ${Build.MODEL}")
+                .put("sdk", Build.VERSION.SDK_INT)
+                .put("mem_off", memOff)
+                .put("screen", screenState())
+                .put("threads", threads)
+                .put("rounds", rounds)
+                .put("corpus", corpusName)
+        return try {
+            if (!requireModels(listOf(FP32_MODEL, "kokoro-voices"), log)) return false
+            val hasInt8 = File(models, INT8_MODEL).isFile
+            if (!hasInt8) log("int8 model not staged — g4/g5 will be skipped")
+            val hasReshaped = File(models, RESHAPED_MODEL).isFile
+
+            // Claim probe first: it needs no corpus and its verdict is a property
+            // of the graph + ORT build (it does not vary by device), so it is
+            // flushed immediately and survives whatever the RTF configs do.
+            val probes = JSONArray()
+            probes.put(claimProbe(FP32_MODEL, threads, log))
+            if (hasReshaped) probes.put(claimProbe(RESHAPED_MODEL, threads, log))
+            json.put("claim_probe", probes)
+            flush(outFile, json)
+
+            val rows = corpusRows(corpusName, null)
+            val tokenizer = KokoroTokenizer(KokoroVocabulary.resource())
+            val voices = KokoroVoiceBank.load(File(models, "kokoro-voices"))
+            val windows = rows.flatMap { windowsOf(it, tokenizer, voices, null) }
+            json.put("windows", windows.size)
+
+            val configs =
+                buildList {
+                    add(GConfig("g0_fp32_t4", FP32_MODEL, threads))
+                    add(GConfig("g1_fp32_default_threads", FP32_MODEL, null))
+                    add(GConfig("g2_fp32_xnnpack_t4", FP32_MODEL, threads, xnnpack = true))
+                    add(GConfig("g3_fp32_xnnpack_nospin", FP32_MODEL, threads, xnnpack = true, noSpin = true))
+                    if (hasInt8) {
+                        add(GConfig("g4_int8_t4", INT8_MODEL, threads))
+                        add(GConfig("g5_int8_oracle", INT8_MODEL, threads, oracle = true))
+                    }
+                }
+            val results = JSONArray()
+            json.put("results", results)
+            for (round in 1..rounds) {
+                for (config in configs) {
+                    results.put(measureGConfig(config, windows, round, log))
+                    flush(outFile, json)
+                }
+            }
+
+            // Self-describing summary: best RTF per config (min over rounds) and
+            // the ratios the owner question is actually about.
+            val best = HashMap<String, Double>()
+            for (i in 0 until results.length()) {
+                val row = results.getJSONObject(i)
+                val rtf = row.optDouble("rtf", Double.NaN)
+                if (rtf.isNaN()) continue
+                val id = row.getString("config")
+                if (!best.containsKey(id) || rtf < best.getValue(id)) best[id] = rtf
+            }
+            val ratios = JSONObject()
+            for ((id, rtf) in best) ratios.put(id, rtf)
+            ratio(best, "g2_fp32_xnnpack_t4", "g0_fp32_t4")?.let { ratios.put("xnnpack_over_base", it) }
+            ratio(best, "g1_fp32_default_threads", "g0_fp32_t4")?.let { ratios.put("default_threads_over_t$threads", it) }
+            if (hasInt8) {
+                ratio(best, "g4_int8_t4", "g0_fp32_t4")?.let { ratios.put("int8_over_fp32", it) }
+                ratio(best, "g5_int8_oracle", "g4_int8_t4")?.let { ratios.put("int8_oracle_penalty", it) }
+            }
+            json.put("rtf_best", ratios)
+            json.put("conditions", conditionsJson())
+            flush(outFile, json)
+            log("perfspike_g.json written to $outDir ($results.length() rows)")
+            true
+        } catch (e: Throwable) {
+            log("leg G unavailable: $e")
+            json.put("error", e.toString())
+            flush(outFile, json)
+            false
+        }
+    }
+
+    /** One sensitivity config: which model, which thread setting, which EP/wrapper. */
+    private data class GConfig(
+        val id: String,
+        val model: String,
+        val threads: Int?,
+        val xnnpack: Boolean = false,
+        /**
+         * `session.intra_op.allow_spinning=0`. ORT's own XNNPACK warning
+         * (`xnnpack_execution_provider.cc:166`) says the EP runs its own
+         * pthread pool and that with >1 ORT threads and spinning enabled "there
+         * will be contention between the two thread pools, and performance will
+         * suffer" — this config is that recommendation, measured.
+         */
+        val noSpin: Boolean = false,
+        /**
+         * Keep a resident fp32 session open and infer with it between timed
+         * candidate windows — `KokoroBenchmarkRunner.measure`'s structure.
+         */
+        val oracle: Boolean = false,
+    )
+
+    private fun gFactory(
+        threads: Int?,
+        xnnpack: Boolean,
+        noSpin: Boolean = false,
+    ): (OrtSession.SessionOptions) -> Unit =
+        { options ->
+            if (threads != null) options.setIntraOpNumThreads(threads)
+            if (xnnpack) options.addXnnpack(mapOf("intra_op_num_threads" to (threads ?: THREADS).toString()))
+            if (noSpin) options.addConfigEntry("session.intra_op.allow_spinning", "0")
+            if (memOff) {
+                options.setMemoryPatternOptimization(false)
+                options.setCPUArenaAllocator(false)
+            }
+        }
+
+    private fun measureGConfig(
+        config: GConfig,
+        windows: List<Window>,
+        round: Int,
+        log: (String) -> Unit,
+    ): JSONObject {
+        val thermal = ThermalProbe(context)
+        val power = PowerProbe(context)
+        thermal.start()
+        power.start()
+        val row =
+            JSONObject()
+                .put("config", config.id)
+                .put("round", round)
+                .put("model", config.model)
+                .put("threads", config.threads ?: JSONObject.NULL)
+                .put("xnnpack", config.xnnpack)
+                .put("oracle_resident", config.oracle)
+        var oracle: KokoroSession? = null
+        try {
+            if (config.oracle) {
+                oracle = OrtKokoroSession.open(File(models, FP32_MODEL), sessionFactory = gFactory(config.threads, false))
+                oracle.infer(windows.first().tokens, windows.first().style, 1.0)
+            }
+            val tOpen = System.currentTimeMillis()
+            val session =
+                OrtKokoroSession.open(
+                    File(models, config.model),
+                    sessionFactory = gFactory(config.threads, config.xnnpack, config.noSpin),
+                )
+            row.put("engine_open_ms", System.currentTimeMillis() - tOpen)
+            session.use {
+                val firstMs = measureTimeMillis { session.infer(windows.first().tokens, windows.first().style, 1.0) }
+                row.put("first_infer_ms", firstMs)
+                val perWindow = LongArray(windows.size)
+                var audioSeconds = 0.0
+                val wall =
+                    measureTimeMillis {
+                        for ((i, window) in windows.withIndex()) {
+                            val ms =
+                                measureTimeMillis {
+                                    audioSeconds += session.infer(window.tokens, window.style, 1.0).audio.size / SAMPLE_RATE
+                                }
+                            perWindow[i] = ms
+                            oracle?.infer(window.tokens, window.style, 1.0)
+                        }
+                    }
+                val sorted = perWindow.sortedArray()
+                row.put("audio_seconds", audioSeconds)
+                row.put("wall_ms", wall)
+                row.put("rtf", wall / 1000.0 / audioSeconds)
+                row.put("throughput_audio_s_per_s", audioSeconds / wall * 1000.0)
+                row.put("window_ms_p50", percentile(sorted, 0.5))
+                row.put("window_ms_p95", percentile(sorted, 0.95))
+                row.put("window_ms_max", sorted.last())
+                log(
+                    "round $round ${config.id}: first=${firstMs}ms ${"%.2f".format(audioSeconds)}s audio in $wall ms, " +
+                        "RTF ${"%.3f".format(row.getDouble("rtf"))}, p50=${row.getLong("window_ms_p50")}ms",
+                )
+            }
+            val mem = Debug.MemoryInfo()
+            Debug.getMemoryInfo(mem)
+            row.put("vm_hwm_kb", readVmHwm())
+            row.put("total_pss_kb", mem.totalPss)
+            row.put("battery_temp_c", power.maxBatteryTempC)
+            row.put("cpus_observed", JSONArray(power.cpusObserved.toList()))
+            row.put("thermal_status_max", thermal.maxStatus)
+            row.put("thermal_headroom_max", thermal.maxHeadroom.toDouble())
+            row.put("screen", screenState())
+        } finally {
+            oracle?.close()
+            power.stop()
+            thermal.stop()
+        }
+        return row
+    }
+
+    /**
+     * Creation-only XNNPACK claim probe. With CPU-EP fallback disabled, ORT
+     * builds a session only when one EP covers every node; the thrown message
+     * names the first node left unassigned, which is the claim map we want.
+     */
+    private fun claimProbe(
+        model: String,
+        threads: Int,
+        log: (String) -> Unit,
+    ): JSONObject {
+        val probe = JSONObject().put("model", model)
+        val env = OrtEnvironment.getEnvironment()
+        try {
+            val options = OrtSession.SessionOptions()
+            options.setOptimizationLevel(OrtSession.SessionOptions.OptLevel.ALL_OPT)
+            options.setIntraOpNumThreads(threads)
+            options.addXnnpack(mapOf("intra_op_num_threads" to threads.toString()))
+            options.addConfigEntry("session.disable_cpu_ep_fallback", "1")
+            env.createSession(File(models, model).absolutePath, options).close()
+            probe.put("full_claim", true)
+            probe.put("error", JSONObject.NULL)
+            log("claim probe [$model]: XNNPACK claims the whole graph")
+        } catch (e: Throwable) {
+            probe.put("full_claim", false)
+            probe.put("error", e.toString())
+            log("claim probe [$model]: rejected — ${e.message}")
+        }
+        return probe
+    }
+
+    private fun conditionsJson(): JSONObject =
+        JSONObject()
+            .put("screen", screenState())
+            .put("sdk", Build.VERSION.SDK_INT)
+            .put("threads_argument", "explicit where noted; g1 leaves ORT's default")
+
+    private fun ratio(
+        best: Map<String, Double>,
+        a: String,
+        b: String,
+    ): Double? {
+        val ra = best[a] ?: return null
+        val rb = best[b] ?: return null
+        if (rb == 0.0) return null
+        return ra / rb
+    }
+
     // ------------------------------------------------------------- leg D parts
 
     private data class Config(
@@ -1654,6 +1945,11 @@ class PerfSpikeRunner(
         file: File,
         json: JSONObject,
     ) {
-        file.writeText(json.toString(2))
+        val text = json.toString(2)
+        file.writeText(text)
+        // Mirror into internal storage: `/sdcard` (FUSE) is not reachable from
+        // `adb shell run-as`, so a run whose only copy is the external file
+        // cannot be pulled off a rebooted/screen-off device.
+        runCatching { File(context.filesDir, file.name).writeText(text) }
     }
 }

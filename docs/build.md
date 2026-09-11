@@ -313,9 +313,17 @@ adb -s $S shell "run-as com.moronigranja.localttsreader.spiketts ls -l files/mod
 ```bash
 adb -s $S shell am instrument -w -e class \
   com.moronigranja.localttsreader.spiketts.PerfSpikeBenchmarkTest \
-  -e leg <a|b|c|d|e|f1|f2> [-e runs 3] [-e corpus corpus_pregen.tsv] [-e passages 16] [-e threads 6] [-e memOff 1] \
+  -e leg <a|b|c|d|e|f1|f2|g> [-e runs 3] [-e corpus corpus_pregen.tsv] [-e passages 16] [-e threads 6] [-e memOff 1] \
   com.moronigranja.localttsreader.spiketts.test/androidx.test.runner.AndroidJUnitRunner
 adb -s $S logcat -d -s KokoroSpike      # per-leg progress + DONE
+```
+
+Results are flushed to **both** the external files dir and the app's internal `files/`
+after every step; pull from the internal copy, because `/sdcard` is not reachable from
+`adb shell run-as` on a sleeping device:
+
+```bash
+adb -s $S exec-out run-as com.moronigranja.localttsreader.spiketts cat files/perfspike_g.json
 ```
 
 Leg → args → what it writes:
@@ -329,6 +337,7 @@ Leg → args → what it writes:
 | `e` | `-e corpus corpus_pregen.tsv -e passages 16\|8 -e runs 1` | `perfspike_e.json` | energy per audio-hour at 100/50/33% duty |
 | `c` | — | `perfspike_c.json` | MODE_STATIC vs per-window MODE_STREAM (underruns, first audio) |
 | `f2` | — | `perfspike_f2.json` | XNNPACK full claim vs partial offload (gated — see above) |
+| `g` | `-e runs 2 -e threads 4 -e corpus corpus_g.tsv` | `perfspike_g.json` | **harness-sensitivity audit**: is a leg's number a property of the model or of the harness (thread default, XNNPACK, warm-up, resident oracle)? RTF only — no wake lock, plugged is fine; `corpus_g.tsv` is a 1-row corpus that bounds each config to a couple of minutes |
 
 **Screen state matters per device.** The plan's default is screen off (the listening
 case), and every JSON records the state it ran under. On the Fold 8 that default is not
@@ -338,7 +347,12 @@ for the same cap (measured 2026-09-11 — Samsung caps CPU with the display off 
 the slow runs vs 40.7 °C during the fast ones). Run the Fold's legs with the screen on
 (`input keyevent 224`, `svc power stayon true`, `settings put system screen_off_timeout
 2147483647`) and read `screen` in the JSON; the S22 Ultra shows no such effect (fp32 control
-0.678 with the screen off, the recorded regime).
+0.678 with the screen off, the recorded regime). **Caveat:** a leg's `screen` field is only
+captured at leg start, and the per-pass copies of `KokoroBenchmarkRunner`'s JSON carry a
+*hard-coded* `"screen": "off/locked (instrumented)"` string — the Fold's leg A was published
+as "screen on" while its own record read `interactive=false`. `PerfSpikeRunner` legs
+re-read `screenState()` per config; for the legacy legs, verify the state out-of-band
+instead of trusting the field.
 
 **Leg C makes sound.** The runner sets the track gain to 0.05 (−26 dB) and the media volume
 should be at its floor: `cmd media_session volume --stream 3 --set 1` (`media volume` does not
