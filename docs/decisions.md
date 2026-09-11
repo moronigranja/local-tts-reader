@@ -2676,8 +2676,23 @@ three-way spike (KittenTTS Nano vs CosyVoice3 vs Kokoro baseline):
   stand), pending the Nano/MOSS device numbers.
 - **Rejections recorded in the sweep**: Soprano (4.1×, slower than realtime),
   Neu-TTS-Nano (GGUF — would force a second inference convention), Chatterbox
-  (7.5 GB peak), Pocket TTS (best mid-tier CPU ratio but no Android runtime
-  path — watch, not a leg).
+  (7.5 GB peak), Pocket TTS (~~best mid-tier CPU ratio but no Android runtime
+  path — watch, not a leg~~ — **see the correction below**).
+  - **Correction (2026-09-11): the Pocket TTS rejection was wrong.** An Android
+    ONNX path exists and ships: NekoSpeak v1.4.2 runs pocket-tts as **five ORT
+    sessions** (Mimi encoder/decoder, text conditioner, `flow_lm_main`,
+    `flow_lm_flow`) with int8 on the heavy graphs — the identical graph split
+    the community export publishes (`KevinAHM/pocket-tts-onnx`, which also
+    ships int8 + streaming and per-language bundles), with a C++ ORT runtime
+    (`VolgaGerm/PocketTTS.cpp`) as a third path. At **100M params / ~176 MB,
+    6 languages (en/de/fr/it/pt/es) and zero-shot cloning**, it is a D5-class
+    cloning engine ~20× smaller than either incumbent (CosyVoice3 3.47 GiB,
+    Chatterbox 3.2 GB) and the first candidate that could plausibly clone
+    inside a phone's live budget rather than pregen-only. It was never a D3
+    leg and this does not add it to one — the open gates are an unmeasured
+    ARM/phone RTF, a **second G2P convention** (Misaki/sentencepiece beside
+    espeak-ng, #97), unverified read-along timing, and CC-BY-4.0 gated weights.
+    Full row: landscape.md §"D3 comparison sweep".
 
 Docs only — no code, no pack staging. The spike runs in `spike-tts` per the
 roadmap D3 acceptance (one comparison table + typed per-engine keep/drop/defer).
