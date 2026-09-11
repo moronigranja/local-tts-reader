@@ -218,6 +218,13 @@ Take-away: cap 150 for weak devices; TTFA at cap 510 costs the HiBreak **2.4 min
 silence** before the first sound. The S22 leg ran on a hot device (see §3.3) and its
 absolute RTF is a degraded-state number; the cap-to-cap ordering is the transferable part.
 
+Two Fold runs exist and the table mixes them deliberately: caps 150/300 come from the run
+with the screen on throughout; the cap-510 row is from the earlier run whose cap-510 phase
+had the display awake (RTF 0.604, first window 17.4 s). In the re-run — where the display
+had fallen asleep before that phase — the same cap 510 measured **RTF 1.32 and first window
+23.7 s**, i.e. the screen-off throttle of §3.3, which is why `first_window_ms` ordering is
+the number to trust across runs.
+
 ### 4.3 Leg C — output path: whole-passage `MODE_STATIC` vs per-window `MODE_STREAM`
 
 24 kHz mono PCM16, track gain 0.05 (−26 dB); `first_audio_ms` = `play()` → first audible
