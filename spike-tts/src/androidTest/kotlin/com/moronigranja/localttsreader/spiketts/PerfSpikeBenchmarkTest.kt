@@ -22,15 +22,17 @@ import org.junit.runner.RunWith
  *     -e leg a \
  *     com.moronigranja.localttsreader.spiketts.test/androidx.test.runner.AndroidJUnitRunner
  *
- * Args: `leg` a|b|c|d|e|f1|f2|g (default a), `runs` 1-10 (default 3),
+ * Args: `leg` a|b|c|d|e|f1|f2|g|h (default a), `runs` 1-10 (default 3),
  * `corpus` (default corpus.tsv), `passages` 1-64 (default 16),
  * `threads` 1-8 (default 6), `memOff` 1 (lmkd retry: memory-pattern + CPU arena
  * allocator off).
  *
- * Leg `g` is the harness-sensitivity audit (RTF only, no wake lock — a plugged
- * device is fine): it re-measures the fp32 baseline against the axes legs A–E
- * held fixed (ORT's default thread count, XNNPACK off, no warm-up, a resident
- * oracle session).
+ * Leg `g` is the harness-sensitivity audit and leg `h` the intra-op thread sweep
+ * (both RTF-only, no wake lock — a plugged device is fine). Leg `g` re-measures
+ * the fp32 baseline against the axes legs A–E held fixed (ORT's default thread
+ * count, XNNPACK off, no warm-up, a resident oracle session); leg `h` sweeps
+ * T = 1,2,3,4,6,8 plus an unset (`t_default`) leg with a warm-up and round-robin
+ * rounds, and records the process's thread inventory per leg.
  */
 @RunWith(AndroidJUnit4::class)
 class PerfSpikeBenchmarkTest {
@@ -58,7 +60,8 @@ class PerfSpikeBenchmarkTest {
                 "f1" -> runner.runInt4Probe(log)
                 "f2" -> runner.runXnnpackPartition(threads, log)
                 "g" -> runner.runHarnessSensitivity(runs, corpus, threads, log)
-                else -> throw IllegalArgumentException("unknown leg '$leg' (a|b|c|d|e|f1|f2|g)")
+                "h" -> runner.runThreadSweep(runs, corpus, log)
+                else -> throw IllegalArgumentException("unknown leg '$leg' (a|b|c|d|e|f1|f2|g|h)")
             }
         assertTrue("leg $leg failed", ok)
     }

@@ -477,6 +477,50 @@ What this settles:
   unplugged + display-off legs measured 1.32–1.79. The slow condition is specifically
   *unplugged **and** display off*.
 
+---
+
+### 4.9 Thread sweep, plugged — the knee moves with the thermal regime (Fold 8)
+
+The same T axis #147 measured **unplugged and cool** (the shipped `tts_threads` default of 4
+comes from there), re-run **plugged and charging** under leg-G methodology (warm-up, best-of-3
+round-robin, single session per config, `corpus.tsv` = 3 windows / 63.9 s audio). The run
+sat in a throttled charging regime throughout: AC powered at ~0.47 A, battery 37.9 → 40.1 °C,
+**thermal status 3 (severe)**, AP 51 °C, display on.
+
+| T | #147 unplugged+cool RTF | leg H plugged+hot best RTF | ratio |
+|---|---|---|---|
+| 1 | 1.212 | 1.758 | 1.45× |
+| 2 | 0.668 | 1.147 | 1.72× |
+| 3 | 0.671 | 0.962 | 1.43× |
+| 4 | 0.575 | **0.781** | 1.36× |
+| **6** | **0.480** | 0.810 | 1.69× |
+| 8 | 0.611 | 0.832 | 1.36× |
+| unset (`t_default`) | 0.504 (leg G, different regime) | 0.781 | — |
+
+Findings:
+
+* **The knee moves with the thermal regime.** Cool and unplugged, 6 threads won and 8 lost
+  (0.4796 vs 0.6115); throttled and charging, **4 wins** (0.781) and 6/8 cluster at
+  0.81–0.83. More workers mean more heat means a lower DVFS cap — the optimum is a function
+  of the sustained thermal state, not a constant.
+* **`t_default` behaves like 6–8 threads, not like 4** (0.869 / 0.932 / 0.781 across rounds,
+  statistically indistinguishable from `t6`/`t8`): ORT's unset thread setting is "all
+  cores", so neither the shipped default of 4 nor the recorded `"threads": 6` of the legacy
+  legs describes what it actually did.
+* **Charging + hot costs 1.36–2.0× at the same T** — never benchmark a charging device and
+  read the number as capability. A user who charges while listening (or while pregenerating
+  overnight) is *in* this regime, which is an argument for the thermal-aware thread policy
+  below rather than for a single fixed default.
+* Round-to-round drift on a charging device was large (`t1` 2.43 → 1.76 → 2.19) even with
+  the temperature recorded — the only honest per-leg summary is best-of-rounds with the
+  battery temperature published next to it.
+
+Product rule this supports: **default 6 threads, demote to 4 when thermal status ≥ 2 (or
+while charging)** — 6 is measured ~17 % faster than 4 on a cool device (0.480 vs 0.575) and
+4 is measured faster on a throttled one (0.781 vs 0.810), and the same rule is what the
+adaptive peers ship (candela's core-count auto-sizing, Lectern's "more of your phone's fast
+cores instead of a fixed four").
+
 ## 5. Reproduction checklist
 
 1. Pin artifacts by sha256 (§2) and verify the staged files' digests on-device.

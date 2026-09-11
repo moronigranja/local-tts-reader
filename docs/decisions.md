@@ -105,6 +105,24 @@ are mandatory. `PerfSpikeRunner.flush` also now mirrors every JSON into the app'
 `files/` so results survive a sleeping device (`/sdcard` is not readable via
 `adb shell run-as`).
 
+**Leg H (thread sweep, plugged) — the knee moves with the thermal regime.** The owner asked
+for #147's T axis re-run on the Fold 8 with the device plugged in; the run sat in a throttled
+charging regime the whole time (AC, ~0.47 A charging current, battery 37.9 → 40.1 °C,
+**thermal status 3/severe**, AP 51 °C). Best RTF per T, best of 3 round-robin rounds:
+t1 1.758, t2 1.147, t3 0.962, **t4 0.781 (knee)**, t6 0.810, t8 0.832, **t_default 0.781**
+(the unset setting identifies itself with the knee, i.e. ORT's default is all-cores, not 4).
+Against #147's unplugged+cool sweep on the same device and corpus, charging+hot costs
+**1.36–2.0× at the same T**, and the knee *moves*: 6 threads wins cool, 4 wins throttled
+(more workers = more heat = lower DVFS cap). Two product consequences: (1) a single fixed
+`tts_threads` default cannot be optimal — **default 6, demote to 4 when thermal status ≥ 2 or
+while charging** (the adaptive pattern candela and Lectern ship); (2) never benchmark a
+charging Samsung device and read the number as capability — this run measured the same
+configs 1.36–2.0× slower than #147's unplugged pass. Round-to-round drift on a charging
+device was large (t1 2.43 → 1.76 → 2.19), so best-of-rounds with the battery temperature
+published is the only honest summary. Tooling note: `adb tcpip 5555` run mid-leg kills the
+`am instrument` shell (the test survives and keeps flushing; the OK/FAIL report is lost) —
+enable TCP mode *before* starting a device run.
+
 ---
 
 ## 150. Cross-app performance spike (decisions #148): int8 tier rejected, window cap is a latency lever, per-window output feeding fails, ADPF is the one real speed lever, int4 CPU kernel exists (2026-09-11)

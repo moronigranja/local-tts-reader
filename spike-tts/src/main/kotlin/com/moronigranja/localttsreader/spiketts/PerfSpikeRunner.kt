@@ -1174,6 +1174,117 @@ class PerfSpikeRunner(
         return ra / rb
     }
 
+    // ------------------------------------------------- leg H (thread sweep)
+
+    /**
+     * Leg H — single-session intra-op thread sweep on the device under test,
+     * re-running #147's T axis under leg-G methodology (warm-up included,
+     * round-robin rounds, conditions observed rather than asserted).
+     *
+     * #147 measured this axis on the Fold 8 **unplugged with the display off**
+     * (t1 1.2118, t2 0.6681, t3 0.6706, t4 0.5754, t6 0.4796, t8 0.6115 RTF,
+     * best of 3, 2-passage corpus) and the shipped `tts_threads` default of 4
+     * came from it — while leg G then measured ORT's *unset* thread setting 15 %
+     * faster than an explicit 4 on the same graph, and #147's own numbers have
+     * t6 best. This leg re-measures the axis and adds a `t_default` leg (no
+     * `setIntraOpNumThreads` at all) so the unset case is identified instead of
+     * assumed, recording the process's actual thread inventory per leg.
+     *
+     * Run it plugged: the device's energy columns are then null by construction
+     * (`unplugged_fraction` ≈ 0), which is the point — this is a latency and
+     * placement measurement, and every row carries the observed plug/screen
+     * state so it can be compared with the unplugged #147 table only on the
+     * time axis.
+     */
+    fun runThreadSweep(
+        rounds: Int,
+        corpusName: String,
+        log: (String) -> Unit,
+    ): Boolean {
+        val outFile = File(outDir, "perfspike_h.json")
+        val json =
+            JSONObject()
+                .put("device", "${Build.MANUFACTURER} ${Build.MODEL}")
+                .put("sdk", Build.VERSION.SDK_INT)
+                .put("mem_off", memOff)
+                .put("screen", screenState())
+                .put("cores", Runtime.getRuntime().availableProcessors())
+                .put("rounds", rounds)
+                .put("corpus", corpusName)
+                .put("note", "single session, W=1, warm-up window before the timed pass; plugged runs have null energy")
+        return try {
+            if (!requireModels(listOf(FP32_MODEL, "kokoro-voices"), log)) return false
+            val rows = corpusRows(corpusName, null)
+            val tokenizer = KokoroTokenizer(KokoroVocabulary.resource())
+            val voices = KokoroVoiceBank.load(File(models, "kokoro-voices"))
+            val windows = rows.flatMap { windowsOf(it, tokenizer, voices, null) }
+            json.put("windows", windows.size)
+            flush(outFile, json)
+
+            val configs =
+                buildList {
+                    for (t in intArrayOf(1, 2, 3, 4, 6, 8)) add(GConfig("t$t", FP32_MODEL, t))
+                    // What #150 actually ran: no thread setting at all.
+                    add(GConfig("t_default", FP32_MODEL, null))
+                }
+            val results = JSONArray()
+            json.put("results", results)
+            for (round in 1..rounds) {
+                for (config in configs) {
+                    val row = measureGConfig(config, windows, round, log)
+                    row.put("thread_inventory", threadInventory())
+                    results.put(row)
+                    flush(outFile, json)
+                }
+            }
+
+            val best = HashMap<String, Double>()
+            for (i in 0 until results.length()) {
+                val row = results.getJSONObject(i)
+                val rtf = row.optDouble("rtf", Double.NaN)
+                if (rtf.isNaN()) continue
+                val id = row.getString("config")
+                if (!best.containsKey(id) || rtf < best.getValue(id)) best[id] = rtf
+            }
+            val summary = JSONObject()
+            val byRtf = best.entries.sortedBy { it.value }
+            for ((id, rtf) in byRtf) summary.put(id, rtf)
+            val bestId = byRtf.firstOrNull()?.key
+            for ((id, rtf) in best) {
+                summary.put("${id}_over_best", if (bestId != null) rtf / best.getValue(bestId) else JSONObject.NULL)
+            }
+            json.put("rtf_best", summary)
+            json.put("best_config", bestId ?: JSONObject.NULL)
+            json.put("conditions", conditionsJson())
+            flush(outFile, json)
+            log("perfspike_h.json written to $outDir — best=$bestId (${results.length()} rows)")
+            true
+        } catch (e: Throwable) {
+            log("leg H unavailable: $e")
+            json.put("error", e.toString())
+            flush(outFile, json)
+            false
+        }
+    }
+
+    /**
+     * The process's thread inventory at the end of a leg: total threads plus
+     * those whose `comm` names an ORT/MLAS pool worker. ORT's Android pool
+     * threads are not guaranteed to be named, so this is read as a lower bound on
+     * the pool size, next to the explicit T this leg set.
+     */
+    private fun threadInventory(): JSONObject {
+        val comms =
+            File("/proc/self/task").listFiles()?.mapNotNull { task ->
+                runCatching { File(task, "comm").readText().trim() }.getOrNull()
+            } ?: emptyList()
+        val named = comms.filter { it.contains("ort", ignoreCase = true) || it.contains("mlas", ignoreCase = true) }
+        return JSONObject()
+            .put("process_threads", comms.size)
+            .put("ort_named_threads", named.size)
+            .put("named_sample", JSONArray(named.distinct().take(8)))
+    }
+
     // ------------------------------------------------------------- leg D parts
 
     private data class Config(
