@@ -4,6 +4,73 @@ The rationale behind load-bearing decisions. New decisions get an entry here wit
 context, alternatives considered, and consequences. Keep entries short — this is a log,
 not a spec (specs live in architecture.md / feature docs).
 
+## 148. Cross-app Kokoro performance survey — peers ship tiering, energy policy and int8, not faster synthesis; one Phase D spike designed (2026-09-11)
+
+Owner asked whether the Android apps that read books with Kokoro are faster (three named:
+Lectern, VoiceShelf, NekoSpeak), to find a lever for ≥realtime on weak devices and lower
+battery on flagships. Eight read-only probes covered the named apps plus candela (already
+tracked), HayaiTTS and the sherpa-onnx engine APKs. Full reports:
+`docs/landscape.md` §"Cross-app on-device Kokoro survey"; raw probes at
+`agent://LecternProbe`, `agent://VoiceShelfProbe`, `agent://NekoSpeakProbe`,
+`agent://CandelaProbe`, `agent://AndroidKokoroAppsSurvey`, `agent://SherpaKokoroProbe`,
+`agent://KokoroModelVariants`, `agent://OrtPerfLevers`.
+
+**No peer synthesizes faster, and none publishes a phone RTF.** Every app runs the same
+Kokoro export family on the CPU EP, single-session; NekoSpeak's session config is ours
+(6 threads, ALL_OPT). VoiceShelf's only number — 2.8× realtime, RTF ≈0.36 on SD 8 Elite —
+is the same ballpark as our SM8850 fp32 measurement (0.43–0.66). Their advantage is
+pipeline and policy, i.e.:
+
+1. **A Kokoro quality/tier switch driven by a measured signal.** Lectern ships a 132 MB
+   "Light" and a 349 MB "High" pack, warns before the first high-quality play, and
+   auto-falls back; it also measures whether a voice keeps up and *suggests a lighter
+   one*, and guards on thermal status. Our `realtimeCapable=false` only widens the
+   playback cushion — it neither suggests nor switches.
+2. **int8 Kokoro that ships.** Three independent projects ship one: NekoSpeak's default
+   92,361,271 B dynamic-QUInt8 model (the thewh1teagle lineage, now 401-gated upstream —
+   the mirror re-supplies it), sherpa's `kokoro-int8-multi-lang-v1_1` engine APK, and
+   Lectern's Light tier. Our own #86/#99 numbers already bound the win: HiBreak 2.621 vs
+   2.89 fp32, S22 0.58–0.61, SM8850-class 0.36/0.50 vs 0.52 (~30%); the only rejection is
+   our 0.001 waveform gate, and the owner's blind A/B heard no damage. 92 MB also cuts
+   cold open and PSS on weak-RAM devices.
+3. **Energy policy keyed to power and thermal state.** candela caps synthesis
+   concurrency from `THERMAL_STATUS_MODERATE` via `PowerManager.addThermalStatusListener`,
+   pauses pre-render in battery-saver, and demotes only the producer thread
+   (URGENT_AUDIO→BACKGROUND; the AudioTrack consumer keeps URGENT_AUDIO); VoiceShelf
+   buffer duty-cycles explicitly to let the phone rest; Lectern stops synthesis on pause.
+   Nothing here reacts to thermal status, battery-saver or charge state.
+4. **Core placement beyond a thread count.** Lectern replaced fixed-4 threads with "fast
+   cores"; candela auto-sizes from core count. Unused here: ORT thread-pool spinning
+   (`session.intra_op.allow_spinning`, `spin_duration_us`, ORT PR #28096) and Android ADPF
+   `PerformanceHintManager` (`createHintSession` + `reportActualWorkDuration`).
+
+**Weak-device realtime stays an engine tier** (D4): Piper 0.50 on the HiBreak where Kokoro
+is 2.84–3.12 (#99), 0.357 vs 3.19 on RPi4 (sherpa). int8 buys ~10–14% on A53 — not enough.
+
+**Two recorded verdicts need measurement before they close.** (a) XNNPACK partitions
+**2D** Conv/ConvTranspose/Gemm only; Kokoro's are Conv1d, so our "XNNPACK slower" tested a
+graph the EP could not claim. (b) Weight-only int4 (`MatMulNBits`) is claimed to have no
+CPU-EP kernel while our own HiBreak closer-look ran a MatMulNBits graph to finite output
+on ORT-android 1.23.2. Also recorded: QNN HTP needs static shapes plus quantized (u8/u16)
+graphs and supports `ai.onnx:Slice` only (no `StridedSlice` — the 3110 failure, matching
+#115); no peer has Kokoro on an NPU; no distilled/slim Kokoro exists.
+
+**Decision: one `spike-tts` measurement session, six legs, S22 + HiBreak** (roadmap D7):
+A int8-vs-fp32 tier with a level-matched blind listening set and a perceptual metric (the
+evidence to amend the 0.001 gate); B window-length sweep 150/300/510 (throughput vs
+first-audio — #139 varied workers×threads, never window length); C per-window AudioTrack
+feed re-probe (#83's inert MODE_STREAM predates #138's emit-early seam); D scheduling
+(ADPF hint session, `allow_spinning=0`, fast-core placement); E duty-cycle energy
+(continuous vs on/off at equal coverage, Wh per audio hour); F int4 re-probe and XNNPACK
+2D-reshape partition check. Every leg carries its own fp32 control and the session repeats
+the baseline last (#139 logged ~13% thermal drift); energy legs sample on battery only.
+Not spike legs: D4 Piper adoption and the power/thermal policy itself — those are product
+code whose *parameters* the spike measures.
+
+**#147 is reserved** for the in-flight single-session thread sweep (`ThreadSweepRunner` +
+`PowerProbe`, uncommitted in the worktree at this entry's date), so this entry takes the
+next free number.
+
 ## 146. First-release prep: import ceilings + OOM containment, Settings About group, accurate pack hosts, arm64-only APK (2026-09-10)
 
 Owner asked what to complete before publishing the first release (decisions #145 recorded

@@ -286,3 +286,52 @@ Sources: [Supertonic repo/archive notice](https://github.com/supertone-inc/super
 [chatterbox-multilingual-ONNX-q4](https://huggingface.co/BricksDisplay/chatterbox-multilingual-ONNX-q4),
 [Higgs Audio v3](https://www.boson.ai/blog/higgs-audio-v3-tts),
 [HF TTS+onnx hub sweep](https://huggingface.co/models?pipeline_tag=text-to-speech&library=onnx&sort=trending).
+
+## Cross-app on-device Kokoro survey (2026-09-11, decisions #148)
+
+Owner question: do the other Android apps that read books with Kokoro get better
+performance? Eight read-only probes covered the three named apps plus the tracked
+sibling and the adjacent stacks. **No peer beats this app's synthesis** — every one runs
+the same Kokoro export family on the CPU EP, and none publishes a phone
+realtime factor.
+
+| App | Runtime | Model / dtype | What it does that we do not |
+|---|---|---|---|
+| **Lectern** (Play `nl.hofstack.lectern`, €2.49) | sherpa-onnx (app FAQ + privacy policy) | Kokoro v1.0, 53 voices; **132 MB "Light" vs 349 MB "High"** packs | Kokoro quality switch with auto-fallback; **RTF guard** — "measures whether a voice keeps up, and suggests a lighter one only when it does not"; **thermal guard** ("a warm phone no longer swaps your narrator"); "voices use more of your phone's fast cores instead of a fixed four"; heavy DSP only on questions/emphasis; instant stop on pause |
+| **VoiceShelf** (closed beta) | CPU-only, custom libs | fp32, ~1 GB APK bundles the full-precision model | **Rejected quantization** ("could fail to synthesize certain segments… not acceptable even if it doubled the speed") and NPU/GPU; buffers ≤100 s with low/high watermarks and lets the phone idle between them to avoid heat/battery; author-reported 2.8× realtime (RTF ≈0.36) on SD 8 Elite |
+| **NekoSpeak** (`siva-sub/NekoSpeak`, MIT) | ORT 1.18 Kotlin AAR, CPU EP only | **`kokoro-v1.0.int8.onnx` 92,361,271 B dynamic QUInt8 — shipped default** (5,945 downloads) | ~150-token window batching + **first-sentence immediate flush** (TTFA); chunk-length-matched style vector; engine-swap service shape |
+| **HayaiTTS** | sherpa-onnx 1.13.2 JNI | Kokoro fp32 + int8, 600+ voices | system-TTS engine packaging; per-request RTF telemetry (still buffers whole audio) |
+| **sherpa-onnx engine APKs** | ORT, own `.so` | **`kokoro-int8-multi-lang-v1_1` 109 MB + 51 MB voices** | drop-in Android TextToSpeech engine any reader can use; `numThreads` default 1 |
+| **candela** (tracked sibling) | sherpa-onnx via VoxSherpa | Kokoro fp32; Supertonic 3 int8 | **`ThermalMonitor`** (MODERATE+ caps synth concurrency, auto-restores); **`PowerSaveMonitor`** (pauses pre-render in battery-saver, producer thread URGENT_AUDIO→BACKGROUND, consumer keeps URGENT_AUDIO); WorkManager pre-render gated on battery/storage; threads auto-sized by core count with a slider |
+
+Validated patterns (all from shipped apps):
+
+1. **int8 Kokoro ships on Android CPU** — three independent projects ship it, and
+   sherpa's export is `quantize_dynamic(QUInt8)` with no op restriction: the same op
+   family #86 measured (NekoSpeak's file is the thewh1teagle lineage, whose upstream
+   artifact is now 401-gated — the mirror re-supplies it).
+2. **Weak-device realtime is an engine tier, not a quantization** — Piper 0.50 on the
+   HiBreak where Kokoro is 2.84–3.12 (#99); RPi4 0.357 vs 3.19 (sherpa table). Both
+   reader apps expose a lighter voice and suggest it from a measured signal; our
+   `realtimeCapable=false` only widens the buffer.
+3. **Energy policy is explicit** — thermal/battery-saver gating, thread-priority
+   demotion for the producer alone, buffer duty-cycling instead of flat-out generation.
+4. **Accelerators stay dead in this ecosystem** — NNAPI (26% op coverage, session-creation
+   crash), QNN (dynamic shapes + `ScatterND`), ExecuTorch Vulkan (10× slower than CPU)
+   are measured failures in NekoSpeak's ADRs and ours; the only proven accelerator path
+   remains the ANE stage-split export (`laishere/kokoro-coreml`, 17–25×).
+5. **Untried here** — XNNPACK partitions **2D** Conv/ConvTranspose only (Kokoro's are 1D),
+   ORT thread-pool spinning controls, and Android ADPF `PerformanceHintManager`.
+
+Sources: [Lectern blog](https://lecternreader.app/blog/android-tts-vs-piper-kokoro) ·
+[Lectern changelog](https://lecternreader.app/changelog) ·
+[VoiceShelf post](https://www.reddit.com/r/LocalLLaMA/comments/1rop1rp/) ·
+[NekoSpeak](https://github.com/siva-sub/NekoSpeak) ·
+[candela](https://github.com/techempower-org/candela) (`ThermalMonitor.kt`,
+`PowerSaveMonitor.kt`, `EngineStreamingSource.kt`) ·
+[HayaiTTS](https://github.com/HayaiApp/HayaiTTS) ·
+[sherpa Kokoro models](https://k2-fsa.github.io/sherpa/onnx/tts/pretrained_models/kokoro.html) ·
+[sherpa RTF table](https://k2-fsa.github.io/sherpa/onnx/tts/pretrained_models/rtf.html) ·
+[sherpa int8 script](https://github.com/k2-fsa/sherpa-onnx/blob/master/scripts/kokoro/v1.1-zh/dynamic_quantization.py) ·
+[ORT XNNPACK EP](https://onnxruntime.ai/docs/execution-providers/Xnnpack-ExecutionProvider.html) ·
+[ORT QNN EP](https://onnxruntime.ai/docs/execution-providers/QNN-ExecutionProvider.html).

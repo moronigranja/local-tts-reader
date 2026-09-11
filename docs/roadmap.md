@@ -17,9 +17,10 @@ controls, backup & restore, and the app-wide player card. The current module and
 snapshot lives in the [README](../README.md#status).
 
 Queue order (dependency-first): the **owner's G0 listening pass** → **D1** seek horizon →
-**D4** (Piper adoption, which unblocks K2) → **K5** per-book voice plus the
-settings-surface defect → **Phase H** stats → **D5** high-end engine choice with the ORT
-int4 reference. G1's rule set and D5 are gated on G0; H is independent, so its position
+**D7** cross-app performance spike (measurement-only, decisions #148) → **D4** (Piper
+adoption, which unblocks K2) → **K5** per-book voice plus the settings-surface defect →
+**Phase H** stats → **D5** high-end engine choice with the ORT int4 reference. G1's rule
+set and D5 are gated on G0; H is independent, so its position
 is preference rather than dependency. This order, the release-state correction and the
 D6 closure are recorded in decisions #145. Open defects and their acceptance criteria are
 authoritative in [open-bugs.md](open-bugs.md).
@@ -113,6 +114,36 @@ ships one".
 The one remaining leg was never a cross-runtime question: an ORT int4 reference against
 the fp32 Kokoro baseline belongs to whichever engine D5 adopts, and is recorded there.
 
+### Peer-app cross-check — Android readers running Kokoro (decisions #148)
+
+Eight probes of the other Android apps that run Kokoro (Lectern, VoiceShelf, NekoSpeak,
+HayaiTTS, the sherpa-onnx engine APKs, plus candela) found **no peer that synthesizes
+faster than this app**, and no published phone RTF anywhere: every one runs the same
+export family on the CPU EP, and VoiceShelf's only number (RTF ≈0.36 on SD 8 Elite)
+matches our SM8850 fp32 measurement. Their real advantages are three, none of them
+synthesis throughput:
+
+- **int8 Kokoro ships on Android in three projects** — NekoSpeak's default 92 MB
+  dynamic-QUInt8 model, sherpa's `kokoro-int8-multi-lang-v1_1` engine APK, Lectern's
+  132 MB "Light" pack. Our numbers stand (HiBreak 2.621 vs 2.89 fp32; SM8850-class
+  0.36/0.50 vs 0.52), and the 0.001 waveform gate is the only rejection left — the
+  owner's listening A/B heard no damage. Amending that gate is an owner decision; the
+  evidence for it is D7 leg A.
+- **Power/thermal-aware generation** — candela caps synthesis concurrency at
+  `THERMAL_STATUS_MODERATE`, pauses pre-render in battery-saver, and demotes only the
+  producer thread; VoiceShelf buffer duty-cycles to let the phone rest; Lectern stops
+  synthesis on pause. Nothing here reacts to thermal status, battery-saver or charge
+  state — the pregen queue runs flat out to budget.
+- **Core placement beyond a thread count** — Lectern's "fast cores" allocation and
+  candela's core-count heuristic. Unused here: ORT thread-pool spinning controls and
+  Android ADPF `PerformanceHintManager`.
+
+Two verdicts are held open for measurement: the XNNPACK EP partitions **only 2D** convs
+(Kokoro's are 1D, so our "slower" result tested a graph the EP could not claim), and
+weight-only int4 (`MatMulNBits`) is claimed to have no CPU-EP kernel while our own
+HiBreak probe ran a MatMulNBits graph to finite output on ORT-android 1.23.2. Both are
+D7 legs.
+
 ### Phase J — offline NMT (decisions #114)
 
 | Model | Verdict |
@@ -146,6 +177,41 @@ Acceptance on both reference devices:
 79.6 s (S22) / 107.0 s (HiBreak). The 60 s dead-owner ensure wait was fixed
 (decisions #78) — remaining cost is the cold target's synchronous synthesis,
 which is exactly this item's target. Design unchanged.
+
+#### D7 — Cross-app performance spike (legs A–F) — decisions #148
+
+One `spike-tts` measurement session on the S22 and the HiBreak, answering the four levers
+the peer-app survey surfaced and closing the two conflicting verdicts. Measurement only —
+adopting anything it finds (int8 tier, power/thermal policy, a gate amendment) is a
+separate decision once the numbers exist.
+
+- **A — int8 tier.** Dynamic-QUInt8 Kokoro (NekoSpeak's 92,361,271 B artifact) against the
+  pinned fp32 oracle: RTF, energy per audio hour, PSS, cold open, plus a level-matched
+  blind listening set and a perceptual score — the evidence needed to replace the 0.001
+  waveform gate.
+- **B — window length.** 150 / 300 / 510-token windows over the same text: throughput
+  against first-audio latency. #139 swept workers×threads, never window length.
+- **C — incremental output.** Per-window AudioTrack writes re-probed: does the emit-early
+  seam (#138) beat whole-passage MODE_STATIC on underruns? #83's inert MODE_STREAM verdict
+  predates the seam.
+- **D — scheduling.** ADPF `PerformanceHintManager` hint session around the intra-op pool,
+  `session.intra_op.allow_spinning=0`, and fast-core placement — RTF, energy, and
+  UI-latency jitter (the complaint #137 answered with a thread slider).
+- **E — duty cycle.** Continuous vs on/off generation at equal coverage: energy per audio
+  hour and thermal headroom — the battery half of the owner's question.
+- **F — verdict repair.** int4 `MatMulNBits` CPU-EP availability re-probed; XNNPACK's
+  partition coverage re-checked on an H=1-reshaped static vocoder (open/partition gate
+  only — a speed claim needs its own export).
+
+Each leg runs its own fp32 control immediately before it and the session repeats the
+baseline last, because #139 logged ~13% thermal drift across a long session. Energy legs
+sample on battery only (a plugged leg reads as "energy not measured").
+
+Acceptance: every leg reports RTF, energy per audio hour, PSS and thermal headroom on both
+devices; leg A also produces a blind A/B set and a perceptual score against the fp32
+oracle; legs B–E report their own latency/energy deltas; leg F returns a binary verdict
+per claim. Nothing ships from this spike except the numbers and the gate-amendment
+decision they inform.
 
 #### D4 adoption — PiperEngine
 
