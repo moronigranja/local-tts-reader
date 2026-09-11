@@ -119,6 +119,25 @@ Kokoro ships inside the app.
   management; the APK ships no TTS model data. A language that is not downloaded is
   surfaced in settings with a "download" action, never a silent failure. CosyVoice3
   covers its 9 languages in one pack; engines like Piper would add per-language packs.
+- **Kokoro on-device performance/fidelity report (2026-09-11, decisions #148/#150)** — full
+  numbers and method in `docs/kokoro-on-device-perf.md` (self-contained, written to be
+  reusable by other projects investigating the same comparison). Durable results:
+  * the 92 MB int8 export peers ship is **not** a lever — ~2× slower than fp32 on the Fold 8
+    and 1.44× on the S22 Ultra, 1.6–1.9× the energy per audio-hour, and audibly "frayed" on
+    pt-BR (fp32 preferred on both devices) while en-US is near-indistinguishable; it also
+    names its waveform output `audio`, which an engine hard-coded to `waveform` rejects;
+  * a **small window cap (150) is the weak-device latency setting** — throughput is flat
+    across caps while first-audio grows from 8.7 s (150) to 143.6 s (510) on the HiBreak;
+  * **keep the whole-passage `MODE_STATIC` output path** — per-window streaming reaches
+    first audio after 34–85 s and underruns twice per 64 s of audio;
+  * **an ADPF hint session is the only measured speed lever** (+23 % throughput, +12 %
+    energy per audio-hour); spinning/priority/thread tweaks did nothing;
+  * **duty cycling is a thermal tool, not an energy one** (power 2.5× down, energy per
+    audio-hour 12 % up);
+  * **ORT ≥ 1.29 has a CPU `MatMulNBits` (int4) kernel**, with packed shapes;
+  * **no absolute waveform-noise gate below ~0.03 can be passed by any computation-path
+    change on this model** (the vocoder amplifies fp32 kernel-order noise): gate precision
+    changes per-layer or by listening, not on max-abs PCM diff.
 - **Synthesis power and heat, measured (2026-09-11, Fold 8 / SM-F971B, on battery with the
   screen on; decisions #147):** live Kokoro synthesis runs at ~3.0–4.8 W (screen-on idle
   floor 0.66 W), takes the device from thermal status 0 to 3 (SKIN 36 → 45 °C) in ~15 min
