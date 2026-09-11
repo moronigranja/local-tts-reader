@@ -204,6 +204,14 @@ adb -s <phone-ip>:5555 shell svc power stayon true
 adb -s <phone-ip>:5555 shell settings put system screen_off_timeout 2147483647
 ```
 
+The HiBreak sits with Wi-Fi **off** between passes; enable and let it rejoin the
+saved network before the tcpip switch, or the connect has no route:
+
+```bash
+adb -s B6CLR0B2FHFA006000712 shell cmd wifi set-wifi-enabled enabled
+# it auto-joins the saved "Granjas 5ghz"; confirm with cmd wifi status, then tcpip 5555
+```
+
 `ThreadSweepRunner` runs an **idle baseline leg** (60 s, no session open) before
 the sweep for exactly this reason: with the screen on, every leg carries a
 constant display/system drain, so the synthesis-attributable power is
@@ -226,6 +234,115 @@ is slower than realtime (RTF 1.212, reproducible to ±0.004); 4 threads is the k
 (0.611-0.633 vs 0.480-0.524 in both sweep orders)** — the 8-core device
 oversubscribes once the system's own threads share the cores. Idle floor on
 battery with the screen on: 662-671 mW.
+
+## Cross-app performance spike (decisions #148, legs A–F, `spike-tts`)
+
+Measurement only — nothing here ships. Six questions the #148 cross-app survey left
+open: the int8 tier and its perceptual/blind evidence (leg A), window length vs
+time-to-first-audio (leg B), per-window AudioTrack feeding (leg C), core scheduling
+including ADPF hint sessions (leg D), duty-cycle energy (leg E), and the int4-kernel /
+XNNPACK-partition conflicts (legs F1/F2). Harness: `PerfSpikeRunner` +
+`PerfSpikeBenchmarkTest`; results land in `docs/prints/perfspike/`.
+
+### Host artifacts (verify before staging)
+
+```bash
+MODELS=~/.cache/ayvu-spike/models
+# kokoro-v1.0.onnx        325505369 B  beb0d1848dee9a49da392cc3df26958d46cfa35d321edf434f52949153f0df3a
+#   https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.1/kokoro-v1.0.onnx
+# voices-v1.0.bin          28214398 B  bca610b8308e8d99f32e6fe4197e7ec01679264efed0cac9140fe9c29f1fbf7d
+#   https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.1/voices-v1.0.bin
+# kokoro-v1.0.int8-neko.onnx 92361271 B 6e742170d309016e5891a994e1ce1559c702a2ccd0075e67ef7157974f6406cb
+#   https://github.com/siva-sub/NekoSpeak/releases/download/v1.0.0/kokoro-v1.0.int8.onnx
+# The int8 file is renamed on purpose: it shares the upstream base name with a
+# different 114,119,327 B / ae315a79… artifact, and the #86 int8 numbers were
+# measured on that other file — they are not comparable to this one.
+
+# int4 kernel probe (leg F1 graph) — verdict must be cpu_ep_kernel_present
+python3 tools/gen_matmulnbits_probe.py --out $MODELS
+
+# XNNPACK eligibility rewrite + parity gate (leg F2 gate)
+python3 tools/reshape_conv_1d_to_2d.py --in $MODELS/kokoro-v1.0.onnx \
+  --out $MODELS/kokoro-model-2d.onnx --parity --conv-parity --control \
+  --report docs/prints/perfspike/xnnpack-reshape.json
+# 2026-09-11 host result: waveform gate FAIL (8.4e-02 > 1e-4) while the rewrite is
+# arithmetically exact (no per-conv onset, max 1.6e-6 over clean convs) — the model
+# amplifies fp32 kernel-order noise (fusion control on the unmodified graph: 1.4e-02).
+# Per plan §1.5 that stops the XNNPACK half: do NOT stage kokoro-model-2d, do NOT run
+# leg F2. Full reasoning + reopening condition: docs/prints/perfspike/xnnpack-reshape.md
+```
+
+### Device staging (per device serial)
+
+```bash
+S=<serial>                     # wireless: Fold 8 192.168.0.112:5555 · S22 192.168.0.116:5555 ·
+                               #           HiBreak 192.168.0.135:5555 (all on "Granjas 5ghz", host .125);
+                               #           or the USB serial. DHCP moves them — re-read before a pass.
+MODELS=~/.cache/ayvu-spike/models
+adb -s $S install -r spike-tts/build/outputs/apk/debug/spike-tts-debug.apk
+adb -s $S install -r spike-tts/build/outputs/apk/androidTest/debug/spike-tts-debug-androidTest.apk
+adb -s $S push $MODELS/kokoro-v1.0.onnx            /data/local/tmp/kokoro-model
+adb -s $S push $MODELS/voices-v1.0.bin             /data/local/tmp/kokoro-voices
+adb -s $S push $MODELS/kokoro-v1.0.int8-neko.onnx  /data/local/tmp/kokoro-model-int8
+adb -s $S push $MODELS/matmulnbits-probe.onnx      /data/local/tmp/matmulnbits-probe
+# kokoro-model-2d is staged ONLY if the reshape parity gate passed (it did not — see above)
+adb -s $S push ~/.cache/local-tts-reader/packs/kokoro-device-corpus.tsv /data/local/tmp/corpus.tsv
+adb -s $S push docs/prints/parallel-pregen/corpus_pregen.tsv           /data/local/tmp/corpus_pregen.tsv
+adb -s $S shell "run-as com.moronigranja.localttsreader.spiketts sh -c '
+  mkdir -p files/models &&
+  cp /data/local/tmp/kokoro-model        files/models/ &&
+  cp /data/local/tmp/kokoro-voices       files/models/ &&
+  cp /data/local/tmp/kokoro-model-int8   files/models/ &&
+  cp /data/local/tmp/matmulnbits-probe   files/models/ &&
+  cp /data/local/tmp/corpus.tsv          files/ &&
+  cp /data/local/tmp/corpus_pregen.tsv   files/'"
+adb -s $S shell "run-as com.moronigranja.localttsreader.spiketts ls -l files/models files"
+```
+
+### Run one leg
+
+```bash
+adb -s $S shell am instrument -w -e class \
+  com.moronigranja.localttsreader.spiketts.PerfSpikeBenchmarkTest \
+  -e leg <a|b|c|d|e|f1|f2> [-e runs 3] [-e corpus corpus_pregen.tsv] [-e passages 16] [-e threads 6] [-e memOff 1] \
+  com.moronigranja.localttsreader.spiketts.test/androidx.test.runner.AndroidJUnitRunner
+adb -s $S logcat -d -s KokoroSpike      # per-leg progress + DONE
+```
+
+Leg → args → what it writes:
+
+| leg | args | JSON | question |
+|---|---|---|---|
+| `f1` | — | `perfspike_f1.json` | does ORT-android's CPU EP have a `MatMulNBits` kernel |
+| `a` | `-e runs 3` | `perfspike_a.json` + `perfspike_a_pass<N>*.json/.wav` | int8 RTF/energy vs fp32, blind-set WAVs |
+| `b` | `-e corpus corpus_pregen.tsv` | `perfspike_b.json` | window cap 150/300/510 vs TTFA + throughput |
+| `d` | `-e corpus corpus_pregen.tsv` | `perfspike_d.json` | no-spin, URGENT_AUDIO, ADPF hint session, ADPF power mode |
+| `e` | `-e corpus corpus_pregen.tsv -e passages 16\|8 -e runs 1` | `perfspike_e.json` | energy per audio-hour at 100/50/33% duty |
+| `c` | — | `perfspike_c.json` | MODE_STATIC vs per-window MODE_STREAM (underruns, first audio) |
+| `f2` | — | `perfspike_f2.json` | XNNPACK full claim vs partial offload (gated — see above) |
+
+**Energy legs (A, D, E) must run unplugged** — while the device is on USB/AC the battery
+current is a charge current, not a load signal, so `PowerProbe` derives power only from
+on-battery samples and a leg below 90% unplugged samples records `energy_valid=false` with
+null power/energy fields (read that as *not measured*, never as 0). Use wireless adb
+(`adb -s $S tcpip 5555 && adb connect <ip>:5555`) and keep the screen **off** for these
+legs (`svc power stayon true` is deliberately NOT set: the screen-off state is the one the
+plan measures). Every JSON records the screen/stay-on state it ran under. If a leg's RTF
+comes back ~5× the recorded baseline, the screen-off+unplugged restricted cpuset is the
+known cause (#147, Fold 8: RTF 1.214 → 6.575 after the cable was pulled) — re-run that leg
+with `adb shell svc power stayon true` + a long `screen_off_timeout` and keep the JSON.
+
+### Pull results
+
+```bash
+mkdir -p docs/prints/perfspike
+adb -s $S exec-out run-as com.moronigranja.localttsreader.spiketts \
+  sh -c 'cd /sdcard/Android/data/com.moronigranja.localttsreader.spiketts/files && tar cf - perfspike_*.json kokoro_precision_int8.json kokoro_results_cpu.json perfspike_a_pass*_*.wav' \
+  | tar xf - -C docs/prints/perfspike
+# rename before the next device's pull: mv perfspike_a.json perfspike_a_s22.json etc.
+python3 tools/kokoro_perceptual.py --dir docs/prints/perfspike --out docs/prints/perfspike/perceptual_summary.json
+python3 tools/gen_blind_kokoro_set.py --dir docs/prints/perfspike --out docs/prints/perfspike/blind --seed 20260911
+```
 
 ## D3 engine comparison staging (decisions #92/#93, `spike-tts`)
 
