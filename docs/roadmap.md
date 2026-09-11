@@ -231,6 +231,13 @@ Integrate `PiperEngine : TTSEngine` behind the existing seam, pin per-language v
 packs + hashes, and complete the es-IT/de/ko coverage check. Ships passage-level
 read-along only (stock Piper export exposes no word timestamps — #30b).
 
+German voice candidate (2026-09-11, peer probe): `de_DE-thorsten-high` — the voice
+kokoro-reader's Go server runs through sherpa's VITS path (`LengthScale = 1.0`,
+`NumThreads = 4`, both matching our defaults), so it is a working high-quality-tier
+reference for the German gap. `en_US-lessac-medium` stays the measured D4 leg (HiBreak
+RTF 0.50, #99). Adoption remains gated on the owner's blind-quality pass over the staged
+WAVs.
+
 ### Phase G — narration quality
 
 #### G0 — Narration-quality listening corpus — bounds G1
@@ -268,6 +275,12 @@ Start with ordered literal rules plus a small built-in correction set. Regex and
 editing require explicit limits and preview because an unbounded rule can silently
 rewrite an entire book. Matching/index text remains unchanged; replacements affect TTS
 output only.
+
+Candidate rules from the peer probe (2026-09-11; still bounded by G0's typed findings
+before anything lands): parenthetical pauses (`" (" → ", ("`, `" [" → ", ["`,
+`") " → "), "`, `"] " → "], "`), dash pauses (`" — "` → ", — "`), and dropping standalone
+page-number lines. All output-side only, exactly the `PronunciationNormalizer` contract
+(`filter_page_numbers` is the shape for the last one).
 
 #### G3 — Hardware and listening gestures — promoted from ideas
 
