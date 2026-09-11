@@ -4,6 +4,27 @@ The rationale behind load-bearing decisions. New decisions get an entry here wit
 context, alternatives considered, and consequences. Keep entries short — this is a log,
 not a spec (specs live in architecture.md / feature docs).
 
+## 152. Spike corpora published — the measurement is re-runnable, not just readable (2026-09-11)
+
+**Question.** `docs/kokoro-on-device-perf.md` (#148/#150) inlines every number, but shipped
+no passage text: the 2-passage corpus existed only as a generated host file
+(`~/.cache/local-tts-reader/packs/kokoro-device-corpus.tsv`), the 16-passage pregen corpus
+and the leg-G 1-row corpus only under the gitignored `docs/prints/`, and `corpus_g.tsv` only
+on the Fold. A peer comparing the same artifacts cannot verify the input text or the audio
+timing — the doc was readable, not reproducible.
+
+**Answer: commit the three corpora as `docs/corpus/{corpus,corpus_pregen,corpus_g}.tsv`**,
+pulled from the Fold's `files/` (byte-identical to what every leg measured) and pinned by
+sha256 + per-cap measured audio in the report's new §2.1. Public-domain text (Austen,
+Machado de Assis) — no licensing question. `corpus_g.tsv` turns out to be exactly line 1 of
+`corpus.tsv` (verified by comparing the pulled files): leg G's 1-row corpus is derivable
+rather than mysterious.
+
+Consequences: `docs/build.md` stages the tracked files (and now stages `corpus_g.tsv`, which
+leg G previously needed by hand); the report's intro/§3.1/§5/§7 no longer say the corpus is
+unavailable; `hard-facts.md` carries the pointer. Raw JSON/WAV evidence stays gitignored
+(§7) — the numbers remain inline.
+
 ## 151. Peer claims re-checked at source + our own harness confounds (owner question: "are we missing a variable?") (2026-09-11)
 
 **Question.** Several projects appear to publish conditions we cannot reproduce — about

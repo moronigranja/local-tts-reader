@@ -137,7 +137,10 @@ Kokoro ships inside the app.
   * **ORT ≥ 1.29 has a CPU `MatMulNBits` (int4) kernel**, with packed shapes;
   * **no absolute waveform-noise gate below ~0.03 can be passed by any computation-path
     change on this model** (the vocoder amplifies fp32 kernel-order noise): gate precision
-    changes per-layer or by listening, not on max-abs PCM diff.
+    changes per-layer or by listening, not on max-abs PCM diff;
+  * the three measurement **corpora are published** in `docs/corpus/` (2-passage,
+    pregen-16, leg-G) with sha256 + measured audio per cap, so legs A–G can be re-run
+    rather than only read (decisions #152).
 - **Synthesis power and heat, measured (2026-09-11, Fold 8 / SM-F971B, on battery with the
   screen on; decisions #147):** live Kokoro synthesis runs at ~3.0–4.8 W (screen-on idle
   floor 0.66 W), takes the device from thermal status 0 to 3 (SKIN 36 → 45 °C) in ~15 min

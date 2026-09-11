@@ -2,8 +2,10 @@
 
 Self-contained report of the cross-app Kokoro performance spike (this repo's decisions
 #148/#150, 2026-09-11). Everything measured is reproduced inline here, so the document
-stands on its own: no other file in this repo needs to be read, and the raw JSON/WAV
-evidence (which lives in the gitignored `docs/prints/perfspike/`) is not required.
+stands on its own: no other file in this repo needs to be read to interpret a number, and
+the raw JSON/WAV evidence (which lives in the gitignored `docs/prints/perfspike/`) is not
+required. **The passages themselves are published** (§2.1, `docs/corpus/`), so any leg can
+be re-run rather than just read.
 
 Written for anyone about to make the same comparisons on Android — a reader/TTS app,
 a model-port project, or a framework choosing between ONNX Runtime execution paths.
@@ -93,6 +95,42 @@ English and Brazilian-Portuguese passages. **Runtime**: onnxruntime-android 1.29
   The int8 export also has no `duration` output, so timing-based pause insertion and
   token-edge trimming are unavailable in that pack.
 
+### 2.1 Corpus (published, tracked)
+
+All three corpora are committed under `docs/corpus/`, byte-identical (sha256 below) to what
+was staged on the devices. Format: `text<TAB>language<TAB>phonemes`, one passage per line,
+where the phoneme column is the **host-precomputed** espeak-ng output the device pipeline
+consumes (a re-run needs no espeak-ng on the device). `PerfSpikeRunner.corpusRows` reads
+exactly this format.
+
+| corpus | file | rows | languages | sha256 | measured audio |
+|---|---|---|---|---|---|
+| 2-passage (legs A, C, F2) | `docs/corpus/corpus.tsv` | 2 | en-us, pt-br | `2231ea718be4938e5978cc5ef9f7263a343c4f67b0de7f95599906696bab95fa` | 63.27 s fp32 / 62.29 s int8 (leg A); 63.88 s in leg C's static run |
+| pregen 16 (legs B, D, E) | `docs/corpus/corpus_pregen.tsv` | 16 | 8 en-us, 8 pt-br | `becc26dcfca90ff0a3a407df9a483965a85563dc562d26871dcef3ca0717a985` | 374.3 s @ cap 510, 391.85 s @ 300, 400.53 s @ 150; its first 8 rows (the en-us block) = 209.6 s |
+| leg G (1 passage) | `docs/corpus/corpus_g.tsv` | 1 | en-us | `cbb703634f11c2bb808f7a449bed208c30a1cc3163f5b42631072eca6aa6daa8` | 41.3 s (2 windows @ cap 510) |
+
+Provenance:
+
+* **`corpus.tsv`** — the two hand-trimmed openers of *Pride and Prejudice* (Austen, 1813)
+  and *Dom Casmurro* (Machado de Assis, 1899). The exact sentences are tracked in
+  `core-tts/src/test/kotlin/com/moronigranja/localttsreader/tts/kokoro/KokoroGrainSpike.kt`,
+  which writes this TSV (raw phonemes, before the tokenizer's vocab filter) into the pack
+  cache — no Gutenberg download needed to reproduce either row.
+* **`corpus_pregen.tsv`** — `tools/gen_pregen_corpus.py --pp <Gutenberg #1342> --dc
+  <Gutenberg #55752> --per-lang 8 --sentences 3` (pip `phonemizer`, `backend="espeak"`,
+  `preserve_punctuation=True with_stress=True`), validated byte-for-byte against
+  `corpus.tsv` before scaling. Its start marker is the line containing "It is a truth
+  universally acknowledged", so the first row begins *after* that sentence ("of a good
+  fortune must be in want of a wife. …") — expected, not truncation. Rows 0–7 are the
+  en-us block, 8–15 the pt-br block, which is why a leg that takes the first 8 passages
+  measures en-us only.
+* **`corpus_g.tsv`** — byte-identical to line 1 of `corpus.tsv`; leg G's 1-row corpus bounds
+  each harness config to ~41 s of audio.
+
+Measured audio depends on the window cap and on the model tier (the int8 export's output is
+slightly shorter than fp32's), so the last column is a re-run check, not a property of the
+file.
+
 ---
 
 ## 3. Method (what to copy, and why)
@@ -100,9 +138,10 @@ English and Brazilian-Portuguese passages. **Runtime**: onnxruntime-android 1.29
 ### 3.1 Harness shape
 
 One ORT session per configuration (session options are fixed at creation), an **untimed
-warm-up window** before the timed section, then best-of-N passes over a multi-passage
-corpus. Per window record the wall time, and publish `first_window_ms` (pass 1's first
-window = the time-to-first-audio proxy), plus p50/p95/max over all timed windows. Flush
+warm-up window** before the timed section, then best-of-N passes over the published
+multi-passage corpora (§2.1). Per window record the wall time, and publish
+`first_window_ms` (pass 1's first window = the time-to-first-audio proxy), plus
+p50/p95/max over all timed windows. Flush
 results to JSON after **every** step — long legs get killed by low-memory killers and by
 the device sleeping, and a leg that only writes at the end loses everything.
 
@@ -441,8 +480,10 @@ What this settles:
 ## 5. Reproduction checklist
 
 1. Pin artifacts by sha256 (§2) and verify the staged files' digests on-device.
-2. Push models + corpora to `/data/local/tmp`, copy into the app's `files/` (models) and
-   external files dir (results) — read results back via `/storage/emulated/0/...`.
+2. Push models + the corpora in `docs/corpus/` (§2.1) to `/data/local/tmp`, copy models
+   into the app's `files/models/` and the corpora into `files/` under their harness names
+   (`corpus.tsv`, `corpus_pregen.tsv`, `corpus_g.tsv`) — read results back via
+   `/storage/emulated/0/...`.
 3. Fix the leg's conditions and **record them in the result file**: screen on/off, plug
    state, thread count, model digest, chunker cap, corpus.
 4. Energy legs: unplugged, wake lock held, `unplugged_fraction` reported, gauge floor applied.
@@ -471,9 +512,10 @@ shape to reimplement in whatever runtime the target project uses.
 
 Measured 2026-09-11 in this repo's `spike-tts` harness (decisions #148/#150); the raw
 per-device JSON and WAV pairs live in `docs/prints/perfspike/`, which is gitignored — this
-document deliberately inlines every number it relies on. The reusable host tools are
-tracked and named in §2/§3: perceptual metrics + bands, the seeded blind-set generator, the
-int4 probe, and the 1-D→2-D conv rewriter with its parity gate.
+document deliberately inlines every number it relies on, and the three corpora it measured
+are tracked in `docs/corpus/` (§2.1) so the numbers can be re-derived, not just read. The
+reusable host tools are tracked and named in §2/§3: perceptual metrics + bands, the seeded
+blind-set generator, the int4 probe, and the 1-D→2-D conv rewriter with its parity gate.
 
 ## Appendix A — peer claims, checked
 
