@@ -4,6 +4,55 @@ The rationale behind load-bearing decisions. New decisions get an entry here wit
 context, alternatives considered, and consequences. Keep entries short — this is a log,
 not a spec (specs live in architecture.md / feature docs).
 
+## 149. Pocket TTS enters D5 as a third candidate; license audit clean with two catches (2026-09-11)
+
+#92's rejection of Pocket TTS ("no Android runtime path") is falsified — NekoSpeak v1.4.2
+ships Kyutai Pocket TTS as its *recommended* engine, as five ORT sessions
+(`mimi_encoder`, `text_conditioner`, `flow_lm_main`, `flow_lm_flow`, `mimi_decoder`), int8
+on the heavy graphs, behind a device-speed-adaptive streaming buffer; the community ONNX
+export those graphs match (`KevinAHM/pocket-tts-onnx`) and a C++ ORT runtime
+(`VolgaGerm/PocketTTS.cpp`) are two further paths. Correction recorded inline in #92; full
+row in landscape.md §"D3 comparison sweep".
+
+**Decision (owner, 2026-09-11): Pocket TTS joins D5** beside CosyVoice3 (incumbent) and
+Chatterbox Multilingual. Rationale: it is the only candidate that could clone *inside* a
+phone's live budget rather than pregen-only — 100M params / ~176 MB against 0.5B-class
+incumbents at 3.2–3.5 GiB (~20×), native streaming (~200 ms first chunk), six languages
+including the German gap Kokoro v1.0 leaves to Piper. D5's gate is unchanged (G0's typed
+findings + blind read); this moves the candidate list, not the sequencing.
+
+**License audit — two catches, neither fatal:**
+
+- **Code MIT, weights CC-BY-4.0** (Kyutai; the export mirrors inherit CC-BY-4.0) — one-way
+  compatible into GPL-3.0 (#27), the same class as the accepted CC-BY-4.0 NMT packs
+  (#101/#114). Attribution lands in `NOTICE.md` **when adopted**, not now.
+- **The upstream weights are gated** (`kyutai/pocket-tts` @ `492522650173a0…`,
+  `gated: auto`, prohibited-use terms incl. voice cloning without consent). A token-less,
+  account-free app cannot fetch them and Ayvu takes no accounts, so the pack descriptor
+  must point at the ungated CC-BY-4.0 export (`KevinAHM/pocket-tts-onnx` @ `58a6d00c…`,
+  `lookbe/…` mirror) — which makes the #23 provenance rule plus a parity check
+  load-bearing rather than routine (#97's lesson). Surface the prohibited-use terms in the
+  pack row / privacy copy when the pack ships.
+- **Voices are per-directory licensed** in `kyutai/tts-voices`: CC0 (`voice-donations/`,
+  `voice-zero/`), CC-BY-4.0 (`vctk/`, `alba-mackenna/`, `cml-tts/fr/`), and
+  **CC-BY-NC-4.0 (`expresso/`, `ears/`) — excluded**, like the NLLB-600M NC gate (#101).
+  The model repo's *built-in* embeddings include NC-derived voices (`cosette` = Expresso,
+  `jean` = EARS), so a permissive-only catalog is a filtered set, not the upstream default.
+  Celebrity/personality clones (NekoSpeak ships them) are out on policy grounds, not
+  license ones.
+
+**Consequences / gates before it is a measured leg:** no ARM/phone RTF exists anywhere
+(vendor: 6.33× realtime on an M4, 2 cores) and the cost shape is an AR flow-LM loop +
+per-frame flow steps + a separate Mimi decode, so it enters as a **pregen** candidate on
+the S22/HiBreak and only becomes a live one if it clears realtime; a second G2P convention
+(Misaki/sentencepiece beside espeak-ng/JNA) needs #97 justification; read-along timing is
+unverified (Mimi frames are 12.5 Hz); the export mirrors are low-traffic (0 downloads), so
+supply-lifecycle risk sits with us (the Supertonic lesson — pin, hash, parity).
+
+Alternatives: leave the #92 veto standing (rejected — factually wrong, and it would keep a
+20×-smaller cloning tier invisible); add it as a D3 leg (rejected — D3 is Kokoro-class
+small-tier and closed).
+
 ## 148. Cross-app Kokoro performance survey — peers ship tiering, energy policy and int8, not faster synthesis; one Phase D spike designed (2026-09-11)
 
 Owner asked whether the Android apps that read books with Kokoro are faster (three named:

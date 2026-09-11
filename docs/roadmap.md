@@ -287,26 +287,47 @@ have device evidence and an accessibility review.
 A Phase D item whose gate lives in Phase G: it does not start until G0's typed findings
 and blind read exist.
 
-#### D5 — High-end cloning: Chatterbox vs CosyVoice3
+#### D5 — High-end cloning: Chatterbox vs CosyVoice3 vs Pocket TTS
 
 - Candidates: **CosyVoice3** (incumbent — 9 langs incl. es/it, zero-shot + cross-lingual
   cloning, pinned pack, measured 3.22 GB VmHWM on the S22) vs **Chatterbox Multilingual
-  ONNX** (MIT, 23 langs incl. es/it/pt/de/ko, zero-shot cloning, 0.5B AR Llama backbone).
-- Provenance gate first: the only ONNX export is community
-  (`onnx-community/chatterbox-multilingual-ONNX`); `textagent/…` is a mirror of the same
-  export, NOT a pin candidate. Pin revision + sha256 and verify output parity against the
-  PyTorch reference before measurement (the #86 fp16-stub lesson). The official
-  `ResembleAI/chatterbox-turbo-ONNX` is English-only — fails multilingual.
+  ONNX** (MIT, 23 langs incl. es/it/pt/de/ko, zero-shot cloning, 0.5B AR Llama backbone)
+  vs **Pocket TTS** (Kyutai; MIT code, CC-BY-4.0 weights, **100M params / ~176 MB**,
+  en/de/fr/it/pt/es, zero-shot cloning, native streaming — added 2026-09-11, decisions
+  #149. It is the only candidate that could clone *inside* a phone's live budget instead
+  of pregen-only: ~20× smaller than the other two, and already shipped on Android by
+  NekoSpeak as five ORT sessions).
+- Provenance gate first: pin revision + sha256 and verify output parity against the
+  reference before measurement (the #86 fp16-stub lesson) — every candidate's export is
+  community except Pocket TTS's *code*:
+  - Chatterbox: only `onnx-community/chatterbox-multilingual-ONNX`; `textagent/…` is a
+    mirror of the same export, NOT a pin candidate. Official `ResembleAI/chatterbox-turbo-ONNX`
+    is English-only — fails multilingual.
+  - Pocket TTS: the upstream weights (`kyutai/pocket-tts` @ `492522650173a0…`) are
+    **gated**, so the app cannot fetch them token-less; use the ungated CC-BY-4.0 export
+    `KevinAHM/pocket-tts-onnx` @ `58a6d00cf13d23…` (int8 + streaming + per-language
+    bundles) or its `lookbe/…` mirror, and treat both as unvalidated-by-upstream. Ship a
+    curated voice set only: `voice-donations/` and `voice-zero/` are CC0, `vctk/`,
+    `alba-mackenna/`, `cml-tts/fr/` are CC-BY-4.0, but **`expresso/` and `ears/` are
+    CC-BY-NC — excluded**, and the model repo's built-in embeddings (`cosette`, `jean`, …)
+    derive from those, so a permissive-only catalog must be filtered, not inherited.
 - Measurement (pregen-budget terms on the S22): per-passage wall time, peak/resident PSS
   through an AR KV-cache decode (the MOSS lesson — memory, not speed, kills weak RAM),
-  and the G0 blind gate against CosyVoice3's #93 quality flag.
+  and the G0 blind gate against CosyVoice3's #93 quality flag. Pocket TTS adds its own
+  first question: **there is no ARM/phone RTF anywhere** (vendor is 6.33× realtime on an
+  M4 using 2 cores), and its cost shape is an AR flow-LM loop + per-frame flow steps +
+  a separate Mimi decode — so the `spike-tts` harness measures it as a pregen candidate
+  first and a live one only if it clears realtime on the HiBreak.
 - **ORT int4 reference (absorbed from the closed D6):** Kokoro-82M fp32 baseline vs the
   adopted candidate at int4, in the `spike-tts` harness — cold engine-open
   time-to-first-audio, steady-state RTF, peak/resident PSS + VmHWM, and the #67 PCM
   oracle (`max_abs_diff`) — S22 and HiBreak, same corpus/voice as D2/D3.
 - Integration-cost audit: HF BPE tokenizer (new tokenization path vs espeak-ng; the
   advertised set en/es/it/pt/de needs no external normalizer, zh/ja/he do); 24 kHz output
-  vs `lastSampleRateHz`; watermark off by default.
+  vs `lastSampleRateHz`; watermark off by default. Pocket TTS adds a second one: a
+  **Misaki/sentencepiece G2P** (NekoSpeak's pure-Kotlin Misaki with Viterbi heteronym
+  resolution) beside our espeak-ng/JNA path — #97's one-convention rule wants that
+  justified, not assumed, and read-along timing is unverified (Mimi frames are 12.5 Hz).
 
 ### Phase H — TODAY reading and listening stats
 
@@ -380,7 +401,7 @@ must ingest. Item 6 is a tracked open defect (see open-bugs.md), not a new featu
 |---|---|
 | Pitch-preserving speed | WSOLA/phase-vocoder DSP and cache-key compatibility; measure CPU/battery before replacing hardware rate conversion. |
 | Translate-then-read (`core-translate`) | Engine and scope already decided: SMaLL-100 int8, one 916 MB pack for all languages (decisions #114, Phase J verdict below), any advertised target language, output-side only, degrades to the original text on failure (decisions #101). Not blocked on any active phase — remaining work is the SMaLL-100 tokenizer port, on-device SentencePiece, and pack integration behind the pre-gen queue; the spike's export/parity/chr-F tooling and manifest pins are the reproduction path. The gate is appetite: the 916 MB download plus the accepted chr-F trade against the per-pair pt-BR specialist. |
-| High-end cloned-voice pre-generation (engine chosen by D5) | Ships only after D5 (Active work) picks the engine and clears the G0 blind read — Chatterbox Multilingual or CosyVoice3; the incumbent is DiT-gated (decisions #21/#23) and D3-quality-flagged (duplicated honorific probes; RTF 12.5–31.1), disk-only playback. A1/A4 long satisfied. Distinct from D5 itself: that item *selects*, this row *ships*. |
+| High-end cloned-voice pre-generation (engine chosen by D5) | Ships only after D5 (Active work) picks the engine and clears the G0 blind read — Chatterbox Multilingual, CosyVoice3 or Pocket TTS (added 2026-09-11, decisions #149); the incumbent is DiT-gated (decisions #21/#23) and D3-quality-flagged (duplicated honorific probes; RTF 12.5–31.1), disk-only playback. A1/A4 long satisfied. Distinct from D5 itself: that item *selects*, this row *ships*. |
 | Kindle official export/API sync | External API/export contract and account UX; manual share/resume already covers the core use case. |
 | Word-level highlighting | Requires a stable word/phoneme timing contract beyond current sentence anchors. |
 | Auto language detection and voice routing | Needs per-language voice mappings, mixed-language policy and pack-availability UX. The manual single-book case is covered earlier by Phase K item 5 (per-book voice, decisions #144). |
