@@ -149,6 +149,10 @@ Kokoro ships inside the app.
   it: 1 thread is both slower than realtime (RTF 1.212) and the most expensive per audio
   hour (3.59 Wh vs 1.94 Wh at 4 threads). Playing from the pre-generated cache is the only
   lever that idles the SoC during listening.
+  **The thread knee is regime-dependent, so it is not a constant**: the same axis re-measured
+  plugged/charging (thermal status 3) puts the knee at 4 (0.781) with 6/8 behind it, and
+  charging+hot costs 1.36–2.0× at the same T (decisions #151, report §4.9). Never benchmark
+  a charging device and read the number as capability.
 - **Reference device:** Galaxy S22 Ultra (Snapdragon 8 Gen 1) — the performance gate for
   engine selection. CosyVoice3-0.5B int4 measured there (decisions #49): RTF ≈13.4,
   peak native VmHWM 2.27 GiB / PSS 336 MiB, no thermal trip — fails the live-realtime
