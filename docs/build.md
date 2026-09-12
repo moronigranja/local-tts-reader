@@ -237,14 +237,27 @@ is slower than realtime (RTF 1.212, reproducible to ±0.004); 4 threads is the k
 oversubscribes once the system's own threads share the cores. Idle floor on
 battery with the screen on: 662-671 mW.
 
-## Cross-app performance spike (decisions #148, legs A–F, `spike-tts`)
+**Re-measured plugged (2026-09-11, leg `h` of the perf-spike harness): the knee moves.**
+The same T axis on the Fold 8 while charging (thermal status 3, battery 37.9-40.1 °C)
+measured **t4 0.781 as the knee**, with t6 0.810 / t8 0.832 behind it and an unset thread
+setting (`t_default`) tracking 6-8 rather than 4 — i.e. ORT's unset default is "all cores".
+Charging + hot costs 1.36-2.0x at the same T vs the unplugged cool sweep, and the optimum
+is regime-dependent (6 cool, 4 throttled), which is the evidence behind the recommendation
+"default 6, demote to 4 when thermal status ≥ 2 or charging" (decision #151, report
+§4.9). Run the plugged variant with `-e leg h` (`PerfSpikeBenchmarkTest`), which reports
+RTF only — no wake lock, energy null by construction.
+
+## Cross-app performance spike (decisions #148, legs A–F + G/H, `spike-tts`)
 
 Measurement only — nothing here ships. Six questions the #148 cross-app survey left
 open: the int8 tier and its perceptual/blind evidence (leg A), window length vs
 time-to-first-audio (leg B), per-window AudioTrack feeding (leg C), core scheduling
 including ADPF hint sessions (leg D), duty-cycle energy (leg E), and the int4-kernel /
-XNNPACK-partition conflicts (legs F1/F2). Harness: `PerfSpikeRunner` +
-`PerfSpikeBenchmarkTest`; results land in `docs/prints/perfspike/`.
+XNNPACK-partition conflicts (legs F1/F2) — plus the follow-on audits: the
+harness-sensitivity leg (`g`, what #150's numbers owed to the harness) and the plugged
+thread sweep (`h`, the thread knee under thermal throttle). Harness: `PerfSpikeRunner` +
+`PerfSpikeBenchmarkTest`; results land in `docs/prints/perfspike/`, and the full report
+with every number inlined is `docs/kokoro-on-device-perf.md`.
 
 ### Host artifacts (verify before staging)
 

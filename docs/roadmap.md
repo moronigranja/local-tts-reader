@@ -86,9 +86,13 @@ numbers live in the cited decisions.
   T=1..8 — **1 thread RTF 1.212 (slower than realtime, reproducible to ±0.004)**, 2 ≈ 0.67,
   3 ≈ 0.67, **4 = 0.575 (the knee: lowest energy per audio-hour at 1.94 Wh)**, 6 = 0.480,
   **8 = 0.611–0.633, i.e. *slower* than 6 in both sweep orders** (an 8-core phone
-  oversubscribes once the OS and system threads share the cores). The shipped default (4)
-  is validated; the slider's top end (8) is measurably counter-productive — capping it at
-  6 is an open follow-up decision, not a code change.
+  oversubscribes once the OS and system threads share the cores). The default (4) is
+  validated **for an unplugged, cool device only** — the same axis re-measured
+  plugged/charging on this device (thermal status 3, leg `h`, decisions #151) puts the
+  knee at **4 (0.781)** with 6/8 behind it and the unset all-cores setting tracking 6–8,
+  i.e. the optimum is regime-dependent; the follow-up rule is *default 6, demote to 4 when
+  thermal status ≥ 2 or charging*, and the slider's top end (8) stays measurably
+  counter-productive in both regimes.
 - RTF baselines: S22 1.16–1.20 (#86) / 0.66–0.76 (listening corpus); HiBreak 2.84–3.12;
   Fold 8 (SM-F971B) 0.42–0.66 at 6 threads, 1.21 at 1 thread (#147).
 
